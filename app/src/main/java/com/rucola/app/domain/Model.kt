@@ -7,7 +7,8 @@ enum class SyncState { LOCAL_ONLY, PENDING, SYNCED, FAILED }
 data class Relationship(
     val id: String = "the-one",
     val partnerNickname: String,
-    val avatar: String,
+    val ownName: String = "me",
+    val partnerColor: String = "#8FC56A",
     val togetherSince: Long? = null,
 )
 
@@ -20,4 +21,6 @@ data class Message(
     val createdAt: Long,
     val isActive: Boolean,
     val syncState: SyncState = SyncState.LOCAL_ONLY,
+    val orderIndex: Long = 0,
+    val mediaReference: String? = null,
 )

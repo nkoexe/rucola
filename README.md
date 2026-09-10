@@ -4,9 +4,9 @@ Rucola is a small, offline-first Android mailbox for two people. The local Room 
 
 ## Build and run
 
-Open the project in Android Studio, or run `gradle assembleDebug` with Android SDK platform 35 installed. Install `app/build/outputs/apk/debug/app-debug.apk` on a device or emulator.
+Open the project in Android Studio, or run `gradlew.bat assembleDebug` with Android SDK platform 35 installed. Install `app/build/outputs/apk/debug/app-debug.apk` on a device or emulator.
 
-Run unit tests with `gradle testDebugUnitTest`. The release variant is currently unsigned by design; signing can be supplied later through CI secrets without putting credentials in the repository.
+Run unit tests with `gradlew.bat testDebugUnitTest`. The release variant is currently unsigned by design; signing can be supplied later through CI secrets without putting credentials in the repository.
 
 The app starts with local setup, then supports a partner message view, text/emoji/photo-video/drawing message placeholders, and horizontal swipe navigation into immutable local history.
 
