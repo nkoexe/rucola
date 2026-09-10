@@ -4,6 +4,7 @@ import com.rucola.app.data.*
 import com.rucola.app.domain.*
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.*
@@ -25,5 +26,5 @@ class MessageLifecycleTest {
         assertEquals(listOf("🥺", "first"), result.map { it.body }); assertTrue(result.first().isActive); assertFalse(result.last().isActive)
     }
 
-    private suspend fun <T> Flow<T>.firstValue(): T = kotlinx.coroutines.flow.first(this)
+    private suspend fun <T> Flow<T>.firstValue(): T = first()
 }
