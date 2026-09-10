@@ -15,13 +15,13 @@ interface RucolaRepository {
 }
 
 class RoomRucolaRepository(private val dao: RucolaDao) : RucolaRepository {
-    override val relationship = dao.relationship().map { it?.toDomain() }
+    override val relationship = dao.relationship("the-one").map { it?.toDomain() }
     override fun messages() = dao.messages("the-one").map { rows -> rows.map { it.toDomain() } }
 
     override suspend fun saveSetup(partnerNickname: String, ownName: String, partnerColor: String, togetherSince: Long?) {
         dao.saveRelationship(RelationshipEntity("the-one", partnerNickname, ownName, partnerColor, togetherSince))
         if (dao.messageCount("the-one") == 0) {
-            dao.insertMessage(
+            dao.replaceActive(
                 Message(
                     id = "seed-partner-message",
                     relationshipId = "the-one",
@@ -57,7 +57,7 @@ class RoomRucolaRepository(private val dao: RucolaDao) : RucolaRepository {
 
 fun repository(context: Context): RucolaRepository {
     val db = Room.databaseBuilder(context, RucolaDatabase::class.java, "rucola.db")
-        .addMigrations(MIGRATION_1_2, MIGRATION_2_3)
+        .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4)
         .build()
     return RoomRucolaRepository(db.dao())
 }

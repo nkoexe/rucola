@@ -28,11 +28,10 @@ class RoomPersistenceTest {
     fun tearDown() = database.close()
 
     @Test
-    fun messagesPersistAndOnlyNewestOwnMessageIsActive() = runBlocking {
+    fun replacingOwnMessageAtomicallyArchivesThePreviousMessage() = runBlocking {
         val dao = database.dao()
-        dao.insertMessage(Message("one", "the-one", Participant.ME, MessageType.TEXT, "hello", 1, true).toEntity())
-        dao.archiveActive("the-one", Participant.ME.name)
-        dao.insertMessage(Message("two", "the-one", Participant.ME, MessageType.EMOJI, "♡", 2, true).toEntity())
+        dao.replaceActive(Message("one", "the-one", Participant.ME, MessageType.TEXT, "hello", 1, true).toEntity())
+        dao.replaceActive(Message("two", "the-one", Participant.ME, MessageType.EMOJI, "♡", 2, true).toEntity())
 
         val stored = dao.messages("the-one").first()
         assertEquals(listOf("♡", "hello"), stored.map { it.body })
@@ -43,7 +42,7 @@ class RoomPersistenceTest {
     @Test
     fun replacingOwnMessageKeepsBothParticipantsAndHistory() = runBlocking {
         val dao = database.dao()
-        dao.insertMessage(Message("partner", "the-one", Participant.PARTNER, MessageType.TEXT, "hello", 1, true, orderIndex = 1).toEntity())
+        dao.replaceActive(Message("partner", "the-one", Participant.PARTNER, MessageType.TEXT, "hello", 1, true, orderIndex = 1).toEntity())
         dao.replaceActive(Message("first", "the-one", Participant.ME, MessageType.TEXT, "first", 2, true, orderIndex = 2).toEntity())
         dao.replaceActive(Message("second", "the-one", Participant.ME, MessageType.EMOJI, "♡", 3, true, orderIndex = 3).toEntity())
 
@@ -52,5 +51,42 @@ class RoomPersistenceTest {
         assertEquals(1, stored.count { it.participant == Participant.ME.name && it.isActive })
         assertEquals(1, stored.count { it.participant == Participant.PARTNER.name && it.isActive })
         assertFalse(stored.single { it.id == "first" }.isActive)
+    }
+
+    @Test
+    fun incomingSequencePreservesHistoryAndMakesOnlyTheLatestMessageActive() = runBlocking {
+        val dao = database.dao()
+        listOf("A", "B", "C").forEachIndexed { index, body ->
+            dao.replaceActive(
+                Message(
+                    id = body,
+                    relationshipId = "the-one",
+                    participant = Participant.PARTNER,
+                    type = MessageType.TEXT,
+                    body = body,
+                    createdAt = index.toLong(),
+                    orderIndex = index.toLong(),
+                    isActive = true,
+                ).toEntity(),
+            )
+        }
+
+        val stored = dao.messages("the-one").first()
+        assertEquals(listOf("C", "B", "A"), stored.map { it.body })
+        assertEquals(listOf(true, false, false), stored.map { it.isActive })
+    }
+
+    @Test
+    fun outOfOrderAndDuplicateIncomingMessagesDoNotDisplaceTheNewestActiveMessage() = runBlocking {
+        val dao = database.dao()
+        val newest = Message("C", "the-one", Participant.PARTNER, MessageType.TEXT, "C", 3, true, orderIndex = 3)
+        dao.replaceActive(newest.toEntity())
+        dao.replaceActive(Message("A", "the-one", Participant.PARTNER, MessageType.TEXT, "A", 1, true, orderIndex = 1).toEntity())
+        dao.replaceActive(Message("B", "the-one", Participant.PARTNER, MessageType.TEXT, "B", 2, true, orderIndex = 2).toEntity())
+        dao.replaceActive(newest.toEntity())
+
+        val stored = dao.messages("the-one").first()
+        assertEquals(listOf("C", "B", "A"), stored.map { it.body })
+        assertEquals(listOf("C"), stored.filter { it.isActive }.map { it.id })
     }
 }
