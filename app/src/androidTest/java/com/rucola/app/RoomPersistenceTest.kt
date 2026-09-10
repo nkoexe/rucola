@@ -89,4 +89,21 @@ class RoomPersistenceTest {
         assertEquals(listOf("C", "B", "A"), stored.map { it.body })
         assertEquals(listOf("C"), stored.filter { it.isActive }.map { it.id })
     }
+
+    @Test
+    fun setupPersistsNamesColorDateAndSeedsPartnerMessageThroughRepository() = runBlocking {
+        val repository = RoomRucolaRepository(database.dao())
+        repository.saveSetup("Ruthle", "Nikoko", "#EF8A82", 1234L)
+
+        val relationship = repository.relationship.first()
+        val messages = repository.messages().first()
+
+        assertEquals("Ruthle", relationship?.partnerNickname)
+        assertEquals("Nikoko", relationship?.ownName)
+        assertEquals("#EF8A82", relationship?.partnerColor)
+        assertEquals(1234L, relationship?.togetherSince)
+        assertEquals("good luck today ♡", messages.single().body)
+        assertEquals(Participant.PARTNER, messages.single().participant)
+        assertTrue(messages.single().isActive)
+    }
 }

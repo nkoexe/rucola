@@ -91,14 +91,11 @@ fun RucolaApp(repository: com.rucola.app.data.RucolaRepository) {
 
 private enum class SetupStep { PARTNER_NAME, OWN_NAME, TOGETHER_SINCE }
 
-private val PartnerColors = listOf("#8FC56A", "#F4C95D", "#EF8A82", "#A8C7E8", "#C9A7D8", "#F3B276")
-
 @Composable
 private fun SetupFlow(onSave: (String, String, String, Long?) -> Unit) {
     var step by rememberSaveable { mutableStateOf(SetupStep.PARTNER_NAME) }
     var partnerNickname by rememberSaveable { mutableStateOf("") }
     var ownName by rememberSaveable { mutableStateOf("") }
-    var partnerColor by rememberSaveable { mutableStateOf(PartnerColors.first()) }
     var togetherSince by rememberSaveable { mutableStateOf<Long?>(null) }
 
     when (step) {
@@ -114,56 +111,56 @@ private fun SetupFlow(onSave: (String, String, String, Long?) -> Unit) {
             onNext = { step = SetupStep.TOGETHER_SINCE },
         )
         SetupStep.TOGETHER_SINCE -> TogetherSinceScreen(
+            you = ownName,
+            partner = partnerNickname,
             selectedDate = togetherSince,
             onDateSelected = { togetherSince = it },
-            partnerColor = partnerColor,
-            onColorSelected = { partnerColor = it },
             onBack = { step = SetupStep.OWN_NAME },
-            onFinish = { onSave(partnerNickname.trim(), ownName.trim(), partnerColor, togetherSince) },
+            onFinish = { onSave(partnerNickname.trim(), ownName.trim(), "#8FC56A", togetherSince) },
         )
     }
 }
 
 @Composable
 private fun PartnerNameScreen(value: String, onValueChange: (String) -> Unit, onNext: () -> Unit) {
-    SetupScaffold(step = 1, total = 3, title = "What do you call them?", subtitle = "The name that belongs to your person.") {
+    SetupScaffold(step = 1, total = 3, title = "Who are they?", subtitle = "this is how they'll appear to you in rucola.") {
         OutlinedTextField(
             value = value,
             onValueChange = onValueChange,
-            placeholder = { Text("their nickname") },
+            placeholder = { Text("their nickname...") },
             singleLine = true,
             textStyle = LocalTextStyle.current.copy(fontFamily = Margarine, fontSize = 20.sp),
             shape = RoundedCornerShape(28.dp),
             modifier = Modifier.fillMaxWidth(),
         )
         Spacer(Modifier.height(24.dp))
-        SetupNextButton("that's them  →", enabled = value.isNotBlank(), onClick = onNext)
+        SetupNextButton("yep!", enabled = value.isNotBlank(), onClick = onNext)
     }
 }
 
 @Composable
 private fun OwnNameScreen(value: String, onValueChange: (String) -> Unit, onBack: () -> Unit, onNext: () -> Unit) {
-    SetupScaffold(step = 2, total = 3, title = "And what should they call you?", subtitle = "A little name for the other side of the mailbox.", onBack = onBack) {
+    SetupScaffold(step = 2, total = 3, title = "Who are you?", subtitle = "", onBack = onBack) {
         OutlinedTextField(
             value = value,
             onValueChange = onValueChange,
-            placeholder = { Text("your name") },
+            placeholder = { Text("your name...") },
             singleLine = true,
             textStyle = LocalTextStyle.current.copy(fontFamily = Margarine, fontSize = 20.sp),
             shape = RoundedCornerShape(28.dp),
             modifier = Modifier.fillMaxWidth(),
         )
         Spacer(Modifier.height(24.dp))
-        SetupNextButton("that's me  →", enabled = value.isNotBlank(), onClick = onNext)
+        SetupNextButton("that's me!", enabled = value.isNotBlank(), onClick = onNext)
     }
 }
 
 @Composable
 private fun TogetherSinceScreen(
+    you: String,
+    partner: String,
     selectedDate: Long?,
     onDateSelected: (Long?) -> Unit,
-    partnerColor: String,
-    onColorSelected: (String) -> Unit,
     onBack: () -> Unit,
     onFinish: () -> Unit,
 ) {
@@ -185,21 +182,31 @@ private fun TogetherSinceScreen(
             ).also { it.setOnDismissListener { showDatePicker = false }; it.show() }
         }
     }
-    SetupScaffold(step = 3, total = 3, title = "When did your story start?", subtitle = "You can keep it a secret for now.", onBack = onBack) {
+    SetupScaffold(
+        step = 3,
+        total = 3,
+        title = "$you & $partner have been together since...",
+        subtitle = "",
+        onBack = onBack,
+    ) {
         Button(
             onClick = { showDatePicker = true },
             colors = ButtonDefaults.buttonColors(containerColor = Mint, contentColor = Ink),
             shape = RoundedCornerShape(28.dp),
             modifier = Modifier.fillMaxWidth().height(64.dp),
         ) {
-            Text(selectedDate?.let { DateFormat.getDateInstance(DateFormat.MEDIUM).format(Date(it)) } ?: "choose a date", fontSize = 18.sp)
+            Text(selectedDate?.let { DateFormat.getDateInstance(DateFormat.MEDIUM).format(Date(it)) } ?: "your date", fontSize = 18.sp)
         }
-        TextButton(onClick = { onDateSelected(null) }) { Text("shh.. not yet", color = MutedInk) }
         Spacer(Modifier.height(20.dp))
-        Text("Choose their color", fontSize = 18.sp, color = Ink)
-        ColorSheet(selected = partnerColor, onSelect = onColorSelected)
+        SetupNextButton("yep!", enabled = true, onClick = onFinish)
         Spacer(Modifier.height(20.dp))
-        SetupNextButton("open our mailbox  →", enabled = true, onClick = onFinish)
+        Text("or", color = MutedInk, fontSize = 14.sp)
+        Spacer(Modifier.height(8.dp))
+        OutlinedButton(
+            onClick = { onDateSelected(null); onFinish() },
+            shape = RoundedCornerShape(28.dp),
+            modifier = Modifier.fillMaxWidth().height(60.dp),
+        ) { Text("shh... not yet", color = Ink, fontSize = 18.sp) }
     }
 }
 
@@ -234,21 +241,6 @@ private fun SetupNextButton(label: String, enabled: Boolean, onClick: () -> Unit
         shape = RoundedCornerShape(28.dp),
         modifier = Modifier.fillMaxWidth().height(60.dp),
     ) { Text(label, fontSize = 18.sp) }
-}
-
-@Composable
-private fun ColorSheet(selected: String, onSelect: (String) -> Unit) {
-    Row(Modifier.fillMaxWidth().padding(vertical = 16.dp), horizontalArrangement = Arrangement.SpaceEvenly) {
-        PartnerColors.forEach { color ->
-            val isSelected = color == selected
-            Box(
-                Modifier.size(if (isSelected) 52.dp else 44.dp).clickable { onSelect(color) },
-                contentAlignment = Alignment.Center,
-            ) {
-                Surface(color = colorFromHex(color), shape = RoundedCornerShape(50), modifier = Modifier.fillMaxSize()) {}
-            }
-        }
-    }
 }
 
 @Composable
