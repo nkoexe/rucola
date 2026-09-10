@@ -8,9 +8,9 @@ import org.junit.Test
 class PrototypeFlowTest {
     @get:Rule val composeRule = createComposeRule()
 
-    @Test fun setupShowsNicknameAndMailboxAction() {
-        composeRule.setContent { SetupPreview() }
-        composeRule.onNodeWithText("Partner nickname").assertExists()
-        composeRule.onNodeWithText("Open our mailbox").assertExists()
+    @Test fun pairingScreenShowsInviteActions() {
+        composeRule.setContent { PairingPreview() }
+        composeRule.onNodeWithText("type their invite code here!").assertExists()
+        composeRule.onNodeWithText("share yours with them").assertExists()
     }
 }

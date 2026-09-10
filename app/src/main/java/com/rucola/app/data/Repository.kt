@@ -10,39 +10,54 @@ import java.util.UUID
 interface RucolaRepository {
     val relationship: Flow<Relationship?>
     fun messages(): Flow<List<Message>>
-    suspend fun saveSetup(nickname: String, avatar: String, togetherSince: Long?)
-    suspend fun sendMessage(type: MessageType, body: String)
+    suspend fun saveSetup(partnerNickname: String, ownName: String, partnerColor: String, togetherSince: Long?)
+    suspend fun sendMessage(type: MessageType, body: String, mediaReference: String? = null)
 }
 
 class RoomRucolaRepository(private val dao: RucolaDao) : RucolaRepository {
     override val relationship = dao.relationship().map { it?.toDomain() }
     override fun messages() = dao.messages("the-one").map { rows -> rows.map { it.toDomain() } }
 
-    override suspend fun saveSetup(nickname: String, avatar: String, togetherSince: Long?) {
-        dao.saveRelationship(RelationshipEntity("the-one", nickname, avatar, togetherSince))
+    override suspend fun saveSetup(partnerNickname: String, ownName: String, partnerColor: String, togetherSince: Long?) {
+        dao.saveRelationship(RelationshipEntity("the-one", partnerNickname, ownName, partnerColor, togetherSince))
         if (dao.messageCount("the-one") == 0) {
             dao.insertMessage(
                 Message(
-                    "seed-partner-message",
-                    "the-one",
-                    Participant.PARTNER,
-                    MessageType.TEXT,
-                    "good luck today ♡",
-                    System.currentTimeMillis(),
-                    true,
-                    SyncState.LOCAL_ONLY,
+                    id = "seed-partner-message",
+                    relationshipId = "the-one",
+                    participant = Participant.PARTNER,
+                    type = MessageType.TEXT,
+                    body = "good luck today ♡",
+                    createdAt = System.currentTimeMillis(),
+                    isActive = true,
+                    syncState = SyncState.LOCAL_ONLY,
+                    orderIndex = 1,
                 ).toEntity(),
             )
         }
     }
 
-    override suspend fun sendMessage(type: MessageType, body: String) {
-        dao.archiveActive("the-one", Participant.ME.name)
-        dao.insertMessage(Message(UUID.randomUUID().toString(), "the-one", Participant.ME, type, body, System.currentTimeMillis(), true, SyncState.PENDING).toEntity())
+            override suspend fun sendMessage(type: MessageType, body: String, mediaReference: String?) {
+                dao.replaceActive(
+                    Message(
+                        id = UUID.randomUUID().toString(),
+                        relationshipId = "the-one",
+                        participant = Participant.ME,
+                        type = type,
+                        body = body,
+                        createdAt = System.currentTimeMillis(),
+                        orderIndex = dao.nextOrderIndex("the-one"),
+                        isActive = true,
+                        mediaReference = mediaReference,
+                        syncState = SyncState.PENDING,
+                    ).toEntity(),
+                )
     }
 }
 
 fun repository(context: Context): RucolaRepository {
-    val db = Room.databaseBuilder(context, RucolaDatabase::class.java, "rucola.db").build()
+    val db = Room.databaseBuilder(context, RucolaDatabase::class.java, "rucola.db")
+        .addMigrations(MIGRATION_1_2, MIGRATION_2_3)
+        .build()
     return RoomRucolaRepository(db.dao())
 }

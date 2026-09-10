@@ -19,7 +19,7 @@ class RoomPersistenceTest {
 
     @Before
     fun setUp() {
-        database = Room.inMemoryDatabaseBuilder<RucolaDatabase>(ApplicationProvider.getApplicationContext())
+        database = Room.inMemoryDatabaseBuilder(ApplicationProvider.getApplicationContext(), RucolaDatabase::class.java)
             .allowMainThreadQueries()
             .build()
     }
@@ -38,5 +38,19 @@ class RoomPersistenceTest {
         assertEquals(listOf("♡", "hello"), stored.map { it.body })
         assertTrue(stored.first().isActive)
         assertFalse(stored.last().isActive)
+    }
+
+    @Test
+    fun replacingOwnMessageKeepsBothParticipantsAndHistory() = runBlocking {
+        val dao = database.dao()
+        dao.insertMessage(Message("partner", "the-one", Participant.PARTNER, MessageType.TEXT, "hello", 1, true, orderIndex = 1).toEntity())
+        dao.replaceActive(Message("first", "the-one", Participant.ME, MessageType.TEXT, "first", 2, true, orderIndex = 2).toEntity())
+        dao.replaceActive(Message("second", "the-one", Participant.ME, MessageType.EMOJI, "♡", 3, true, orderIndex = 3).toEntity())
+
+        val stored = dao.messages("the-one").first()
+        assertEquals(listOf("♡", "first", "hello"), stored.map { it.body })
+        assertEquals(1, stored.count { it.participant == Participant.ME.name && it.isActive })
+        assertEquals(1, stored.count { it.participant == Participant.PARTNER.name && it.isActive })
+        assertFalse(stored.single { it.id == "first" }.isActive)
     }
 }
