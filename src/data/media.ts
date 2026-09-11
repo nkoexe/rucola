@@ -10,19 +10,27 @@ function ownedMediaDirectory(): string | null {
 }
 
 function extensionForAsset(asset: ImagePickerAsset): string {
-  const fileName = asset.fileName?.trim();
-  if (fileName) {
-    const extension = fileName.split('.').pop()?.toLowerCase();
-    if (extension && /^[a-z0-9]+$/.test(extension)) return extension;
-  }
-
   const mimeType = asset.mimeType?.toLowerCase();
   if (mimeType?.includes('png')) return 'png';
   if (mimeType?.includes('webp')) return 'webp';
   if (mimeType?.includes('heic')) return 'heic';
   if (mimeType?.includes('quicktime')) return 'mov';
   if (mimeType?.includes('mp4')) return 'mp4';
+  if (mimeType?.startsWith('video/')) return 'mp4';
+  if (mimeType?.startsWith('image/')) {
+    const imageExtension = mimeType.split('/')[1];
+    if (imageExtension && /^[a-z0-9]+$/.test(imageExtension)) return imageExtension;
+    return 'jpg';
+  }
+
   if (asset.type === 'video') return 'mp4';
+
+  const fileName = asset.fileName?.trim();
+  if (fileName) {
+    const extension = fileName.split('.').pop()?.toLowerCase();
+    if (extension && /^[a-z0-9]+$/.test(extension)) return extension;
+  }
+
   return 'jpg';
 }
 
