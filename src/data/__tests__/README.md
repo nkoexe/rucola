@@ -22,7 +22,9 @@ Implemented scenarios:
 - malformed active-slot fixtures (missing message and participant mismatch);
 - invalid legacy `isActive` rejection;
 - orphan active-message rejection;
-- transactional rollback after a migration fails during data transformation.
+- transactional rollback after a migration fails during data transformation;
+- incomplete legacy-schema rejection;
+- newer unsupported-schema rejection.
 
 Still required:
 
