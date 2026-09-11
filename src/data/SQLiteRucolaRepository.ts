@@ -1,7 +1,7 @@
 import { randomUUID } from 'expo-crypto';
 import type { SQLiteDatabase } from 'expo-sqlite';
 import { RELATIONSHIP_ID } from './database';
-import { deleteOwnedMedia } from './media';
+import { deleteOwnedMedia, isOwnedMediaUri } from './media';
 import type { Message, MessageType, Participant, Relationship, SyncState } from '../domain/models';
 import type { RucolaRepository } from '../domain/repository';
 
@@ -148,9 +148,12 @@ export class SQLiteRucolaRepository implements RucolaRepository {
   async sendMessage(input: { type: MessageType; body: string; mediaReference?: string | null }): Promise<Message> {
     const body = input.body.trim();
     const mediaReference = input.mediaReference?.trim() || null;
+    const isMediaMessage = input.type === 'PHOTO_VIDEO' || input.type === 'DRAWING';
 
     if ((input.type === 'TEXT' || input.type === 'EMOJI') && !body) throw new Error('This message type requires content.');
-    if ((input.type === 'PHOTO_VIDEO' || input.type === 'DRAWING') && !mediaReference) throw new Error('This message type requires media.');
+    if (isMediaMessage && !mediaReference) throw new Error('This message type requires media.');
+    if (isMediaMessage && mediaReference && !isOwnedMediaUri(mediaReference)) throw new Error('Media must reference app-owned storage.');
+    if (!isMediaMessage && mediaReference) throw new Error('Only media messages may reference media.');
 
     const message: Message = { id: randomUUID(), relationshipId: RELATIONSHIP_ID, participant: 'ME', type: input.type, body, createdAt: Date.now(), orderIndex: 0, isActive: true, mediaReference, syncState: 'PENDING' };
     await this.withExclusiveWrite(async (tx) => {
