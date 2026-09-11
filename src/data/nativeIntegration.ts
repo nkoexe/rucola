@@ -106,6 +106,34 @@ async function testConcurrentMessageOrdering(db: SQLite.SQLiteDatabase): Promise
   assertEqual((await repository.getActiveMessage('ME'))?.id, lastMessage.id, 'Last committed concurrent send should be active');
 }
 
+async function testConcurrentRepositoryInstances(db: SQLite.SQLiteDatabase): Promise<void> {
+  const firstRepository = new SQLiteRucolaRepository(db);
+  const secondRepository = new SQLiteRucolaRepository(db);
+  await firstRepository.saveSetup({ partnerNickname: 'Partner', ownName: 'Nico', togetherSince: null });
+
+  const sent = await Promise.all([
+    ...Array.from({ length: 10 }, (_, index) => firstRepository.sendMessage({ type: 'TEXT', body: `repo-a-${index}` })),
+    ...Array.from({ length: 10 }, (_, index) => secondRepository.sendMessage({ type: 'TEXT', body: `repo-b-${index}` })),
+  ]);
+
+  const messages = await firstRepository.getMessages();
+  const ownMessages = messages
+    .filter((message) => message.participant === 'ME')
+    .sort((a, b) => a.orderIndex - b.orderIndex);
+
+  assertEqual(ownMessages.length, 20, 'Concurrent repository instances should persist every message');
+  assertEqual(new Set(sent.map((message) => message.id)).size, 20, 'Concurrent repository instances should generate unique IDs');
+  for (let index = 0; index < ownMessages.length; index += 1) {
+    const message = ownMessages[index];
+    assert(message, `Concurrent repository message at index ${index} should exist`);
+    assertEqual(message.orderIndex, index + 2, 'Concurrent repository instances should allocate contiguous order indexes');
+  }
+
+  const active = await firstRepository.getActiveMessage('ME');
+  assert(active, 'Concurrent repository sends should leave an active message');
+  assertEqual(active.id, ownMessages[ownMessages.length - 1]?.id, 'Active message should be the highest committed message');
+}
+
 async function testPersistenceAcrossRepositoryInstances(db: SQLite.SQLiteDatabase): Promise<void> {
   const firstRepository = new SQLiteRucolaRepository(db);
   await firstRepository.saveSetup({
@@ -191,6 +219,7 @@ const coreTests: Array<[string, (db: SQLite.SQLiteDatabase) => Promise<void>]> =
   ['fresh database', testFreshDatabase],
   ['message lifecycle', testMessageLifecycle],
   ['concurrent message ordering', testConcurrentMessageOrdering],
+  ['concurrent repository instances', testConcurrentRepositoryInstances],
   ['persistence across repository instances', testPersistenceAcrossRepositoryInstances],
   ['foreign-key invariant', testForeignKeyInvariant],
   ['relationship reset', testReset],
