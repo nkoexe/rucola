@@ -24,7 +24,7 @@ describe("Rucola cloud worker", () => {
       ok: true,
       database: true,
       service: "rucola-cloud",
-      version: "pairing-1",
+      version: "sync-push-1",
     });
   });
 
@@ -236,9 +236,9 @@ describe("Rucola cloud worker", () => {
     await expect(response.json()).resolves.toEqual({ authenticated: true, participant: "ME" });
   });
 
-  it("keeps synchronization endpoints disabled until the sync contract is implemented", async () => {
+  it("routes sync push while leaving pull and ack disabled", async () => {
     const push = await exports.default.fetch("https://rucola.test/v1/sync/push", { method: "POST" });
-    expect(push.status).toBe(501);
+    expect(push.status).toBe(401);
     const pull = await exports.default.fetch("https://rucola.test/v1/sync/pull");
     expect(pull.status).toBe(501);
     const ack = await exports.default.fetch("https://rucola.test/v1/sync/ack/message-test", { method: "POST" });
