@@ -1,6 +1,6 @@
 import { authenticateDevice } from "./auth";
 import { databaseHealthy, checkSchema } from "./db";
-import { errorResponse, json } from "./http";
+import { errorResponse, json, methodNotAllowed } from "./http";
 import { acceptInvitation, bootstrapPairing, createInvitation } from "./pairing";
 import type { Env } from "./types";
 
@@ -68,11 +68,21 @@ export default {
       });
     }
 
-    if (url.pathname === "/health" && request.method === "GET") return handleHealth(env);
-    if (url.pathname === "/health/schema" && request.method === "GET") return handleSchemaHealth(env);
-    if (url.pathname === "/v1/auth/probe" && request.method === "GET") return handleAuthProbe(env, request);
+    if (url.pathname === "/health") {
+      if (request.method !== "GET") return methodNotAllowed(["GET", "OPTIONS"]);
+      return handleHealth(env);
+    }
+    if (url.pathname === "/health/schema") {
+      if (request.method !== "GET") return methodNotAllowed(["GET", "OPTIONS"]);
+      return handleSchemaHealth(env);
+    }
+    if (url.pathname === "/v1/auth/probe") {
+      if (request.method !== "GET") return methodNotAllowed(["GET", "OPTIONS"]);
+      return handleAuthProbe(env, request);
+    }
 
-    if (url.pathname === "/v1/pairing/bootstrap" && request.method === "POST") {
+    if (url.pathname === "/v1/pairing/bootstrap") {
+      if (request.method !== "POST") return methodNotAllowed(["POST", "OPTIONS"]);
       if (!(await allowPairingBootstrap(env, request))) {
         return new Response(JSON.stringify({ error: { code: "PAIRING_RATE_LIMITED", message: "Too many pairing bootstrap attempts" } }), {
           status: 429,
@@ -88,17 +98,28 @@ export default {
       return bootstrapPairing(env, request);
     }
 
-    if (url.pathname === "/v1/pairing/create" && request.method === "POST") {
+    if (url.pathname === "/v1/pairing/create") {
+      if (request.method !== "POST") return methodNotAllowed(["POST", "OPTIONS"]);
       return handleCreateInvitation(env, request);
     }
 
-    if (url.pathname === "/v1/pairing/accept" && request.method === "POST") {
+    if (url.pathname === "/v1/pairing/accept") {
+      if (request.method !== "POST") return methodNotAllowed(["POST", "OPTIONS"]);
       return acceptInvitation(env, request);
     }
 
-    if (url.pathname === "/v1/sync/push" && request.method === "POST") return notImplemented("/v1/sync/push");
-    if (url.pathname === "/v1/sync/pull" && request.method === "GET") return notImplemented("/v1/sync/pull");
-    if (url.pathname.startsWith("/v1/sync/ack/") && request.method === "POST") return notImplemented("/v1/sync/ack");
+    if (url.pathname === "/v1/sync/push") {
+      if (request.method !== "POST") return methodNotAllowed(["POST", "OPTIONS"]);
+      return notImplemented("/v1/sync/push");
+    }
+    if (url.pathname === "/v1/sync/pull") {
+      if (request.method !== "GET") return methodNotAllowed(["GET", "OPTIONS"]);
+      return notImplemented("/v1/sync/pull");
+    }
+    if (url.pathname.startsWith("/v1/sync/ack/")) {
+      if (request.method !== "POST") return methodNotAllowed(["POST", "OPTIONS"]);
+      return notImplemented("/v1/sync/ack");
+    }
 
     return errorResponse("NOT_FOUND", "Route not found", 404);
   },
