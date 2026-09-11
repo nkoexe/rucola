@@ -9,6 +9,7 @@ interface RelationshipRow { id: string; partnerNickname: string; ownName: string
 interface MessageRow { id: string; relationshipId: string; participant: Participant; type: MessageType; body: string; createdAt: number; orderIndex: number; isActive: number; mediaReference: string | null; syncState: SyncState; }
 type SQLiteWriteContext = Pick<SQLiteDatabase, 'getFirstAsync' | 'getAllAsync' | 'runAsync'>;
 type AfterCommit = () => Promise<void>;
+type MediaCleanup = (uri: string) => Promise<void>;
 
 const SQLITE_WRITE_RETRY_ATTEMPTS = 6;
 const SQLITE_WRITE_RETRY_DELAY_MS = 10;
@@ -28,7 +29,10 @@ async function sleep(milliseconds: number): Promise<void> {
 }
 
 export class SQLiteRucolaRepository implements RucolaRepository {
-  constructor(private readonly db: SQLiteDatabase) {}
+  constructor(
+    private readonly db: SQLiteDatabase,
+    private readonly cleanupMedia: MediaCleanup = deleteOwnedMedia,
+  ) {}
 
   async getRelationship(): Promise<Relationship | null> {
     const row = await this.db.getFirstAsync<RelationshipRow>('SELECT id, partnerNickname, ownName, partnerColor, togetherSince FROM relationships WHERE id = ?', RELATIONSHIP_ID);
@@ -110,7 +114,7 @@ export class SQLiteRucolaRepository implements RucolaRepository {
         await tx.runAsync('DELETE FROM relationships WHERE id = ?', RELATIONSHIP_ID);
       },
       async () => {
-        await Promise.all(mediaReferences.map((mediaReference) => deleteOwnedMedia(mediaReference)));
+        await Promise.all(mediaReferences.map((mediaReference) => this.cleanupMedia(mediaReference)));
       },
     );
   }
