@@ -1,6 +1,6 @@
 # Rucola Pairing Protocol / API Contract
 
-**Status:** core pairing implementation complete; production exposure remains blocked on Cloudflare edge rate limiting and final runtime/deployment review.
+**Status:** core pairing implementation complete; production exposure remains blocked on final runtime/deployment review.
 
 ## 1. Goal
 
@@ -61,7 +61,11 @@ Response:
 
 The raw credential and invitation material are returned only to the caller. They are not stored in plaintext by the server.
 
-The Worker must be protected by a Cloudflare edge rate limit before public exposure because bootstrap is intentionally unauthenticated and creates D1 state. The Worker also applies a separate invitation-specific confirmation-code lockout described below.
+The Worker applies a Cloudflare Rate Limiting binding to bootstrap: 10 attempts per minute per `cf-connecting-ip` key. This is deliberately a coarse abuse-control layer around an unauthenticated state-creating endpoint. The binding is permissive/eventually consistent by design and is not used as an accounting invariant.
+
+The configured rate-limit namespace ID is `910001`; it must be unique within the production Cloudflare account and should be changed if that namespace ID is already used by another Worker.
+
+The Worker also applies a separate invitation-specific confirmation-code lockout described below.
 
 ## 4. Invitation creation / regeneration
 
@@ -211,7 +215,7 @@ Relevant cases:
 | Missing/invalid authenticated credential | 401 | `UNAUTHENTICATED` |
 | Invalid/expired invitation | 400 | `INVALID_INVITATION` |
 | Consumed invitation | 409 | `INVITATION_CONSUMED` |
-| Confirmation-code lockout | 429 | `PAIRING_RATE_LIMITED` |
+| Confirmation/bootstrap rate limit | 429 | `PAIRING_RATE_LIMITED` |
 | Relationship not pairable | 409 | `PAIRING_CLOSED` |
 | Concurrent/state conflict | 409 | `PAIRING_CONFLICT` |
 | Malformed/oversized request | 400 | `INVALID_REQUEST` |
@@ -252,12 +256,13 @@ Implemented in the Worker test suite:
 - defensive response headers;
 - synchronization endpoints remain `501`.
 
+The Cloudflare rate-limit binding is part of the Worker configuration and is simulated during local development by the Cloudflare tooling.
+
 Still required before production exposure:
 
-- Cloudflare edge rate-limit configuration for the unauthenticated bootstrap endpoint;
+- verify the configured rate-limit namespace ID is unique in the target Cloudflare account;
 - runtime execution of the updated Worker suite in the real checkout;
-- final deployment/configuration review;
-- another adversarial code review after runtime tests.
+- final deployment/configuration review.
 
 ## 14. Synchronization boundary
 
