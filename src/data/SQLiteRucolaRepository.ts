@@ -8,6 +8,7 @@ import type { RucolaRepository } from '../domain/repository';
 interface RelationshipRow { id: string; partnerNickname: string; ownName: string; partnerColor: string; togetherSince: number | null; }
 interface MessageRow { id: string; relationshipId: string; participant: Participant; type: MessageType; body: string; createdAt: number; orderIndex: number; isActive: number; mediaReference: string | null; syncState: SyncState; }
 type SQLiteWriteContext = Pick<SQLiteDatabase, 'getFirstAsync' | 'getAllAsync' | 'runAsync'>;
+type AfterCommit = () => Promise<void>;
 
 const SQLITE_WRITE_RETRY_ATTEMPTS = 6;
 const SQLITE_WRITE_RETRY_DELAY_MS = 10;
@@ -96,19 +97,22 @@ export class SQLiteRucolaRepository implements RucolaRepository {
   async deleteRelationship(): Promise<void> {
     let mediaReferences: string[] = [];
 
-    await this.withExclusiveWrite(async (tx) => {
-      const rows = await tx.getAllAsync<{ mediaReference: string | null }>(
-        'SELECT mediaReference FROM messages WHERE relationshipId = ? AND mediaReference IS NOT NULL',
-        RELATIONSHIP_ID,
-      );
-      mediaReferences = rows.flatMap((row) => row.mediaReference ? [row.mediaReference] : []);
+    await this.withExclusiveWrite(
+      async (tx) => {
+        const rows = await tx.getAllAsync<{ mediaReference: string | null }>(
+          'SELECT mediaReference FROM messages WHERE relationshipId = ? AND mediaReference IS NOT NULL',
+          RELATIONSHIP_ID,
+        );
+        mediaReferences = rows.flatMap((row) => row.mediaReference ? [row.mediaReference] : []);
 
-      await tx.runAsync('DELETE FROM active_message_slots WHERE relationshipId = ?', RELATIONSHIP_ID);
-      await tx.runAsync('DELETE FROM messages WHERE relationshipId = ?', RELATIONSHIP_ID);
-      await tx.runAsync('DELETE FROM relationships WHERE id = ?', RELATIONSHIP_ID);
-    });
-
-    await Promise.all(mediaReferences.map((mediaReference) => deleteOwnedMedia(mediaReference)));
+        await tx.runAsync('DELETE FROM active_message_slots WHERE relationshipId = ?', RELATIONSHIP_ID);
+        await tx.runAsync('DELETE FROM messages WHERE relationshipId = ?', RELATIONSHIP_ID);
+        await tx.runAsync('DELETE FROM relationships WHERE id = ?', RELATIONSHIP_ID);
+      },
+      async () => {
+        await Promise.all(mediaReferences.map((mediaReference) => deleteOwnedMedia(mediaReference)));
+      },
+    );
   }
 
   async getMessages(): Promise<Message[]> {
@@ -160,12 +164,13 @@ export class SQLiteRucolaRepository implements RucolaRepository {
     return message;
   }
 
-  private async withExclusiveWrite(action: (tx: SQLiteWriteContext) => Promise<void>): Promise<void> {
+  private async withExclusiveWrite(action: (tx: SQLiteWriteContext) => Promise<void>, afterCommit?: AfterCommit): Promise<void> {
     const previous = writeQueues.get(this.db) ?? Promise.resolve();
     const run = previous.then(async () => {
       for (let attempt = 0; attempt < SQLITE_WRITE_RETRY_ATTEMPTS; attempt += 1) {
         try {
           await this.db.withExclusiveTransactionAsync(action);
+          if (afterCommit) await afterCommit();
           return;
         } catch (cause) {
           if (!isTransientSQLiteLock(cause) || attempt === SQLITE_WRITE_RETRY_ATTEMPTS - 1) throw cause;
