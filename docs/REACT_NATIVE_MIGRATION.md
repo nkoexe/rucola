@@ -18,6 +18,27 @@ The existing Kotlin implementation is a behavioral reference, not a code-convers
 - Do not implement widgets yet.
 - Do not preserve Compose solely for compatibility.
 
+## Phase 2 — Local domain and persistence
+
+- Port the domain model to TypeScript.
+- Define repository interfaces before UI persistence access.
+- Use Expo SQLite as the local source of truth.
+- Persist relationships, messages, active-message slots, ordering, media references, and sync state.
+- Keep message replacement transactional: one active message per participant and immutable history.
+- Generate stable local message IDs.
+- Keep the future server out of the local data layer.
+
+## Phase 3 — First real UI
+
+- Replace the foundation shell with the real onboarding flow.
+- Current onboarding order: `who are they?` → `who are you?` → together-since → home.
+- Do not add an avatar step or tutorial.
+- Build the first home screen around the partner's active message.
+- Add a local text composer that persists through the repository.
+- Keep photo/video and drawing controls visible as placeholders until their native flows are implemented.
+- Keep the visual language cute, personal, playful, slightly wonky and handmade.
+- Do not introduce generic Material UI patterns just because React Native makes them convenient.
+
 ## Required product behavior to preserve
 
 - Exactly one relationship with exactly two participants.
@@ -79,12 +100,19 @@ sync engine → Cloudflare mailbox API
 
 Do not couple screens directly to SQLite or HTTP.
 
-## Phase 1 definition of done
+## Validation
 
-- React Native/Expo project is present and installable.
-- TypeScript is configured.
-- Android development build can be generated/started from a clean checkout.
-- Existing Kotlin/Compose implementation remains untouched on `main`.
-- Initial `src/` architecture is in place without unnecessary abstraction.
-- Migration documentation is present.
-- No backend or widget implementation has been added prematurely.
+The repository currently contains the Phase 2/3 implementation, but the GitHub integration cannot execute `npm install`, TypeScript, Expo prebuild, or an Android build. Run the following locally after pulling the branch:
+
+```bash
+npm install
+npm run typecheck
+npx expo prebuild
+npm run android
+```
+
+Fix any dependency/version issues reported by Expo before continuing with native feature work.
+
+## Next phase
+
+Phase 4 should split the current prototype UI into proper screen/component files, add history, and introduce media/drawing composition. Native photo/video and drawing implementations should follow after the basic UI behavior is stable.
