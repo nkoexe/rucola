@@ -57,6 +57,17 @@ The Kotlin implementation is a behavioral reference, not a code-conversion targe
 - Active photo/video messages render on the home screen.
 - Historical photo/video messages render in history and calendar views.
 - Clearing local relationship data removes media files owned by the relationship.
+- Media deletion rejects path traversal rather than trusting a database URI blindly.
+
+### Phase 4b — Persistence hardening and test foundation
+
+- SQLite schema versioning is explicit; current schema is v2.
+- Legacy v0/v1 data migrates transactionally to v2 with integrity validation.
+- Newer unsupported database versions are rejected.
+- Repository initialization can be retried after initialization failure.
+- Setup repairs a missing partner active slot from existing partner history instead of assuming an empty message table.
+- Domain use-case tests run through Node's built-in test runner.
+- Android CI runs TypeScript checking, domain tests, and Android build/unit-test tasks.
 
 ## Deliberate current limitations
 
@@ -64,7 +75,6 @@ The Kotlin implementation is a behavioral reference, not a code-conversion targe
 - There is no real two-device pairing yet.
 - There is no backend, synchronization engine, push notification system, widget, or E2E encryption.
 - The UI is intentionally barebones. Detailed Figma implementation is deferred until behavior is complete.
-- The dependency lockfile still needs to be regenerated locally after adding the new Expo media packages.
 
 Do not fake two-device communication. Pairing must become genuinely functional once a backend transport exists.
 
@@ -101,7 +111,7 @@ Screens should not depend directly on SQLite or HTTP. Domain code should remain 
 
 ## Pairing direction
 
-Pairing is the next major architecture feature, but it cannot be honestly completed without a remote transport.
+Pairing is a later architecture feature and cannot be honestly completed without a remote transport.
 
 The target flow is:
 
@@ -125,13 +135,17 @@ The implementation should introduce a pairing abstraction before wiring a backen
 
 ## Next implementation phases
 
-### Phase 4b — Drawing
+### Phase 5 — Repository integration testing
+
+Exercise the real SQLite repository on-device/in a native test environment rather than relying only on use-case mocks. Cover setup persistence, active-message replacement, history ordering, persistence across repository instances, concurrency/order allocation, migration fixtures, foreign-key invariants, media cleanup, and initialization recovery.
+
+### Phase 6 — Drawing
 
 Implement a real local drawing composer and persist its output as durable message media. Drawing should support a media-only message and an optional caption, just like photo/video messages.
 
-### Phase 5 — Backend pairing and synchronization
+### Phase 7 — Backend pairing and synchronization
 
-After the local media/message behavior is stable:
+After local repository behavior is thoroughly tested:
 
 - add anonymous device identity;
 - implement secure invitation creation/acceptance;
@@ -155,8 +169,9 @@ After the local media/message behavior is stable:
 The GitHub integration can inspect and modify source, but cannot run the project's local npm/Expo/Android toolchain. After pulling the branch, run:
 
 ```bash
-npm install
+npm ci
 npm run typecheck
+npm run test:domain
 npx expo prebuild
 npm run android
 ```
