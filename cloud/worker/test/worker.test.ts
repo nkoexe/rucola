@@ -67,4 +67,31 @@ describe("Rucola cloud worker", () => {
       participant: "ME",
     });
   });
+
+  it("keeps pairing endpoints disabled until the pairing contract is implemented", async () => {
+    for (const path of ["/v1/pairing/create", "/v1/pairing/accept"]) {
+      const response = await exports.default.fetch(`https://rucola.test${path}`, {
+        method: "POST",
+      });
+      expect(response.status).toBe(501);
+      await expect(response.json()).resolves.toMatchObject({
+        error: "NOT_IMPLEMENTED",
+      });
+    }
+  });
+
+  it("keeps synchronization endpoints disabled until the sync contract is implemented", async () => {
+    const push = await exports.default.fetch("https://rucola.test/v1/sync/push", {
+      method: "POST",
+    });
+    expect(push.status).toBe(501);
+
+    const pull = await exports.default.fetch("https://rucola.test/v1/sync/pull");
+    expect(pull.status).toBe(501);
+
+    const ack = await exports.default.fetch("https://rucola.test/v1/sync/ack/message-test", {
+      method: "POST",
+    });
+    expect(ack.status).toBe(501);
+  });
 });
