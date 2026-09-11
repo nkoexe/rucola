@@ -118,8 +118,12 @@ export function HomeScreen({ relationship, repositoryPromise, revision, onChange
         })),
       },
       {
-        text: 'Camera',
-        onPress: () => void sendMedia(launchCameraWithPermission),
+        text: 'Take photo',
+        onPress: () => void sendMedia(() => launchCameraWithPermission(['images'])),
+      },
+      {
+        text: 'Record video',
+        onPress: () => void sendMedia(() => launchCameraWithPermission(['videos'])),
       },
       { text: 'Cancel', style: 'cancel' },
     ]);
