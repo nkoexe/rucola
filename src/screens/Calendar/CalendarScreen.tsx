@@ -28,7 +28,7 @@ export function CalendarScreen({ relationship, repositoryPromise, onBack }: Prop
     void repositoryPromise
       .then((repository) => new GetMessages(repository).execute())
       .then((value) => {
-        if (mounted) setMessages(value.filter((message) => !message.isActive));
+        if (mounted) setMessages(value.filter((message) => message.participant === 'ME' || !message.isActive));
       })
       .catch((cause) => {
         if (mounted) setError(cause instanceof Error ? cause.message : 'Could not load calendar history.');
