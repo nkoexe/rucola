@@ -15,7 +15,7 @@ jobs:
         with:
           node-version: 22.13.x
           cache: npm
-      - run: npm install
+      - run: npm ci
       - run: npm run typecheck
       - uses: actions/setup-java@v4
         with:
