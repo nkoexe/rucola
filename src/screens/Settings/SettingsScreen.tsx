@@ -3,12 +3,18 @@ import { Alert, Pressable, StyleSheet, Text, View } from 'react-native';
 import type { getRepository } from '../../data/repository';
 import type { Relationship } from '../../domain/models';
 import { DeleteRelationship } from '../../domain/useCases';
+import { NativeIntegrationTestScreen } from '../Dev/NativeIntegrationTestScreen';
 
 type Props = { relationship: Relationship; repositoryPromise: ReturnType<typeof getRepository>; onBack: () => void; onRelationshipDeleted: () => void };
 
 export function SettingsScreen({ relationship, repositoryPromise, onBack, onRelationshipDeleted }: Props) {
   const [deleting, setDeleting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [showNativeTests, setShowNativeTests] = useState(false);
+
+  if (__DEV__ && showNativeTests) {
+    return <NativeIntegrationTestScreen onBack={() => setShowNativeTests(false)} />;
+  }
 
   const clearLocalData = () => {
     Alert.alert('Clear local data?', 'This removes the relationship and all locally stored messages from this device.', [
@@ -49,6 +55,14 @@ export function SettingsScreen({ relationship, repositoryPromise, onBack, onRela
           <Text style={styles.dangerText}>{deleting ? 'clearing...' : 'Clear local data'}</Text>
         </Pressable>
       </View>
+      {__DEV__ ? (
+        <View style={styles.section}>
+          <Text style={styles.label}>development</Text>
+          <Pressable onPress={() => setShowNativeTests(true)} style={styles.devButton}>
+            <Text style={styles.devText}>Open native SQLite tests</Text>
+          </Pressable>
+        </View>
+      ) : null}
       <View style={styles.section}>
         <Text style={styles.label}>coming later</Text>
         <Text style={styles.muted}>Pairing, notifications, account management, and sync.</Text>
@@ -69,6 +83,8 @@ const styles = StyleSheet.create({
   error: { marginTop: 12, color: '#9B2C2C' },
   dangerButton: { alignSelf: 'flex-start', marginTop: 18, borderWidth: 1, borderRadius: 12, paddingHorizontal: 14, paddingVertical: 10 },
   dangerText: { fontWeight: '700' },
+  devButton: { alignSelf: 'flex-start', borderWidth: 1, borderRadius: 12, paddingHorizontal: 14, paddingVertical: 10 },
+  devText: { fontWeight: '700' },
   disabled: { opacity: 0.35 },
   version: { marginTop: 'auto', opacity: 0.45 },
 });
