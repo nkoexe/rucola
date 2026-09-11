@@ -19,8 +19,14 @@ function wrongConfirmationCode(correct: unknown): string {
   return correct === "000000" ? "000001" : "000000";
 }
 
+async function relationshipCount(): Promise<number> {
+  const row = await env.DB.prepare("SELECT COUNT(*) AS count FROM relationships").first<{ count: number }>();
+  return row?.count ?? 0;
+}
+
 describe("Rucola pairing hardening", () => {
   it("rejects oversized JSON bodies before parsing", async () => {
+    const before = await relationshipCount();
     const response = await exports.default.fetch("https://rucola.test/v1/pairing/bootstrap", {
       method: "POST",
       headers: { "content-type": "application/json" },
@@ -28,13 +34,11 @@ describe("Rucola pairing hardening", () => {
     });
 
     expect(response.status).toBe(400);
-
-    const relationships = await env.DB.prepare("SELECT COUNT(*) AS count FROM relationships")
-      .first<{ count: number }>();
-    expect(relationships?.count).toBe(0);
+    expect(await relationshipCount()).toBe(before);
   });
 
   it("rejects empty, null, array, and malformed JSON bodies", async () => {
+    const before = await relationshipCount();
     const requests = [
       { body: "", contentType: "application/json" },
       { body: "null", contentType: "application/json" },
@@ -51,9 +55,7 @@ describe("Rucola pairing hardening", () => {
       expect(response.status).toBe(400);
     }
 
-    const relationships = await env.DB.prepare("SELECT COUNT(*) AS count FROM relationships")
-      .first<{ count: number }>();
-    expect(relationships?.count).toBe(0);
+    expect(await relationshipCount()).toBe(before);
   });
 
   it("requires the exact JSON media type while accepting parameters", async () => {
