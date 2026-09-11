@@ -1,8 +1,11 @@
 import { useEffect, useRef, useState } from 'react';
-import { KeyboardAvoidingView, PanResponder, Platform, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import * as ImagePicker from 'expo-image-picker';
+import { Alert, KeyboardAvoidingView, PanResponder, Platform, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import type { getRepository } from '../../data/repository';
+import { persistPickedMedia } from '../../data/media';
 import type { Message, Relationship } from '../../domain/models';
 import { GetActiveMessage, SendMessage } from '../../domain/useCases';
+import { MessageMedia } from '../../components/MessageMedia';
 
 type RepositoryPromise = ReturnType<typeof getRepository>;
 type ComposerType = 'TEXT' | 'EMOJI';
@@ -25,6 +28,7 @@ export function HomeScreen({ relationship, repositoryPromise, revision, onChange
   const [draft, setDraft] = useState('');
   const [composerType, setComposerType] = useState<ComposerType>('TEXT');
   const [sending, setSending] = useState(false);
+  const [pickingMedia, setPickingMedia] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const historyPanResponder = useRef(
@@ -68,6 +72,52 @@ export function HomeScreen({ relationship, repositoryPromise, revision, onChange
     }
   };
 
+  const sendMedia = async (launch: () => Promise<ImagePicker.ImagePickerResult>) => {
+    if (sending || pickingMedia) return;
+    setPickingMedia(true);
+    setError(null);
+    try {
+      const result = await launch();
+      if (result.canceled || !result.assets[0]) return;
+
+      const mediaReference = await persistPickedMedia(result.assets[0]);
+      const repository = await repositoryPromise;
+      await new SendMessage(repository).execute({
+        type: 'PHOTO_VIDEO',
+        body: draft.trim(),
+        mediaReference,
+      });
+      setDraft('');
+      setComposerType('TEXT');
+      onChanged();
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Could not add the media message.');
+    } finally {
+      setPickingMedia(false);
+    }
+  };
+
+  const openMediaPicker = () => {
+    Alert.alert('send something', undefined, [
+      {
+        text: 'Photo / video library',
+        onPress: () => void sendMedia(() => ImagePicker.launchImageLibraryAsync({
+          mediaTypes: ['images', 'videos'],
+          allowsMultipleSelection: false,
+          quality: 0.9,
+        })),
+      },
+      {
+        text: 'Camera',
+        onPress: () => void sendMedia(() => ImagePicker.launchCameraAsync({
+          mediaTypes: ['images', 'videos'],
+          quality: 0.9,
+        })),
+      },
+      { text: 'Cancel', style: 'cancel' },
+    ]);
+  };
+
   return (
     <KeyboardAvoidingView style={styles.container} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
       <View style={styles.header}>
@@ -83,7 +133,8 @@ export function HomeScreen({ relationship, repositoryPromise, revision, onChange
         <Text style={styles.partner}>{relationship.partnerNickname}</Text>
         {message ? (
           <>
-            <Text style={styles.message}>{message.body || message.type.toLowerCase()}</Text>
+            {message.type === 'PHOTO_VIDEO' ? <MessageMedia message={message} /> : <Text style={styles.message}>{message.body || message.type.toLowerCase()}</Text>}
+            {message.body && message.type === 'PHOTO_VIDEO' ? <Text style={styles.mediaCaption}>{message.body}</Text> : null}
             <Text style={styles.meta}>{new Date(message.createdAt).toLocaleString()}</Text>
           </>
         ) : (
@@ -119,7 +170,9 @@ export function HomeScreen({ relationship, repositoryPromise, revision, onChange
           />
         )}
         <View style={styles.composerRow}>
-          <Pressable style={styles.secondaryButton} onPress={() => setError('Photo / video is not implemented yet.')}><Text>Photo / Video</Text></Pressable>
+          <Pressable style={[styles.secondaryButton, pickingMedia && styles.disabled]} disabled={pickingMedia} onPress={openMediaPicker}>
+            <Text>{pickingMedia ? 'Picking...' : 'Photo / Video'}</Text>
+          </Pressable>
           <Pressable style={styles.secondaryButton} onPress={() => setError('Drawing is not implemented yet.')}><Text>Draw</Text></Pressable>
           <Pressable disabled={!draft.trim() || sending} onPress={() => void send()} style={[styles.send, (!draft.trim() || sending) && styles.disabled]}>
             <Text style={styles.sendText}>{sending ? '...' : 'Send'}</Text>
@@ -139,6 +192,7 @@ const styles = StyleSheet.create({
   messageArea: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 18 },
   partner: { fontSize: 16, fontWeight: '700', marginBottom: 12, opacity: 0.65 },
   message: { fontSize: 38, fontWeight: '700', textAlign: 'center' },
+  mediaCaption: { fontSize: 17, marginTop: 10, textAlign: 'center' },
   meta: { marginTop: 12, opacity: 0.55 },
   muted: { opacity: 0.55, fontSize: 18 },
   composer: { paddingTop: 12 },
