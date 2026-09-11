@@ -85,11 +85,17 @@ function isBoundedIdentifier(value: unknown): value is string {
   return bytes.byteLength <= MAX_IDENTIFIER_BYTES && /^[A-Za-z0-9_-]+$/.test(value);
 }
 
-function normalizeCiphertext(value: string | number[] | Uint8Array | ArrayBuffer): Uint8Array {
+function normalizeCiphertext(
+  value: string | number[] | Uint8Array | ArrayBuffer,
+): Uint8Array {
   if (typeof value === "string") return new TextEncoder().encode(value);
-  if (value instanceof Uint8Array) return value;
-  if (value instanceof ArrayBuffer) return new Uint8Array(value);
   if (Array.isArray(value)) return Uint8Array.from(value);
+  if (ArrayBuffer.isView(value)) {
+    return new Uint8Array(value.buffer, value.byteOffset, value.byteLength);
+  }
+  if (Object.prototype.toString.call(value) === "[object ArrayBuffer]") {
+    return new Uint8Array(value as ArrayBuffer);
+  }
   return new Uint8Array();
 }
 
