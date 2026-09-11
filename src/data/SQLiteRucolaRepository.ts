@@ -42,9 +42,7 @@ export class SQLiteRucolaRepository implements RucolaRepository {
          WHERE relationshipId = ? AND participant = 'PARTNER'`,
         RELATIONSHIP_ID,
       );
-      if (activePartner) {
-        return;
-      }
+      if (activePartner) return;
 
       const existingPartner = await this.db.getFirstAsync<{ id: string }>(
         `SELECT id
@@ -63,7 +61,7 @@ export class SQLiteRucolaRepository implements RucolaRepository {
         'SELECT COALESCE(MAX(orderIndex), 0) + 1 AS nextOrderIndex FROM messages WHERE relationshipId = ?',
         RELATIONSHIP_ID,
       );
-      const seedMessageId = 'seed-partner-message';
+      const seedMessageId = randomUUID();
       await this.insertMessage({
         id: seedMessageId,
         relationshipId: RELATIONSHIP_ID,
