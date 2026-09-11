@@ -8,7 +8,12 @@ export const RELATIONSHIP_ID = 'the-one';
 let databasePromise: Promise<SQLite.SQLiteDatabase> | null = null;
 
 export function getDatabase(): Promise<SQLite.SQLiteDatabase> {
-  databasePromise ??= SQLite.openDatabaseAsync(DATABASE_NAME);
+  if (!databasePromise) {
+    databasePromise = SQLite.openDatabaseAsync(DATABASE_NAME).catch((cause) => {
+      databasePromise = null;
+      throw cause;
+    });
+  }
   return databasePromise;
 }
 
