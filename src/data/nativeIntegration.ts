@@ -3,7 +3,7 @@ import * as FileSystem from 'expo-file-system/legacy';
 import { SQLiteRucolaRepository } from './SQLiteRucolaRepository';
 import { initializeDatabase } from './database';
 import { runMigrationIntegrationTests } from './migrationIntegration';
-import { deleteOwnedMedia, persistPickedMedia } from './media';
+import { deleteOwnedMedia, persistPickedMedia, reconcileOwnedMedia } from './media';
 
 export type NativeIntegrationResult = {
   name: string;
@@ -201,6 +201,12 @@ async function testMediaLifecycle(): Promise<void> {
   const persistedUris: string[] = [];
   try {
     await FileSystem.writeAsStringAsync(source, 'native media test');
+
+    await assertRejects(
+      () => persistPickedMedia({ uri: '   ', type: 'image' } as Parameters<typeof persistPickedMedia>[0]),
+      'Media persistence should reject an empty source URI',
+    );
+
     const persisted = await persistPickedMedia({
       uri: source,
       fileName: 'test-photo.jpg',
@@ -213,6 +219,18 @@ async function testMediaLifecycle(): Promise<void> {
 
     assert(persisted.startsWith(`${documentDirectory}media/`), 'Persisted media must live under the app media directory');
     assert(await FileSystem.getInfoAsync(persisted).then((info) => info.exists), 'Persisted media file should exist');
+
+    const mediaDirectory = `${documentDirectory}media/`;
+    const orphan = `${mediaDirectory}rucola-test-orphan-${Date.now()}.jpg`;
+    await FileSystem.makeDirectoryAsync(mediaDirectory, { intermediates: true });
+    await FileSystem.writeAsStringAsync(orphan, 'orphan');
+    try {
+      await reconcileOwnedMedia([persisted]);
+      assert(await FileSystem.getInfoAsync(persisted).then((info) => info.exists), 'Referenced media must survive reconciliation');
+      assert(!(await FileSystem.getInfoAsync(orphan)).exists, 'Unreferenced owned media should be reconciled');
+    } finally {
+      await FileSystem.deleteAsync(orphan, { idempotent: true }).catch(() => undefined);
+    }
 
     await deleteOwnedMedia(persisted);
     assert(!(await FileSystem.getInfoAsync(persisted)).exists, 'Owned media should be deleted');
@@ -262,10 +280,10 @@ export async function runNativeIntegrationTests(): Promise<NativeIntegrationResu
 
   try {
     await testMediaLifecycle();
-    results.push({ name: 'media persistence and cleanup', passed: true });
+    results.push({ name: 'media persistence, validation, reconciliation and cleanup', passed: true });
   } catch (cause) {
     results.push({
-      name: 'media persistence and cleanup',
+      name: 'media persistence, validation, reconciliation and cleanup',
       passed: false,
       error: cause instanceof Error ? cause.message : String(cause),
     });
