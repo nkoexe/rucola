@@ -12,7 +12,7 @@
 - ACK means durable local persistence, never read/seen.
 - Future E2E payloads should be opaque to the Worker and R2.
 
-## C1 hardening decisions
+## Protocol hardening decisions
 
 The adversarial protocol review is complete. The following are now hard invariants for implementation:
 
@@ -31,7 +31,18 @@ The adversarial protocol review is complete. The following are now hard invarian
 - Mailbox expiry is an explicit delivery boundary, not an implicit guarantee.
 - Bounded pull batches and a recoverable poison-message path are required so one invalid message cannot permanently block the mailbox.
 
-## C2 schema decisions
+## Ordering decisions
+
+- `orderIndex` is a **local SQLite insertion-order value**. It is authoritative only for that phone's local history and is never compared across devices.
+- `sender_seq` is the authoritative relative order of messages created by one originating device.
+- `server_seq` is the authoritative **mailbox acceptance/delivery order** within a relationship.
+- `server_seq` is **not** creation order and is not a claim about the true conversational order of concurrent offline messages.
+- A remote message receives the next local `orderIndex` when it is durably inserted. Existing local history is not renumbered because of remote delivery.
+- Two phones may therefore have different local insertion orders for concurrently created/offline messages. This is an intentional consequence of preserving append-only local history without inventing a false global creation order.
+- Pull remains ascending by `server_seq`; sender-sequence gaps do not block delivery.
+- A reinstall creates a new `device_id` and therefore a new sender-sequence namespace. Sequence recovery for an old installation requires a separate recovery protocol.
+
+## Database decisions
 
 - One D1 database is used initially; relationships are rows, not separate databases.
 - `relationships.next_server_seq` is the per-relationship mailbox sequence counter. Do not allocate `server_seq` using `MAX()+1`.
@@ -49,7 +60,7 @@ The adversarial protocol review is complete. The following are now hard invarian
 - One active device per participant is enforced with a partial unique index in the MVP; revoked devices remain as historical records.
 - Device credentials and invitation tokens are stored only as hashes.
 
-## C2 edge-case decisions
+## Edge-case decisions
 
 - Out-of-order sender sequence arrival is valid; sequence 7 may arrive before 6.
 - A new device after reinstall gets a new device identity rather than reusing the old sender-sequence namespace.
@@ -60,24 +71,37 @@ The adversarial protocol review is complete. The following are now hard invarian
 - Expired unacknowledged mailbox data is not treated as successfully delivered.
 - Cleanup is bounded and separate from delivery semantics.
 
-## C2 artifacts
+## Pairing contract decisions
+
+- Pairing uses a high-entropy one-time invitation token as the actual credential.
+- A human-friendly confirmation code is usability/confirmation material only and cannot authenticate by itself.
+- Invitation acceptance atomically creates the second device, consumes the invitation, and transitions `PAIRING -> ACTIVE`.
+- Concurrent acceptance of one invitation must result in exactly one successful second-device creation.
+- Device credentials and invitation tokens are stored only as hashes.
+- The server derives participant identity from authenticated device/relationship state; client-supplied participant or relationship IDs are not authorization inputs.
+- Pairing endpoints remain `501` until the contract and adversarial tests are implemented and passing.
+
+## Artifacts
 
 - `docs/cloud/SCHEMA.md` — schema, constraints, transaction boundaries, and test matrix.
-- `docs/cloud/MIGRATION_0001.sql` — initial D1 migration draft; documentation only until backend implementation begins.
-- `docs/cloud/PROTOCOL_REVIEW.md` — C1 adversarial review.
+- `docs/cloud/MIGRATION_0001.sql` — initial D1 migration draft.
+- `docs/cloud/PROTOCOL_REVIEW.md` — adversarial protocol review.
 - `docs/cloud/ARCHITECTURE.md` — broader cloud architecture research.
+- `docs/cloud/ORDERING.md` — frozen offline/concurrent message ordering model.
+- `docs/cloud/PAIRING_PROTOCOL.md` — frozen pairing API and transaction contract plus adversarial test matrix.
 
-## Remaining decisions before backend implementation
+## Remaining product decisions
 
 1. Maximum unacknowledged mailbox retention.
-2. Manual code-only pairing. Recommendation: no; secure token required.
-3. Exact photo/video size limits and multipart threshold.
-4. Poison-message UX and permanent-invalid handling.
-5. Eventual E2E protocol/library after Expo/RN compatibility research.
-6. Future multi-device acknowledgement model.
-7. Relationship-end UX for already accepted/pending mailbox messages.
-8. Cloudflare billing/plan choice for production.
+2. Exact photo/video size limits and multipart threshold.
+3. Poison-message UX and permanent-invalid handling.
+4. Eventual E2E protocol/library after Expo/RN compatibility research.
+5. Future multi-device acknowledgement model.
+6. Relationship-end UX for already accepted/pending mailbox messages.
+7. Cloudflare billing/plan choice for production.
 
-## Next phase
+## Current implementation boundary
 
-**C3 — Worker skeleton and local D1 test environment.** No production Cloudflare resources should be created until the C2 artifacts have been reviewed and the remaining product decisions that affect protocol behavior have been explicitly accepted.
+The Worker skeleton and local D1 environment exist, but protocol endpoints remain intentionally inactive. Do not implement mobile sync against them yet.
+
+The next backend implementation step is pairing: implement the frozen contract, add executable transaction/concurrency tests, perform another code review, and only then proceed to message synchronization.
