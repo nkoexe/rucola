@@ -72,7 +72,7 @@ describe("Rucola pairing hardening", () => {
     expect(accepted.status).toBe(201);
   });
 
-  it("does not expose a valid confirmation code through timing-dependent string comparison", async () => {
+  it("does not mutate pairing state for another invalid confirmation code", async () => {
     const body = await bootstrap();
     const response = await exports.default.fetch("https://rucola.test/v1/pairing/accept", {
       method: "POST",
@@ -82,11 +82,12 @@ describe("Rucola pairing hardening", () => {
     expect(response.status).toBe(400);
 
     const invitation = await env.DB.prepare(
-      "SELECT consumed_at FROM invitations WHERE id = ?1",
+      "SELECT consumed_at, failed_attempts FROM invitations WHERE id = ?1",
     )
       .bind(body.invitationId)
-      .first<{ consumed_at: number | null }>();
+      .first<{ consumed_at: number | null; failed_attempts: number }>();
     expect(invitation?.consumed_at).toBeNull();
+    expect(invitation?.failed_attempts).toBe(1);
   });
 
   it("sets defensive response headers on API responses", async () => {
