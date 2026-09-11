@@ -7,6 +7,7 @@ import type { RucolaRepository } from '../domain/repository';
 
 interface RelationshipRow { id: string; partnerNickname: string; ownName: string; partnerColor: string; togetherSince: number | null; }
 interface MessageRow { id: string; relationshipId: string; participant: Participant; type: MessageType; body: string; createdAt: number; orderIndex: number; isActive: number; mediaReference: string | null; syncState: SyncState; }
+type SQLiteWriteContext = Pick<SQLiteDatabase, 'getFirstAsync' | 'runAsync'>;
 
 function mapRelationship(row: RelationshipRow): Relationship { return { ...row }; }
 function mapMessage(row: MessageRow): Message { return { ...row, isActive: row.isActive === 1 }; }
@@ -24,8 +25,8 @@ export class SQLiteRucolaRepository implements RucolaRepository {
     const ownName = input.ownName.trim();
     if (!partnerNickname || !ownName) throw new Error('Both names are required.');
 
-    await this.db.withTransactionAsync(async () => {
-      await this.db.runAsync(
+    await this.db.withExclusiveTransactionAsync(async (tx) => {
+      await tx.runAsync(
         `INSERT INTO relationships (id, partnerNickname, ownName, partnerColor, togetherSince)
          VALUES (?, ?, ?, ?, ?)
          ON CONFLICT(id) DO UPDATE SET
@@ -36,7 +37,7 @@ export class SQLiteRucolaRepository implements RucolaRepository {
         RELATIONSHIP_ID, partnerNickname, ownName, input.partnerColor ?? '#8FC56A', input.togetherSince,
       );
 
-      const activePartner = await this.db.getFirstAsync<{ messageId: string }>(
+      const activePartner = await tx.getFirstAsync<{ messageId: string }>(
         `SELECT messageId
          FROM active_message_slots
          WHERE relationshipId = ? AND participant = 'PARTNER'`,
@@ -44,7 +45,7 @@ export class SQLiteRucolaRepository implements RucolaRepository {
       );
       if (activePartner) return;
 
-      const existingPartner = await this.db.getFirstAsync<{ id: string }>(
+      const existingPartner = await tx.getFirstAsync<{ id: string }>(
         `SELECT id
          FROM messages
          WHERE relationshipId = ? AND participant = 'PARTNER'
@@ -53,16 +54,16 @@ export class SQLiteRucolaRepository implements RucolaRepository {
         RELATIONSHIP_ID,
       );
       if (existingPartner) {
-        await this.setActiveSlot('PARTNER', existingPartner.id);
+        await this.setActiveSlot(tx, 'PARTNER', existingPartner.id);
         return;
       }
 
-      const next = await this.db.getFirstAsync<{ nextOrderIndex: number }>(
+      const next = await tx.getFirstAsync<{ nextOrderIndex: number }>(
         'SELECT COALESCE(MAX(orderIndex), 0) + 1 AS nextOrderIndex FROM messages WHERE relationshipId = ?',
         RELATIONSHIP_ID,
       );
       const seedMessageId = randomUUID();
-      await this.insertMessage({
+      await this.insertMessage(tx, {
         id: seedMessageId,
         relationshipId: RELATIONSHIP_ID,
         participant: 'PARTNER',
@@ -74,23 +75,26 @@ export class SQLiteRucolaRepository implements RucolaRepository {
         syncState: 'LOCAL_ONLY',
         isActive: true,
       });
-      await this.setActiveSlot('PARTNER', seedMessageId);
+      await this.setActiveSlot(tx, 'PARTNER', seedMessageId);
     });
   }
 
   async deleteRelationship(): Promise<void> {
-    const rows = await this.db.getAllAsync<{ mediaReference: string | null }>(
-      'SELECT mediaReference FROM messages WHERE relationshipId = ? AND mediaReference IS NOT NULL',
-      RELATIONSHIP_ID,
-    );
+    let mediaReferences: string[] = [];
 
-    await this.db.withTransactionAsync(async () => {
-      await this.db.runAsync('DELETE FROM active_message_slots WHERE relationshipId = ?', RELATIONSHIP_ID);
-      await this.db.runAsync('DELETE FROM messages WHERE relationshipId = ?', RELATIONSHIP_ID);
-      await this.db.runAsync('DELETE FROM relationships WHERE id = ?', RELATIONSHIP_ID);
+    await this.db.withExclusiveTransactionAsync(async (tx) => {
+      const rows = await tx.getAllAsync<{ mediaReference: string | null }>(
+        'SELECT mediaReference FROM messages WHERE relationshipId = ? AND mediaReference IS NOT NULL',
+        RELATIONSHIP_ID,
+      );
+      mediaReferences = rows.flatMap((row) => row.mediaReference ? [row.mediaReference] : []);
+
+      await tx.runAsync('DELETE FROM active_message_slots WHERE relationshipId = ?', RELATIONSHIP_ID);
+      await tx.runAsync('DELETE FROM messages WHERE relationshipId = ?', RELATIONSHIP_ID);
+      await tx.runAsync('DELETE FROM relationships WHERE id = ?', RELATIONSHIP_ID);
     });
 
-    await Promise.all(rows.map((row) => row.mediaReference ? deleteOwnedMedia(row.mediaReference) : Promise.resolve()));
+    await Promise.all(mediaReferences.map((mediaReference) => deleteOwnedMedia(mediaReference)));
   }
 
   async getMessages(): Promise<Message[]> {
@@ -126,29 +130,32 @@ export class SQLiteRucolaRepository implements RucolaRepository {
     if ((input.type === 'TEXT' || input.type === 'EMOJI') && !body) throw new Error('This message type requires content.');
     if ((input.type === 'PHOTO_VIDEO' || input.type === 'DRAWING') && !mediaReference) throw new Error('This message type requires media.');
 
-    const relationship = await this.getRelationship();
-    if (!relationship) throw new Error('Cannot send a message before setup is complete.');
-
     const message: Message = { id: randomUUID(), relationshipId: RELATIONSHIP_ID, participant: 'ME', type: input.type, body, createdAt: Date.now(), orderIndex: 0, isActive: true, mediaReference, syncState: 'PENDING' };
-    await this.db.withTransactionAsync(async () => {
-      const next = await this.db.getFirstAsync<{ nextOrderIndex: number }>('SELECT COALESCE(MAX(orderIndex), 0) + 1 AS nextOrderIndex FROM messages WHERE relationshipId = ?', RELATIONSHIP_ID);
+    await this.db.withExclusiveTransactionAsync(async (tx) => {
+      const relationship = await tx.getFirstAsync<RelationshipRow>(
+        'SELECT id, partnerNickname, ownName, partnerColor, togetherSince FROM relationships WHERE id = ?',
+        RELATIONSHIP_ID,
+      );
+      if (!relationship) throw new Error('Cannot send a message before setup is complete.');
+
+      const next = await tx.getFirstAsync<{ nextOrderIndex: number }>('SELECT COALESCE(MAX(orderIndex), 0) + 1 AS nextOrderIndex FROM messages WHERE relationshipId = ?', RELATIONSHIP_ID);
       message.orderIndex = next?.nextOrderIndex ?? 1;
-      await this.insertMessage(message);
-      await this.setActiveSlot('ME', message.id);
+      await this.insertMessage(tx, message);
+      await this.setActiveSlot(tx, 'ME', message.id);
     });
     return message;
   }
 
-  private async insertMessage(message: Message): Promise<void> {
-    await this.db.runAsync(
+  private async insertMessage(db: SQLiteWriteContext, message: Message): Promise<void> {
+    await db.runAsync(
       `INSERT INTO messages (id, relationshipId, participant, type, body, createdAt, orderIndex, mediaReference, syncState)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       message.id, message.relationshipId, message.participant, message.type, message.body, message.createdAt, message.orderIndex, message.mediaReference, message.syncState,
     );
   }
 
-  private async setActiveSlot(participant: Participant, messageId: string): Promise<void> {
-    await this.db.runAsync(
+  private async setActiveSlot(db: SQLiteWriteContext, participant: Participant, messageId: string): Promise<void> {
+    await db.runAsync(
       `INSERT INTO active_message_slots (relationshipId, participant, messageId)
        VALUES (?, ?, ?)
        ON CONFLICT(relationshipId, participant) DO UPDATE SET messageId = excluded.messageId`,
