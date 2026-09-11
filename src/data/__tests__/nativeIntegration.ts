@@ -18,7 +18,7 @@ function assertEqual<T>(actual: T, expected: T, message: string): void {
   }
 }
 
-async function withTestDatabase<T>(testName: string, test: (db: SQLite.SQLiteDatabase) => Promise<T>): Promise<T> {
+async function withTestDatabase<T>(test: (db: SQLite.SQLiteDatabase) => Promise<T>): Promise<T> {
   const databaseName = `rucola-test-${Date.now()}-${Math.random().toString(36).slice(2)}.db`;
   const db = await SQLite.openDatabaseAsync(databaseName);
   try {
@@ -133,7 +133,7 @@ export async function runNativeIntegrationTests(): Promise<NativeIntegrationResu
 
   for (const [name, test] of tests) {
     try {
-      await withTestDatabase(name, test);
+      await withTestDatabase(test);
       results.push({ name, passed: true });
     } catch (cause) {
       results.push({
