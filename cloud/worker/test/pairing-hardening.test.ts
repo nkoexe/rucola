@@ -74,6 +74,14 @@ describe("Rucola pairing hardening", () => {
     expect(invalid.status).toBe(400);
   });
 
+  it("rejects unsupported methods on known routes", async () => {
+    const response = await exports.default.fetch("https://rucola.test/v1/pairing/bootstrap", {
+      method: "GET",
+    });
+    expect(response.status).toBe(405);
+    expect(response.headers.get("allow")).toBe("POST, OPTIONS");
+  });
+
   it("locks an invitation after repeated invalid confirmation codes", async () => {
     const body = await bootstrap();
     const invalidCode = wrongConfirmationCode(body.confirmationCode);
