@@ -25,8 +25,6 @@ export class SQLiteRucolaRepository implements RucolaRepository {
     if (!partnerNickname || !ownName) throw new Error('Both names are required.');
 
     await this.db.withTransactionAsync(async () => {
-      // Do not use INSERT OR REPLACE here. SQLite REPLACE deletes the existing
-      // relationship row first, which would cascade-delete its message history.
       await this.db.runAsync(
         `INSERT INTO relationships (id, partnerNickname, ownName, partnerColor, togetherSince)
          VALUES (?, ?, ?, ?, ?)
@@ -39,7 +37,7 @@ export class SQLiteRucolaRepository implements RucolaRepository {
       );
       const count = await this.db.getFirstAsync<{ count: number }>('SELECT COUNT(*) AS count FROM messages WHERE relationshipId = ?', RELATIONSHIP_ID);
       if ((count?.count ?? 0) === 0) {
-        await this.insertMessage({ id: 'seed-partner-message', relationshipId: RELATIONSHIP_ID, participant: 'PARTNER', type: 'TEXT', body: 'good luck today ♡', createdAt: Date.now(), orderIndex: 1, isActive: true, mediaReference: null, syncState: 'LOCAL_ONLY' });
+        await this.insertMessage({ id: 'seed-partner-message', relationshipId: RELATIONSHIP_ID, participant: 'PARTNER', type: 'TEXT', body: 'good luck today ♡', createdAt: Date.now(), orderIndex: 1, mediaReference: null, syncState: 'LOCAL_ONLY' });
         await this.setActiveSlot('PARTNER', 'seed-partner-message');
       }
     });
@@ -100,9 +98,7 @@ export class SQLiteRucolaRepository implements RucolaRepository {
     await this.db.withTransactionAsync(async () => {
       const next = await this.db.getFirstAsync<{ nextOrderIndex: number }>('SELECT COALESCE(MAX(orderIndex), 0) + 1 AS nextOrderIndex FROM messages WHERE relationshipId = ?', RELATIONSHIP_ID);
       message.orderIndex = next?.nextOrderIndex ?? 1;
-      await this.insertMessage({ ...message, isActive: false });
-      await this.db.runAsync('UPDATE messages SET isActive = 0 WHERE relationshipId = ? AND participant = ? AND isActive = 1', RELATIONSHIP_ID, 'ME');
-      await this.db.runAsync('UPDATE messages SET isActive = 1 WHERE id = ?', message.id);
+      await this.insertMessage(message);
       await this.setActiveSlot('ME', message.id);
     });
     return message;
@@ -110,13 +106,18 @@ export class SQLiteRucolaRepository implements RucolaRepository {
 
   private async insertMessage(message: Message): Promise<void> {
     await this.db.runAsync(
-      `INSERT OR IGNORE INTO messages (id, relationshipId, participant, type, body, createdAt, orderIndex, isActive, mediaReference, syncState)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      message.id, message.relationshipId, message.participant, message.type, message.body, message.createdAt, message.orderIndex, message.isActive ? 1 : 0, message.mediaReference, message.syncState,
+      `INSERT INTO messages (id, relationshipId, participant, type, body, createdAt, orderIndex, mediaReference, syncState)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      message.id, message.relationshipId, message.participant, message.type, message.body, message.createdAt, message.orderIndex, message.mediaReference, message.syncState,
     );
   }
 
   private async setActiveSlot(participant: Participant, messageId: string): Promise<void> {
-    await this.db.runAsync('INSERT OR REPLACE INTO active_message_slots (relationshipId, participant, messageId) VALUES (?, ?, ?)', RELATIONSHIP_ID, participant, messageId);
+    await this.db.runAsync(
+      `INSERT INTO active_message_slots (relationshipId, participant, messageId)
+       VALUES (?, ?, ?)
+       ON CONFLICT(relationshipId, participant) DO UPDATE SET messageId = excluded.messageId`,
+      RELATIONSHIP_ID, participant, messageId,
+    );
   }
 }
