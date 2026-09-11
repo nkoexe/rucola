@@ -9,6 +9,7 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertThrows
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Before
@@ -105,5 +106,15 @@ class RoomPersistenceTest {
         assertEquals("good luck today ♡", messages.single().body)
         assertEquals(Participant.PARTNER, messages.single().participant)
         assertTrue(messages.single().isActive)
+    }
+
+    @Test
+    fun repositoryRejectsBlankTextMessages() = runBlocking {
+        val repository = RoomRucolaRepository(database.dao())
+
+        val error = assertThrows(IllegalArgumentException::class.java) {
+            runBlocking { repository.sendMessage(MessageType.TEXT, " ") }
+        }
+        assertEquals("Text messages need a message body", error.message)
     }
 }
