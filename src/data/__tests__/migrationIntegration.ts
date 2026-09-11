@@ -230,6 +230,38 @@ async function testRollbackAfterTransformationFailure(): Promise<void> {
   });
 }
 
+async function testRejectsIncompleteSchema(): Promise<void> {
+  await withRawTestDatabase(async (db) => {
+    await db.execAsync(`
+      CREATE TABLE relationships (id TEXT PRIMARY KEY NOT NULL);
+      CREATE TABLE messages (id TEXT PRIMARY KEY NOT NULL);
+      PRAGMA user_version = 0;
+    `);
+
+    await assertRejects(
+      () => initializeDatabase(db),
+      'Initialization should reject a version-0 database with an incomplete legacy schema',
+    );
+
+    const version = await db.getFirstAsync<{ user_version: number }>('PRAGMA user_version');
+    assertEqual(version?.user_version, 0, 'Incomplete schema rejection must not change user_version');
+  });
+}
+
+async function testRejectsNewerSchema(): Promise<void> {
+  await withRawTestDatabase(async (db) => {
+    await db.execAsync('PRAGMA user_version = 999;');
+
+    await assertRejects(
+      () => initializeDatabase(db),
+      'Initialization should reject a database newer than the supported schema version',
+    );
+
+    const version = await db.getFirstAsync<{ user_version: number }>('PRAGMA user_version');
+    assertEqual(version?.user_version, 999, 'Newer schema rejection must preserve user_version');
+  });
+}
+
 export async function runMigrationIntegrationTests(): Promise<void> {
   await testV0Migration();
   await testV1Migration();
@@ -238,4 +270,6 @@ export async function runMigrationIntegrationTests(): Promise<void> {
   await testRejectsInvalidActiveState();
   await testRejectsOrphanActiveMessage();
   await testRollbackAfterTransformationFailure();
+  await testRejectsIncompleteSchema();
+  await testRejectsNewerSchema();
 }
