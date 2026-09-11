@@ -3,7 +3,7 @@ import * as ImagePicker from 'expo-image-picker';
 import { Alert, KeyboardAvoidingView, PanResponder, Platform, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import type { getRepository } from '../../data/repository';
 import { deleteOwnedMedia, persistPickedMedia } from '../../data/media';
-import { runNativeIntegrationTests, type NativeIntegrationResult } from '../../data/nativeIntegration';
+import { runNativeIntegrationTests } from '../../data/nativeIntegration';
 import type { Message, Relationship } from '../../domain/models';
 import { GetActiveMessage, SendMessage } from '../../domain/useCases';
 import { MessageMedia } from '../../components/MessageMedia';
