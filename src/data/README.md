@@ -1,8 +1,8 @@
-# Native SQLite integration tests
+# SQLite integration tests
 
 `SQLiteRucolaRepository` uses `expo-sqlite`, so these tests cannot be executed by the plain Node test runner used by `npm run test:domain`.
 
-The development-only runner is implemented in `nativeIntegration.ts` and is exposed from Settings in a native development build. It creates disposable databases and constructs the real `SQLiteRucolaRepository`; it never uses the user's normal `rucola.db`.
+The development-only runner is implemented in `nativeIntegration.ts` and is loaded on demand from the development Settings screen. It creates disposable databases and constructs the real `SQLiteRucolaRepository`; it never uses the user's normal `rucola.db`.
 
 The current runner has not been executed in this environment. Do not report native integration coverage as passing until the suite has actually been run in a native development build.
 

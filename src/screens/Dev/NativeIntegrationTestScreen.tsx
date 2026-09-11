@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
-import { runNativeIntegrationTests, type NativeIntegrationResult } from '../../data/__tests__/nativeIntegration';
+import { runNativeIntegrationTests, type NativeIntegrationResult } from '../../data/nativeIntegration';
 
 export function NativeIntegrationTestScreen({ onBack }: { onBack: () => void }) {
   const [running, setRunning] = useState(false);

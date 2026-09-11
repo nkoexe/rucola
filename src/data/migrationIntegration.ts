@@ -1,6 +1,6 @@
 import * as SQLite from 'expo-sqlite';
-import { SQLiteRucolaRepository } from '../SQLiteRucolaRepository';
-import { initializeDatabase } from '../database';
+import { SQLiteRucolaRepository } from './SQLiteRucolaRepository';
+import { initializeDatabase } from './database';
 
 function assert(condition: unknown, message: string): asserts condition {
   if (!condition) throw new Error(message);

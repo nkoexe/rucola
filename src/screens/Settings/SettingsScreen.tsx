@@ -3,7 +3,8 @@ import { Alert, Pressable, StyleSheet, Text, View } from 'react-native';
 import type { getRepository } from '../../data/repository';
 import type { Relationship } from '../../domain/models';
 import { DeleteRelationship } from '../../domain/useCases';
-import { NativeIntegrationTestScreen } from '../Dev/NativeIntegrationTestScreen';
+
+type NativeIntegrationTestScreenComponent = typeof import('../Dev/NativeIntegrationTestScreen')['NativeIntegrationTestScreen'];
 
 type Props = { relationship: Relationship; repositoryPromise: ReturnType<typeof getRepository>; onBack: () => void; onRelationshipDeleted: () => void };
 
@@ -11,10 +12,22 @@ export function SettingsScreen({ relationship, repositoryPromise, onBack, onRela
   const [deleting, setDeleting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showNativeTests, setShowNativeTests] = useState(false);
+  const [nativeIntegrationTestScreen, setNativeIntegrationTestScreen] = useState<NativeIntegrationTestScreenComponent | null>(null);
 
   if (__DEV__ && showNativeTests) {
+    if (!nativeIntegrationTestScreen) {
+      return <View style={styles.container}><Text>Loading native tests...</Text></View>;
+    }
+    const NativeIntegrationTestScreen = nativeIntegrationTestScreen;
     return <NativeIntegrationTestScreen onBack={() => setShowNativeTests(false)} />;
   }
+
+  const openNativeTests = () => {
+    setShowNativeTests(true);
+    void import('../Dev/NativeIntegrationTestScreen').then(({ NativeIntegrationTestScreen }) => {
+      setNativeIntegrationTestScreen(() => NativeIntegrationTestScreen);
+    });
+  };
 
   const clearLocalData = () => {
     Alert.alert('Clear local data?', 'This removes the relationship and all locally stored messages from this device.', [
@@ -58,7 +71,7 @@ export function SettingsScreen({ relationship, repositoryPromise, onBack, onRela
       {__DEV__ ? (
         <View style={styles.section}>
           <Text style={styles.label}>development</Text>
-          <Pressable onPress={() => setShowNativeTests(true)} style={styles.devButton}>
+          <Pressable onPress={openNativeTests} style={styles.devButton}>
             <Text style={styles.devText}>Open native SQLite tests</Text>
           </Pressable>
         </View>

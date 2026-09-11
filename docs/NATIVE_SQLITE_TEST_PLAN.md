@@ -4,7 +4,7 @@ Rucola's repository implementation depends on `expo-sqlite`, so repository integ
 
 ## Harness status
 
-The development-only native harness is now implemented at `src/data/__tests__/nativeIntegration.ts` and exposed through the development Settings screen. It creates a uniquely named disposable SQLite database, initializes the real schema, constructs the real `SQLiteRucolaRepository`, runs assertions, closes the database, and deletes it afterward. The normal `rucola.db` is never used by the suite.
+The development-only native harness is implemented at `src/data/nativeIntegration.ts` and exposed through the development Settings screen. It creates a uniquely named disposable SQLite database, initializes the real schema, constructs the real `SQLiteRucolaRepository`, runs assertions, closes the database, and deletes it afterward. The normal `rucola.db` is never used by the suite.
 
 The harness has not been executed in this environment, so its tests must not be described as passing until they are run in a native development build.
 
