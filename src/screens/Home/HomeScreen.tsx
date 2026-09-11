@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import * as ImagePicker from 'expo-image-picker';
 import { Alert, KeyboardAvoidingView, PanResponder, Platform, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import type { getRepository } from '../../data/repository';
+import { launchCameraWithPermission } from '../../data/camera';
 import { deleteOwnedMedia, persistPickedMedia } from '../../data/media';
 import { runNativeIntegrationTests } from '../../data/nativeIntegration';
 import type { Message, Relationship } from '../../domain/models';
@@ -118,10 +119,7 @@ export function HomeScreen({ relationship, repositoryPromise, revision, onChange
       },
       {
         text: 'Camera',
-        onPress: () => void sendMedia(() => ImagePicker.launchCameraAsync({
-          mediaTypes: ['images', 'videos'],
-          quality: 0.9,
-        })),
+        onPress: () => void sendMedia(launchCameraWithPermission),
       },
       { text: 'Cancel', style: 'cancel' },
     ]);
