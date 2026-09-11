@@ -87,6 +87,8 @@ export async function acceptInvitation(env: Env, request: Request): Promise<Resp
   if (!equalHex(suppliedCodeHash, invitation.confirmation_code_hash)) { const lockUntil = now + CONFIRMATION_LOCKOUT_MS; await env.DB.prepare(`UPDATE invitations SET failed_attempts = failed_attempts + 1, locked_until = CASE WHEN failed_attempts + 1 >= ?1 THEN ?2 ELSE locked_until END WHERE id = ?3 AND consumed_at IS NULL AND expires_at > ?4`).bind(MAX_CONFIRMATION_ATTEMPTS, lockUntil, invitation.id, now).run(); return errorResponse("INVALID_INVITATION", "Invalid invitation", 400); }
   const relationship = await env.DB.prepare(`SELECT status FROM relationships WHERE id = ?1`).bind(invitation.relationship_id).first<{ status:"PAIRING"|"ACTIVE"|"ENDED" }>();
   if (!relationship || relationship.status !== "PAIRING") return errorResponse("PAIRING_CLOSED", "Pairing is no longer open", 409);
+  const activeDevices = await env.DB.prepare(`SELECT COUNT(*) AS count FROM devices WHERE relationship_id = ?1 AND revoked_at IS NULL`).bind(invitation.relationship_id).first<{count:number}>();
+  if (activeDevices?.count !== 1) return errorResponse("PAIRING_CONFLICT", "Pairing state is invalid", 409);
   const activeDevice = await env.DB.prepare(`SELECT id FROM devices WHERE relationship_id = ?1 AND participant = 'ME' AND revoked_at IS NULL`).bind(invitation.relationship_id).first<{id:string}>();
   if (!activeDevice) return errorResponse("PAIRING_CONFLICT", "Pairing state is invalid", 409);
   const deviceId = randomId(); const credential = randomToken(CREDENTIAL_BYTES); const credentialHash = await sha256Hex(credential);
