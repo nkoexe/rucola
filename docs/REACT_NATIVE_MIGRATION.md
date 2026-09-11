@@ -11,6 +11,8 @@ The Kotlin implementation is a behavioral reference, not a code-conversion targe
 - Expo + React Native + TypeScript
 - Android development build / prebuild workflow
 - `expo-sqlite` local persistence
+- `expo-image-picker` + `expo-file-system` local media persistence
+- `expo-video` local video playback
 - Local SQLite is the source of truth for the prototype
 - No backend/network dependency yet
 
@@ -46,13 +48,23 @@ The Kotlin implementation is a behavioral reference, not a code-conversion targe
 - Setup/date and persistence errors are surfaced instead of silently failing.
 - Duplicate legacy domain model/use-case files on the migration branch were removed.
 
+### Phase 4a — Local photo/video media
+
+- Photo/video selection from the device library.
+- Photo/video capture through the device camera.
+- Picked media is copied into Rucola's durable app document storage before the message is persisted.
+- Media-only messages are supported; an optional caption can be included.
+- Active photo/video messages render on the home screen.
+- Historical photo/video messages render in history and calendar views.
+- Clearing local relationship data removes media files owned by the relationship.
+
 ## Deliberate current limitations
 
-- Photo/video is still a placeholder.
 - Drawing is still a placeholder.
 - There is no real two-device pairing yet.
 - There is no backend, synchronization engine, push notification system, widget, or E2E encryption.
 - The UI is intentionally barebones. Detailed Figma implementation is deferred until behavior is complete.
+- The dependency lockfile still needs to be regenerated locally after adding the new Expo media packages.
 
 Do not fake two-device communication. Pairing must become genuinely functional once a backend transport exists.
 
@@ -67,7 +79,7 @@ domain use cases + repository interfaces
         ↓
 local persistence implementation
         ↓
-SQLite
+SQLite + app document media
 
 future:
 sync engine → pairing/sync API
@@ -113,18 +125,9 @@ The implementation should introduce a pairing abstraction before wiring a backen
 
 ## Next implementation phases
 
-### Phase 4 — Media composition
+### Phase 4b — Drawing
 
-Implement real local media composition while preserving the same message lifecycle:
-
-- photo selection/capture;
-- video selection/capture;
-- durable local media references;
-- optional text alongside media;
-- media-only messages;
-- failure/cancellation handling.
-
-Drawing should similarly become a real local message composer rather than a placeholder.
+Implement a real local drawing composer and persist its output as durable message media. Drawing should support a media-only message and an optional caption, just like photo/video messages.
 
 ### Phase 5 — Backend pairing and synchronization
 
