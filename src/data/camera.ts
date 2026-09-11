@@ -1,7 +1,9 @@
 import * as ImagePicker from 'expo-image-picker';
 import { Alert, Linking } from 'react-native';
 
-export async function launchCameraWithPermission(): Promise<ImagePicker.ImagePickerResult> {
+export async function launchCameraWithPermission(
+  mediaTypes: ImagePicker.MediaType[] = ['images', 'videos'],
+): Promise<ImagePicker.ImagePickerResult> {
   let permission = await ImagePicker.getCameraPermissionsAsync();
 
   if (!permission.granted && permission.canAskAgain) {
@@ -25,7 +27,7 @@ export async function launchCameraWithPermission(): Promise<ImagePicker.ImagePic
   }
 
   return ImagePicker.launchCameraAsync({
-    mediaTypes: ['images', 'videos'],
+    mediaTypes,
     quality: 0.9,
   });
 }
