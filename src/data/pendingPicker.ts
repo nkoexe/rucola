@@ -1,10 +1,10 @@
 import * as ImagePicker from 'expo-image-picker';
 
-import type { RucolaRepository } from '../domain/repository';
 import { SendMessage } from '../domain/useCases';
 import { deleteOwnedMedia, persistPickedMedia } from './media';
+import type { SQLiteRucolaRepository } from './SQLiteRucolaRepository';
 
-export async function recoverPendingPickerResult(repository: RucolaRepository): Promise<boolean> {
+export async function recoverPendingPickerResult(repository: SQLiteRucolaRepository): Promise<boolean> {
   const result = await ImagePicker.getPendingResultAsync();
 
   if (!result || !('canceled' in result)) {
