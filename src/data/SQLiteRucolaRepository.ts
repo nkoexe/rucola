@@ -1,6 +1,7 @@
 import { randomUUID } from 'expo-crypto';
 import type { SQLiteDatabase } from 'expo-sqlite';
 import { RELATIONSHIP_ID } from './database';
+import { deleteOwnedMedia } from './media';
 import type { Message, MessageType, Participant, Relationship, SyncState } from '../domain/models';
 import type { RucolaRepository } from '../domain/repository';
 
@@ -37,11 +38,18 @@ export class SQLiteRucolaRepository implements RucolaRepository {
   }
 
   async deleteRelationship(): Promise<void> {
+    const rows = await this.db.getAllAsync<{ mediaReference: string | null }>(
+      'SELECT mediaReference FROM messages WHERE relationshipId = ? AND mediaReference IS NOT NULL',
+      RELATIONSHIP_ID,
+    );
+
     await this.db.withTransactionAsync(async () => {
       await this.db.runAsync('DELETE FROM active_message_slots WHERE relationshipId = ?', RELATIONSHIP_ID);
       await this.db.runAsync('DELETE FROM messages WHERE relationshipId = ?', RELATIONSHIP_ID);
       await this.db.runAsync('DELETE FROM relationships WHERE id = ?', RELATIONSHIP_ID);
     });
+
+    await Promise.all(rows.map((row) => row.mediaReference ? deleteOwnedMedia(row.mediaReference) : Promise.resolve()));
   }
 
   async getMessages(): Promise<Message[]> {
