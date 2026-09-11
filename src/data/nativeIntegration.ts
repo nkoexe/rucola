@@ -55,6 +55,24 @@ async function testFreshDatabase(db: SQLite.SQLiteDatabase): Promise<void> {
   assertEqual(foreignKeys?.foreign_keys, 1, 'Foreign keys must be enabled');
 }
 
+async function testConcurrentInitialization(db: SQLite.SQLiteDatabase): Promise<void> {
+  const results = await Promise.all(
+    Array.from({ length: 10 }, () => initializeDatabase(db)),
+  );
+
+  for (const result of results) {
+    assertEqual(result, db, 'Concurrent initialization should resolve to the same database');
+  }
+
+  const version = await db.getFirstAsync<{ user_version: number }>('PRAGMA user_version');
+  assertEqual(version?.user_version, 2, 'Concurrent initialization should leave a valid schema');
+
+  const tables = await db.getAllAsync<{ name: string }>(
+    "SELECT name FROM sqlite_master WHERE type = 'table' AND name IN ('relationships', 'messages', 'active_message_slots')",
+  );
+  assertEqual(tables.length, 3, 'Concurrent initialization should create each core table exactly once');
+}
+
 async function testMessageLifecycle(db: SQLite.SQLiteDatabase): Promise<void> {
   const repository = new SQLiteRucolaRepository(db);
   await repository.saveSetup({
@@ -122,7 +140,7 @@ async function testConcurrentRepositoryInstances(db: SQLite.SQLiteDatabase): Pro
     .sort((a, b) => a.orderIndex - b.orderIndex);
 
   assertEqual(ownMessages.length, 20, 'Concurrent repository instances should persist every message');
-  assertEqual(new Set(sent.map((message) => message.id)).size, 20, 'Concurrent repository instances should generate unique IDs');
+  assertEqual(new Set(sent.map((message) => message.id)).size, 20, 'Concurrent repository instances should generate unique message IDs');
   for (let index = 0; index < ownMessages.length; index += 1) {
     const message = ownMessages[index];
     assert(message, `Concurrent repository message at index ${index} should exist`);
@@ -217,6 +235,7 @@ async function testMediaLifecycle(): Promise<void> {
 
 const coreTests: Array<[string, (db: SQLite.SQLiteDatabase) => Promise<void>]> = [
   ['fresh database', testFreshDatabase],
+  ['concurrent initialization', testConcurrentInitialization],
   ['message lifecycle', testMessageLifecycle],
   ['concurrent message ordering', testConcurrentMessageOrdering],
   ['concurrent repository instances', testConcurrentRepositoryInstances],
