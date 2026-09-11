@@ -57,7 +57,7 @@ A backend outage must not make existing local history disappear or become inacce
 
 The current prototype has one fixed local relationship ID (`the-one`) because there is only one relationship per installation. This is an implementation simplification, not a promise that a server should use that identifier.
 
-Each participant is intended to have exactly one active message and zero or more immutable historical messages. The application lifecycle establishes the active slots; SQLite enforces that a participant cannot have more than one active slot and that each slot points to a message belonging to the same relationship and participant.
+Each participant is intended to have exactly one active message once that participant has a message. SQLite enforces that a participant cannot have more than one active slot and that each slot points to a message belonging to the same relationship and participant.
 
 Messages contain:
 
@@ -127,11 +127,13 @@ Never use synchronization state as a disguised read receipt.
 
 ## 8. Media lifecycle
 
-Photo/video and drawing messages use the same immutable message lifecycle as text and emoji.
+Photo/video messages now use the real device picker/camera path. Selected or captured media is copied into an app-owned document `media/` directory before the message is persisted. Message history stores the durable local URI and can render images or videos from that URI.
 
-The local model already has `mediaReference`, `PHOTO_VIDEO`, and `DRAWING` message types so media can be implemented without redesigning the message schema.
+Drawing remains a declared message type but is intentionally not implemented yet.
 
-The current UI deliberately uses placeholders. Real media must be durably stored locally before it is treated as local message data.
+If a media message fails to persist after the file has been copied, the newly copied file is removed. Clearing local data removes database rows first and then attempts to remove their app-owned media files; missing or already-unreadable files do not prevent the database reset from completing.
+
+Media deletion only accepts direct children of the app-owned media directory, preventing a malformed stored URI from escaping that directory through path traversal.
 
 ## 9. Database migrations
 
@@ -197,7 +199,7 @@ Tests should protect at least:
 
 1. one relationship per local installation;
 2. at most one active message per participant at the database level;
-3. normal relationship lifecycle establishes one active message per participant;
+3. normal relationship lifecycle establishes the partner active message and creates the own active message when the user first sends one;
 4. creating a new message archives the previous active message;
 5. history is not destroyed by replacement;
 6. both participants' messages coexist in local history;
