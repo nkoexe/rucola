@@ -58,14 +58,20 @@ async function testRapidConcurrentWrites(db: SQLiteDatabase): Promise<void> {
   const first = new SQLiteRucolaRepository(db);
   const second = new SQLiteRucolaRepository(db);
   await first.saveSetup({ partnerNickname: 'Partner', ownName: 'Nico', togetherSince: null });
+
+  const before = (await first.getMessages()).filter((message) => message.participant === 'ME');
+  const baselineCount = before.length;
+  const baselineMaxOrderIndex = before.reduce((max, message) => Math.max(max, message.orderIndex), 0);
+
   const sent = await Promise.all(Array.from({ length: 50 }, (_, index) =>
     (index % 2 === 0 ? first : second).sendMessage({ type: 'TEXT', body: `rapid-${index}` }),
   ));
   const own = (await first.getMessages()).filter((message) => message.participant === 'ME').sort((a, b) => a.orderIndex - b.orderIndex);
-  assertEqual(own.length, 50, 'Rapid concurrent writes must persist every message');
+  assertEqual(own.length - baselineCount, 50, 'Rapid concurrent writes must persist every new message');
   assertEqual(new Set(sent.map((message) => message.id)).size, 50, 'Rapid concurrent writes must use unique IDs');
-  assertEqual(new Set(own.map((message) => message.orderIndex)).size, 50, 'Rapid concurrent writes must use unique order indexes');
-  for (let i = 0; i < own.length; i += 1) assertEqual(own[i]?.orderIndex, i + 2, 'Rapid writes must keep contiguous ordering');
+  const newMessages = own.slice(baselineCount);
+  assertEqual(new Set(newMessages.map((message) => message.orderIndex)).size, 50, 'Rapid concurrent writes must use unique order indexes');
+  for (let i = 0; i < newMessages.length; i += 1) assertEqual(newMessages[i]?.orderIndex, baselineMaxOrderIndex + i + 1, 'Rapid writes must keep contiguous ordering');
   assertEqual((await first.getActiveMessage('ME'))?.id, own.at(-1)?.id, 'Final committed write must own the active slot');
 }
 
