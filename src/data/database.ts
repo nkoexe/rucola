@@ -36,12 +36,20 @@ export async function initializeDatabase(): Promise<SQLite.SQLiteDatabase> {
   }
 
   if (version === 0) {
+    if (tables.length !== 3) {
+      throw new Error('Rucola database is incomplete and cannot be migrated safely.');
+    }
     await migrateLegacySchema(db);
   }
 
   const currentVersion = (await db.getFirstAsync<{ user_version: number }>('PRAGMA user_version;'))?.user_version ?? 0;
   if (currentVersion < SCHEMA_VERSION) {
     throw new Error(`Rucola database migration stopped at version ${currentVersion}.`);
+  }
+
+  const foreignKeyErrors = await db.getAllAsync('PRAGMA foreign_key_check;');
+  if (foreignKeyErrors.length > 0) {
+    throw new Error('Rucola database integrity check failed after migration.');
   }
 
   return db;
@@ -103,27 +111,15 @@ async function migrateLegacySchema(db: SQLite.SQLiteDatabase): Promise<void> {
     );
 
     await db.runAsync(
-      `INSERT OR IGNORE INTO messages
+      `INSERT INTO messages
        (id, relationshipId, participant, type, body, createdAt, orderIndex, mediaReference, syncState)
        SELECT id, relationshipId, participant, type, body, createdAt, orderIndex, mediaReference, syncState
-       FROM messages_legacy
-       WHERE participant IN ('ME', 'PARTNER')
-         AND type IN ('TEXT', 'EMOJI', 'PHOTO_VIDEO', 'DRAWING')
-         AND syncState IN ('LOCAL_ONLY', 'PENDING', 'SYNCED', 'FAILED')
-         AND EXISTS (SELECT 1 FROM relationships r WHERE r.id = messages_legacy.relationshipId)`,
+       FROM messages_legacy`,
     );
 
     await db.runAsync(
-      `INSERT OR IGNORE INTO active_message_slots (relationshipId, participant, messageId)
-       SELECT s.relationshipId, s.participant, s.messageId
-       FROM active_message_slots_legacy s
-       WHERE s.participant IN ('ME', 'PARTNER')
-         AND EXISTS (
-           SELECT 1 FROM messages m
-           WHERE m.relationshipId = s.relationshipId
-             AND m.participant = s.participant
-             AND m.id = s.messageId
-         )`,
+      `INSERT INTO active_message_slots (relationshipId, participant, messageId)
+       SELECT relationshipId, participant, messageId FROM active_message_slots_legacy`,
     );
 
     await db.execAsync(`
