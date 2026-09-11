@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import type { getRepository } from '../../data/repository';
 import type { Message, Relationship } from '../../domain/models';
 import { GetMessages } from '../../domain/useCases';
+import { MessageMedia } from '../../components/MessageMedia';
 
 type Props = { relationship: Relationship; repositoryPromise: ReturnType<typeof getRepository>; onBack: () => void };
 
@@ -88,9 +89,15 @@ export function CalendarScreen({ relationship, repositoryPromise, onBack }: Prop
         })}
       </View>
 
-      <View style={styles.details}>
-        {selectedDay === null ? <Text style={styles.muted}>select a date to see messages</Text> : selectedMessages.length === 0 ? <Text style={styles.muted}>no messages on {new Date(year, monthIndex, selectedDay).toLocaleDateString()}</Text> : selectedMessages.map((message) => <View key={message.id} style={styles.message}><Text style={styles.sender}>{message.participant === 'ME' ? 'you' : relationship.partnerNickname}</Text><Text>{message.body || message.type.toLowerCase()}</Text></View>)}
-      </View>
+      <ScrollView style={styles.details} contentContainerStyle={styles.detailsContent}>
+        {selectedDay === null ? <Text style={styles.muted}>select a date to see messages</Text> : selectedMessages.length === 0 ? <Text style={styles.muted}>no messages on {new Date(year, monthIndex, selectedDay).toLocaleDateString()}</Text> : selectedMessages.map((message) => (
+          <View key={message.id} style={styles.message}>
+            <Text style={styles.sender}>{message.participant === 'ME' ? 'you' : relationship.partnerNickname}</Text>
+            {message.type === 'PHOTO_VIDEO' ? <MessageMedia message={message} /> : <Text>{message.body || message.type.toLowerCase()}</Text>}
+            {message.body && message.type === 'PHOTO_VIDEO' ? <Text style={styles.caption}>{message.body}</Text> : null}
+          </View>
+        ))}
+      </ScrollView>
     </View>
   );
 }
@@ -113,8 +120,10 @@ const styles = StyleSheet.create({
   day: { fontSize: 16 },
   selectedText: { color: '#F3F6E9', fontWeight: '700' },
   dot: { width: 5, height: 5, borderRadius: 3, backgroundColor: '#8FC56A', marginTop: 3 },
-  details: { marginTop: 20, gap: 10 },
+  details: { flex: 1, marginTop: 20 },
+  detailsContent: { gap: 10, paddingBottom: 24 },
   muted: { opacity: 0.55 },
-  message: { backgroundColor: '#E4F0D9', borderRadius: 14, padding: 14 },
-  sender: { fontWeight: '700', opacity: 0.6, marginBottom: 4 },
+  message: { backgroundColor: '#E4F0D9', borderRadius: 14, padding: 14, gap: 8 },
+  sender: { fontWeight: '700', opacity: 0.6 },
+  caption: { fontSize: 15 },
 });
