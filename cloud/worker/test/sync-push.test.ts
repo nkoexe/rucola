@@ -208,6 +208,16 @@ describe("Rucola mailbox push", () => {
     expect((await json(response)).error).toMatchObject({ code: "RELATIONSHIP_INACTIVE" });
   });
 
+  it("rejects pushes after a relationship ends", async () => {
+    const { me } = await bootstrapAndAccept();
+    await env.DB.prepare("UPDATE relationships SET status = 'ENDED', ended_at = ?1 WHERE id = ?2")
+      .bind(Date.now(), me.relationshipId)
+      .run();
+    const response = await push(me.credential, { senderSeq: 1 });
+    expect(response.status).toBe(409);
+    expect((await json(response)).error).toMatchObject({ code: "RELATIONSHIP_INACTIVE" });
+  });
+
   it("rejects malformed, unsupported, and oversized payloads", async () => {
     const { me } = await bootstrapAndAccept();
     const malformed = await exports.default.fetch("https://rucola.test/v1/sync/push", {
@@ -255,8 +265,8 @@ describe("Rucola mailbox push", () => {
     const mediaId = crypto.randomUUID();
     await env.DB.prepare(
       `INSERT INTO media_uploads
-       (id, relationship_id, created_by_device_id, object_key, media_type, declared_mime, size_bytes, status, created_at, expires_at)
-       VALUES (?1, ?2, ?3, ?4, 'PHOTO', 'image/jpeg', 10, 'READY', ?5, ?6)`,
+       (id, relationship_id, created_by_device_id, object_key, media_type, declared_mime, size_bytes, status, created_at, expires_at, completed_at)
+       VALUES (?1, ?2, ?3, ?4, 'PHOTO', 'image/jpeg', 10, 'READY', ?5, ?6, ?5)`,
     ).bind(mediaId, me.relationshipId, me.deviceId, `test/${mediaId}`, Date.now(), Date.now() + 3600000).run();
 
     const response = await push(me.credential, { type: "PHOTO_VIDEO", mediaUploadId: mediaId, ciphertext: "photo-meta" });
@@ -267,15 +277,43 @@ describe("Rucola mailbox push", () => {
     expect(media?.status).toBe("ATTACHED");
     expect(mailbox?.media_upload_id).toBe(mediaId);
 
+    const retry = await push(me.credential, { type: "PHOTO_VIDEO", mediaUploadId: mediaId, ciphertext: "photo-meta" });
+    expect(retry.status).toBe(409);
+
     const otherMediaId = crypto.randomUUID();
     await env.DB.prepare(
       `INSERT INTO media_uploads
-       (id, relationship_id, created_by_device_id, object_key, media_type, declared_mime, size_bytes, status, created_at, expires_at)
-       VALUES (?1, ?2, ?3, ?4, 'PHOTO', 'image/jpeg', 10, 'READY', ?5, ?6)`,
+       (id, relationship_id, created_by_device_id, object_key, media_type, declared_mime, size_bytes, status, created_at, expires_at, completed_at)
+       VALUES (?1, ?2, ?3, ?4, 'PHOTO', 'image/jpeg', 10, 'READY', ?5, ?6, ?5)`,
     ).bind(otherMediaId, me.relationshipId, partner.deviceId, `test/${otherMediaId}`, Date.now(), Date.now() + 3600000).run();
     const ownership = await push(me.credential, { type: "PHOTO_VIDEO", mediaUploadId: otherMediaId, ciphertext: "other-photo" });
     expect(ownership.status).toBe(409);
     expect((await json(ownership)).error).toMatchObject({ code: "MEDIA_CONFLICT" });
+  });
+
+  it("does not allow one media upload to be attached to two messages concurrently", async () => {
+    const { me } = await bootstrapAndAccept();
+    const mediaId = crypto.randomUUID();
+    const now = Date.now();
+    await env.DB.prepare(
+      `INSERT INTO media_uploads
+       (id, relationship_id, created_by_device_id, object_key, media_type, declared_mime, size_bytes, status, created_at, expires_at, completed_at)
+       VALUES (?1, ?2, ?3, ?4, 'PHOTO', 'image/jpeg', 10, 'READY', ?5, ?6, ?5)`,
+    ).bind(mediaId, me.relationshipId, me.deviceId, `test/${mediaId}`, now, now + 3600000).run();
+
+    const responses = await Promise.all([
+      push(me.credential, { senderSeq: 1, type: "PHOTO_VIDEO", mediaUploadId: mediaId, ciphertext: "photo-a" }),
+      push(me.credential, { senderSeq: 2, type: "PHOTO_VIDEO", mediaUploadId: mediaId, ciphertext: "photo-b" }),
+    ]);
+    expect(responses.filter((response) => response.status === 200)).toHaveLength(1);
+    expect(responses.filter((response) => response.status === 409)).toHaveLength(1);
+
+    const mailbox = await env.DB.prepare(
+      "SELECT COUNT(*) AS count FROM mailbox_messages WHERE relationship_id = ?1 AND media_upload_id = ?2",
+    ).bind(me.relationshipId, mediaId).first<{ count: number }>();
+    const media = await env.DB.prepare("SELECT status FROM media_uploads WHERE id = ?1").bind(mediaId).first<{ status: string }>();
+    expect(mailbox?.count).toBe(1);
+    expect(media?.status).toBe("ATTACHED");
   });
 
   it("rolls back a failed server-sequence allocation without consuming state", async () => {
