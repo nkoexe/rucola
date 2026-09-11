@@ -4,6 +4,7 @@ import { SQLiteRucolaRepository } from './SQLiteRucolaRepository';
 import { initializeDatabase } from './database';
 import { runMigrationIntegrationTests } from './migrationIntegration';
 import { deleteOwnedMedia, persistPickedMedia, reconcileOwnedMedia } from './media';
+import { runMediaRobustnessIntegrationTests } from './mediaRobustnessIntegration';
 
 export type NativeIntegrationResult = {
   name: string;
@@ -297,6 +298,17 @@ export async function runNativeIntegrationTests(): Promise<NativeIntegrationResu
   } catch (cause) {
     results.push({
       name: 'media persistence, validation, reconciliation and cleanup',
+      passed: false,
+      error: cause instanceof Error ? cause.message : String(cause),
+    });
+  }
+
+  try {
+    await runMediaRobustnessIntegrationTests();
+    results.push({ name: 'media robustness edge cases', passed: true });
+  } catch (cause) {
+    results.push({
+      name: 'media robustness edge cases',
       passed: false,
       error: cause instanceof Error ? cause.message : String(cause),
     });
