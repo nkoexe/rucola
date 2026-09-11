@@ -3,6 +3,7 @@ import * as FileSystem from 'expo-file-system/legacy';
 import { SQLiteRucolaRepository } from './SQLiteRucolaRepository';
 import { initializeDatabase } from './database';
 import { runMigrationIntegrationTests } from './migrationIntegration';
+import { runRepositoryIntegrationTests } from './repositoryIntegration';
 import { deleteOwnedMedia, persistPickedMedia, reconcileOwnedMedia } from './media';
 import { runMediaRobustnessIntegrationTests } from './mediaRobustnessIntegration';
 
@@ -290,6 +291,17 @@ export async function runNativeIntegrationTests(): Promise<NativeIntegrationResu
         error: cause instanceof Error ? cause.message : String(cause),
       });
     }
+  }
+
+  try {
+    await withTestDatabase(runRepositoryIntegrationTests);
+    results.push({ name: 'real SQLite repository integration suite', passed: true });
+  } catch (cause) {
+    results.push({
+      name: 'real SQLite repository integration suite',
+      passed: false,
+      error: cause instanceof Error ? cause.message : String(cause),
+    });
   }
 
   try {
