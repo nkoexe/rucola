@@ -14,17 +14,15 @@
           "cameraPermission": "Rucola needs camera access so you can capture something to send.",
           "microphonePermission": false
         }
-      ]
+      ],
+      "expo-sqlite",
+      "expo-status-bar"
     ],
     "android": {
       "package": "com.rucola.app"
     },
     "ios": {
       "bundleIdentifier": "com.rucola.app"
-    },
-    "plugins": [
-      "expo-sqlite",
-      "expo-status-bar"
-    ]
+    }
   }
 }
