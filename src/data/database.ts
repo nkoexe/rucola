@@ -32,18 +32,24 @@ export async function initializeDatabase(): Promise<SQLite.SQLiteDatabase> {
   if (version === 0 && tables.length === 0) {
     await createLatestSchema(db);
     await db.execAsync(`PRAGMA user_version = ${SCHEMA_VERSION};`);
-    return db;
+    return verifyDatabase(db);
   }
 
   if (version === 0) {
     if (tables.length !== 3) {
       throw new Error('Rucola database is incomplete and cannot be migrated safely.');
     }
-    await migrateLegacySchema(db);
+    await migrateLegacySchema(db, 0);
+  } else if (version === 1) {
+    await migrateLegacySchema(db, 1);
   }
 
+  return verifyDatabase(db);
+}
+
+async function verifyDatabase(db: SQLite.SQLiteDatabase): Promise<SQLite.SQLiteDatabase> {
   const currentVersion = (await db.getFirstAsync<{ user_version: number }>('PRAGMA user_version;'))?.user_version ?? 0;
-  if (currentVersion < SCHEMA_VERSION) {
+  if (currentVersion !== SCHEMA_VERSION) {
     throw new Error(`Rucola database migration stopped at version ${currentVersion}.`);
   }
 
@@ -95,8 +101,100 @@ async function createLatestSchema(db: SQLite.SQLiteDatabase): Promise<void> {
   `);
 }
 
-async function migrateLegacySchema(db: SQLite.SQLiteDatabase): Promise<void> {
+interface LegacyMessageRow {
+  id: string;
+  relationshipId: string;
+  participant: string;
+  type: string;
+  body: string;
+  createdAt: string | number;
+  orderIndex: number;
+  isActive: number;
+  mediaReference: string | null;
+  syncState: string;
+}
+
+interface LegacyRelationshipRow {
+  id: string;
+  partnerNickname: string;
+  ownName: string;
+  partnerColor: string;
+  togetherSince: string | number | null;
+}
+
+interface LegacyActiveSlotRow {
+  relationshipId: string;
+  participant: string;
+  messageId: string;
+}
+
+function parseLegacyInteger(value: string | number, field: string, rowId: string): number {
+  const parsed = typeof value === 'number' ? value : Number(value.trim());
+  if (!Number.isSafeInteger(parsed)) {
+    throw new Error(`Cannot migrate ${field} for legacy row ${rowId}.`);
+  }
+  return parsed;
+}
+
+function parseLegacyNullableInteger(
+  value: string | number | null,
+  field: string,
+  rowId: string,
+): number | null {
+  if (value === null) {
+    return null;
+  }
+  return parseLegacyInteger(value, field, rowId);
+}
+
+async function migrateLegacySchema(db: SQLite.SQLiteDatabase, sourceVersion: 0 | 1): Promise<void> {
   await db.withTransactionAsync(async () => {
+    const relationships = await db.getAllAsync<LegacyRelationshipRow>(
+      'SELECT id, partnerNickname, ownName, partnerColor, togetherSince FROM relationships',
+    );
+    const messages = await db.getAllAsync<LegacyMessageRow>(
+      'SELECT id, relationshipId, participant, type, body, createdAt, orderIndex, isActive, mediaReference, syncState FROM messages',
+    );
+    const activeSlots = await db.getAllAsync<LegacyActiveSlotRow>(
+      'SELECT relationshipId, participant, messageId FROM active_message_slots',
+    );
+
+    const messageById = new Map(messages.map((message) => [message.id, message]));
+    const slotByParticipant = new Map<string, LegacyActiveSlotRow>();
+
+    for (const slot of activeSlots) {
+      const key = `${slot.relationshipId}:${slot.participant}`;
+      if (slotByParticipant.has(key)) {
+        throw new Error(`Legacy database has multiple active slots for ${key}.`);
+      }
+
+      const message = messageById.get(slot.messageId);
+      if (!message) {
+        throw new Error(`Legacy active slot references missing message ${slot.messageId}.`);
+      }
+      if (message.relationshipId !== slot.relationshipId || message.participant !== slot.participant) {
+        throw new Error(`Legacy active slot references a message from the wrong relationship or participant.`);
+      }
+      if (message.isActive !== 1) {
+        throw new Error(`Legacy active slot ${slot.messageId} disagrees with message isActive state.`);
+      }
+
+      slotByParticipant.set(key, slot);
+    }
+
+    for (const message of messages) {
+      if (message.isActive !== 0 && message.isActive !== 1) {
+        throw new Error(`Legacy message ${message.id} has invalid isActive state.`);
+      }
+      if (message.isActive === 1) {
+        const key = `${message.relationshipId}:${message.participant}`;
+        const slot = slotByParticipant.get(key);
+        if (!slot || slot.messageId !== message.id) {
+          throw new Error(`Legacy active message ${message.id} has no matching active slot.`);
+        }
+      }
+    }
+
     await db.execAsync(`
       ALTER TABLE relationships RENAME TO relationships_legacy;
       ALTER TABLE messages RENAME TO messages_legacy;
@@ -105,30 +203,61 @@ async function migrateLegacySchema(db: SQLite.SQLiteDatabase): Promise<void> {
 
     await createLatestSchema(db);
 
-    await db.runAsync(
-      `INSERT INTO relationships (id, partnerNickname, ownName, partnerColor, togetherSince)
-       SELECT id, partnerNickname, ownName, partnerColor, togetherSince FROM relationships_legacy`,
-    );
+    for (const relationship of relationships) {
+      const togetherSince = parseLegacyNullableInteger(
+        relationship.togetherSince,
+        'togetherSince',
+        relationship.id,
+      );
+      await db.runAsync(
+        `INSERT INTO relationships (id, partnerNickname, ownName, partnerColor, togetherSince)
+         VALUES (?, ?, ?, ?, ?)`,
+        relationship.id,
+        relationship.partnerNickname,
+        relationship.ownName,
+        relationship.partnerColor,
+        togetherSince,
+      );
+    }
 
-    await db.runAsync(
-      `INSERT INTO messages
-       (id, relationshipId, participant, type, body, createdAt, orderIndex, mediaReference, syncState)
-       SELECT id, relationshipId, participant, type, body, createdAt, orderIndex, mediaReference, syncState
-       FROM messages_legacy`,
-    );
+    for (const message of messages) {
+      const createdAt = parseLegacyInteger(message.createdAt, 'createdAt', message.id);
+      await db.runAsync(
+        `INSERT INTO messages
+         (id, relationshipId, participant, type, body, createdAt, orderIndex, mediaReference, syncState)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        message.id,
+        message.relationshipId,
+        message.participant,
+        message.type,
+        message.body,
+        createdAt,
+        message.orderIndex,
+        message.mediaReference,
+        message.syncState,
+      );
+    }
 
-    await db.runAsync(
-      `INSERT INTO active_message_slots (relationshipId, participant, messageId)
-       SELECT relationshipId, participant, messageId FROM active_message_slots_legacy`,
-    );
+    for (const slot of activeSlots) {
+      await db.runAsync(
+        `INSERT INTO active_message_slots (relationshipId, participant, messageId)
+         VALUES (?, ?, ?)`,
+        slot.relationshipId,
+        slot.participant,
+        slot.messageId,
+      );
+    }
 
     await db.execAsync(`
       DROP TABLE active_message_slots_legacy;
       DROP TABLE messages_legacy;
       DROP TABLE relationships_legacy;
       DROP INDEX IF EXISTS messages_relationship_participant_active;
+      PRAGMA user_version = ${SCHEMA_VERSION};
     `);
 
-    await db.execAsync(`PRAGMA user_version = ${SCHEMA_VERSION};`);
+    // Keep this explicit so future migration reviews can see that both legacy
+    // version 0 (pre-versioned schema) and version 1 have the same source shape.
+    void sourceVersion;
   });
 }
