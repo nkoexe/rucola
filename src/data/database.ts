@@ -6,6 +6,7 @@ const SCHEMA_VERSION = 2;
 export const RELATIONSHIP_ID = 'the-one';
 
 let databasePromise: Promise<SQLite.SQLiteDatabase> | null = null;
+const initializationPromises = new WeakMap<SQLite.SQLiteDatabase, Promise<SQLite.SQLiteDatabase>>();
 
 export function getDatabase(): Promise<SQLite.SQLiteDatabase> {
   if (!databasePromise) {
@@ -17,9 +18,25 @@ export function getDatabase(): Promise<SQLite.SQLiteDatabase> {
   return databasePromise;
 }
 
-export async function initializeDatabase(db?: SQLite.SQLiteDatabase): Promise<SQLite.SQLiteDatabase> {
-  const database = db ?? await getDatabase();
+export function initializeDatabase(db?: SQLite.SQLiteDatabase): Promise<SQLite.SQLiteDatabase> {
+  if (!db) {
+    return getDatabase().then((database) => initializeDatabase(database));
+  }
 
+  const existingInitialization = initializationPromises.get(db);
+  if (existingInitialization) {
+    return existingInitialization;
+  }
+
+  const initialization = initializeDatabaseInternal(db).catch((cause) => {
+    initializationPromises.delete(db);
+    throw cause;
+  });
+  initializationPromises.set(db, initialization);
+  return initialization;
+}
+
+async function initializeDatabaseInternal(database: SQLite.SQLiteDatabase): Promise<SQLite.SQLiteDatabase> {
   await database.execAsync('PRAGMA foreign_keys = ON;');
   await database.execAsync('PRAGMA journal_mode = WAL;');
 
