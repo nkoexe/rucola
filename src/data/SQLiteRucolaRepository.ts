@@ -9,8 +9,21 @@ interface RelationshipRow { id: string; partnerNickname: string; ownName: string
 interface MessageRow { id: string; relationshipId: string; participant: Participant; type: MessageType; body: string; createdAt: number; orderIndex: number; isActive: number; mediaReference: string | null; syncState: SyncState; }
 type SQLiteWriteContext = Pick<SQLiteDatabase, 'getFirstAsync' | 'runAsync'>;
 
+const SQLITE_WRITE_RETRY_ATTEMPTS = 6;
+const SQLITE_WRITE_RETRY_DELAY_MS = 10;
+
 function mapRelationship(row: RelationshipRow): Relationship { return { ...row }; }
 function mapMessage(row: MessageRow): Message { return { ...row, isActive: row.isActive === 1 }; }
+
+function isTransientSQLiteLock(cause: unknown): boolean {
+  if (!(cause instanceof Error)) return false;
+  const message = cause.message.toLowerCase();
+  return message.includes('database is locked') || message.includes('database is busy') || message.includes('sqlite_busy');
+}
+
+async function sleep(milliseconds: number): Promise<void> {
+  await new Promise<void>((resolve) => setTimeout(resolve, milliseconds));
+}
 
 export class SQLiteRucolaRepository implements RucolaRepository {
   constructor(private readonly db: SQLiteDatabase) {}
@@ -25,7 +38,7 @@ export class SQLiteRucolaRepository implements RucolaRepository {
     const ownName = input.ownName.trim();
     if (!partnerNickname || !ownName) throw new Error('Both names are required.');
 
-    await this.db.withExclusiveTransactionAsync(async (tx) => {
+    await this.withExclusiveWrite(async (tx) => {
       await tx.runAsync(
         `INSERT INTO relationships (id, partnerNickname, ownName, partnerColor, togetherSince)
          VALUES (?, ?, ?, ?, ?)
@@ -82,7 +95,7 @@ export class SQLiteRucolaRepository implements RucolaRepository {
   async deleteRelationship(): Promise<void> {
     let mediaReferences: string[] = [];
 
-    await this.db.withExclusiveTransactionAsync(async (tx) => {
+    await this.withExclusiveWrite(async (tx) => {
       const rows = await tx.getAllAsync<{ mediaReference: string | null }>(
         'SELECT mediaReference FROM messages WHERE relationshipId = ? AND mediaReference IS NOT NULL',
         RELATIONSHIP_ID,
@@ -131,7 +144,7 @@ export class SQLiteRucolaRepository implements RucolaRepository {
     if ((input.type === 'PHOTO_VIDEO' || input.type === 'DRAWING') && !mediaReference) throw new Error('This message type requires media.');
 
     const message: Message = { id: randomUUID(), relationshipId: RELATIONSHIP_ID, participant: 'ME', type: input.type, body, createdAt: Date.now(), orderIndex: 0, isActive: true, mediaReference, syncState: 'PENDING' };
-    await this.db.withExclusiveTransactionAsync(async (tx) => {
+    await this.withExclusiveWrite(async (tx) => {
       const relationship = await tx.getFirstAsync<RelationshipRow>(
         'SELECT id, partnerNickname, ownName, partnerColor, togetherSince FROM relationships WHERE id = ?',
         RELATIONSHIP_ID,
@@ -144,6 +157,19 @@ export class SQLiteRucolaRepository implements RucolaRepository {
       await this.setActiveSlot(tx, 'ME', message.id);
     });
     return message;
+  }
+
+  private async withExclusiveWrite<T>(action: (tx: SQLiteWriteContext) => Promise<T>): Promise<T> {
+    for (let attempt = 0; attempt < SQLITE_WRITE_RETRY_ATTEMPTS; attempt += 1) {
+      try {
+        return await this.db.withExclusiveTransactionAsync(action);
+      } catch (cause) {
+        if (!isTransientSQLiteLock(cause) || attempt === SQLITE_WRITE_RETRY_ATTEMPTS - 1) throw cause;
+        await sleep(SQLITE_WRITE_RETRY_DELAY_MS * (attempt + 1));
+      }
+    }
+
+    throw new Error('Unreachable SQLite write retry state.');
   }
 
   private async insertMessage(db: SQLiteWriteContext, message: Message): Promise<void> {
