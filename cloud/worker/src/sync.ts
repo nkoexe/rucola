@@ -38,7 +38,7 @@ interface ExistingMessage {
   message_id: string;
   sender_seq: number;
   type: MessageType;
-  ciphertext: string | number[];
+  ciphertext: string | number[] | Uint8Array | ArrayBuffer;
   encryption_version: number;
   client_created_at: number;
   media_upload_id: string | null;
@@ -85,9 +85,12 @@ function isBoundedIdentifier(value: unknown): value is string {
   return bytes.byteLength <= MAX_IDENTIFIER_BYTES && /^[A-Za-z0-9_-]+$/.test(value);
 }
 
-function normalizeCiphertext(value: string | number[]): Uint8Array {
+function normalizeCiphertext(value: string | number[] | Uint8Array | ArrayBuffer): Uint8Array {
+  if (typeof value === "string") return new TextEncoder().encode(value);
+  if (value instanceof Uint8Array) return value;
+  if (value instanceof ArrayBuffer) return new Uint8Array(value);
   if (Array.isArray(value)) return Uint8Array.from(value);
-  return new TextEncoder().encode(value);
+  return new Uint8Array();
 }
 
 function equalBytes(a: Uint8Array, b: Uint8Array): boolean {
@@ -308,10 +311,9 @@ async function acceptNewMessage(env: Env, device: AuthenticatedDevice, message: 
 }
 
 export async function pushMessage(env: Env, request: Request): Promise<Response> {
-  if (!isJsonContentType(request)) return errorResponse("INVALID_REQUEST", "JSON request body required", 400);
-
   const authenticated = await authenticateDevice(env, request);
   if (!authenticated) return errorResponse("UNAUTHENTICATED", "Valid device credentials are required", 401);
+  if (!isJsonContentType(request)) return errorResponse("INVALID_REQUEST", "JSON request body required", 400);
 
   const relationship = await env.DB.prepare(
     `SELECT status FROM relationships WHERE id = ?1`,
@@ -326,7 +328,7 @@ export async function pushMessage(env: Env, request: Request): Promise<Response>
   if (parsed.tooLarge) return errorResponse("PAYLOAD_TOO_LARGE", "Request body is too large", 413);
   if (!parsed.body) return errorResponse("INVALID_REQUEST", "Invalid JSON request", 400);
 
-  const now = Date.now();
+  let now = Date.now();
   const validation = validateRequest(parsed.body, now);
   if (!validation.value) return errorResponse(validation.status === 413 ? "PAYLOAD_TOO_LARGE" : "INVALID_REQUEST", validation.message, validation.status);
   const message = validation.value;
@@ -334,12 +336,13 @@ export async function pushMessage(env: Env, request: Request): Promise<Response>
   const initialConflict = await classifyConflict(env, authenticated, message);
   if (initialConflict) return initialConflict;
 
-  if (message.mediaUploadId) {
-    const mediaConflict = await validateMedia(env, authenticated, message.mediaUploadId, now);
-    if (mediaConflict) return mediaConflict;
-  }
-
   for (let attempt = 0; attempt < MAX_SERVER_SEQUENCE_ALLOCATION_RETRIES; attempt += 1) {
+    if (message.mediaUploadId) {
+      now = Date.now();
+      const mediaConflict = await validateMedia(env, authenticated, message.mediaUploadId, now);
+      if (mediaConflict) return mediaConflict;
+    }
+
     const sequenceRow = await env.DB.prepare(
       `SELECT next_server_seq FROM relationships WHERE id = ?1 AND status = 'ACTIVE'`,
     )
