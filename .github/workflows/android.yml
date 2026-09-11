@@ -2,7 +2,7 @@ name: Android
 
 on:
   push:
-    branches: [main, foundation-offline-ui]
+    branches: [main, foundation-offline-ui, migration/react-native]
   pull_request:
     branches: [main]
 
@@ -11,16 +11,23 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.13.x
+          cache: npm
+      - run: npm install
+      - run: npm run typecheck
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: '17'
       - uses: android-actions/setup-android@v3
       - run: yes | sdkmanager --licenses >/dev/null || true
-      - run: sdkmanager "platforms;android-35" "build-tools;35.0.0"
+      - run: sdkmanager "platforms;android-36" "build-tools;36.0.0"
       - uses: gradle/actions/setup-gradle@v4
-      - run: gradle testDebugUnitTest assembleDebug assembleRelease
+      - working-directory: android
+        run: ./gradlew testDebugUnitTest assembleDebug assembleRelease
       - uses: actions/upload-artifact@v4
         with:
           name: rucola-development-apk
-          path: app/build/outputs/apk/debug/app-debug.apk
+          path: android/app/build/outputs/apk/debug/app-debug.apk

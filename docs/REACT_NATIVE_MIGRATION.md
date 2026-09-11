@@ -2,86 +2,73 @@
 
 ## Goal
 
-Replace the current Kotlin/Jetpack Compose UI prototype with an Expo + React Native + TypeScript application while preserving Rucola's product invariants and local/offline-first architecture.
+Replace the Kotlin/Jetpack Compose prototype with an Expo + React Native + TypeScript application while preserving Rucola's product invariants and local/offline-first architecture.
 
-The existing Kotlin implementation is a behavioral reference, not a code-conversion target.
+The Kotlin implementation is a behavioral reference, not a code-conversion target.
 
-## Phase 1 — Foundation
+## Current stack
 
-- Work only on `migration/react-native`.
-- Scaffold Expo + React Native + TypeScript.
-- Use an Expo development build / prebuild workflow rather than designing around Expo Go.
-- Keep Android as the primary target.
-- Keep native Android/iOS projects available for future home-screen widget work.
-- Establish a minimal `src/` structure for app, screens, components, design tokens, domain, data, and state.
-- Do not implement networking or the Cloudflare backend yet.
-- Do not implement widgets yet.
-- Do not preserve Compose solely for compatibility.
+- Expo + React Native + TypeScript
+- Android development build / prebuild workflow
+- `expo-sqlite` local persistence
+- `expo-image-picker` + `expo-file-system` local media persistence
+- `expo-video` local video playback
+- Local SQLite is the source of truth for the prototype
+- No backend/network dependency yet
 
-## Phase 2 — Local domain and persistence
+## Completed migration phases
 
-- Port the domain model to TypeScript.
-- Define repository interfaces before UI persistence access.
-- Use Expo SQLite as the local source of truth.
-- Persist relationships, messages, active-message slots, ordering, media references, and sync state.
-- Keep message replacement transactional: one active message per participant and immutable history.
-- Generate stable local message IDs.
-- Keep the future server out of the local data layer.
+### Phase 1 — Foundation
 
-## Phase 3 — First real UI
+- Expo + React Native + TypeScript scaffolded.
+- Android native project available for development builds and future native features.
+- Package configuration and TypeScript strictness established.
+- Development build workflow used instead of Expo Go.
 
-- Replace the foundation shell with the real onboarding flow.
-- Current onboarding order: `who are they?` → `who are you?` → together-since → home.
-- Do not add an avatar step or tutorial.
-- Build the first home screen around the partner's active message.
-- Add a local text composer that persists through the repository.
-- Keep photo/video and drawing controls visible as placeholders until their native flows are implemented.
-- Keep the visual language cute, personal, playful, slightly wonky and handmade.
-- Do not introduce generic Material UI patterns just because React Native makes them convenient.
+### Phase 2 — Local domain and persistence
 
-## Required product behavior to preserve
+- TypeScript domain model established.
+- `RucolaRepository` interface established before persistence access.
+- SQLite database contains relationships, messages, active-message slots, ordering, media references, and sync state.
+- Message replacement is transactional.
+- Stable local message IDs are generated with `expo-crypto`.
+- Local persistence has no network dependency.
 
-- Exactly one relationship with exactly two participants.
-- One active message per participant.
-- New messages archive the previous active message; history is immutable.
-- History is permanent local data.
-- The phone is the local source of truth; the future server is only a temporary mailbox.
-- No replies, editing, deleting, reactions, or read receipts in MVP.
-- Offline-first architecture: UI must consume local repositories/state, not the network directly.
+### Phase 3 — Functional local prototype
 
-## Initial migration target
+- Onboarding: partner nickname → own name → optional together-since date → home.
+- Partner active-message home screen.
+- Local text message creation.
+- Local emoji message creation using a small barebones picker.
+- Previous own active message is archived into immutable history when a new one is sent.
+- History screen shows historical messages only.
+- Calendar supports month navigation and date selection for historical messages.
+- Settings can clear all local relationship/message data.
+- UI screens use domain use cases rather than accessing the repository directly.
+- Setup/date and persistence errors are surfaced instead of silently failing.
+- Duplicate legacy domain model/use-case files on the migration branch were removed.
 
-The first React Native milestone should reproduce the current local prototype's behavior:
+### Phase 4a — Local photo/video media
 
-1. Pairing/setup entry.
-2. Partner nickname.
-3. Own name.
-4. Together-since date or `shh... not yet`.
-5. Local home screen with partner's current message.
-6. Local text/emoji composer.
-7. Placeholder photo/video and drawing flows.
-8. Message replacement and local history.
-9. Swipe from home into history.
+- Photo/video selection from the device library.
+- Photo/video capture through the device camera.
+- Picked media is copied into Rucola's durable app document storage before the message is persisted.
+- Media-only messages are supported; an optional caption can be included.
+- Active photo/video messages render on the home screen.
+- Historical photo/video messages render in history and calendar views.
+- Clearing local relationship data removes media files owned by the relationship.
 
-The partner-avatar step is intentionally deferred from the current onboarding redesign.
+## Deliberate current limitations
 
-## UI direction
+- Drawing is still a placeholder.
+- There is no real two-device pairing yet.
+- There is no backend, synchronization engine, push notification system, widget, or E2E encryption.
+- The UI is intentionally barebones. Detailed Figma implementation is deferred until behavior is complete.
+- The dependency lockfile still needs to be regenerated locally after adding the new Expo media packages.
 
-Use the Figma file as visual reference:
-`https://www.figma.com/design/UG8Q1GFnD9ajor0f62RRpK/rucola`
+Do not fake two-device communication. Pairing must become genuinely functional once a backend transport exists.
 
-Rucola is cute, personal, playful, slightly wonky and handmade. Do not turn it into a generic Material 3 app.
-
-Current onboarding copy direction:
-
-- `who are they?`
-- `who are you?`
-- `when did you two become you two?`
-- `shh... not yet`
-
-Keep copy short, lowercase, personal, and slightly playful.
-
-## Architecture direction
+## Architecture
 
 ```text
 React Native screens/components
@@ -90,19 +77,82 @@ presentation state/hooks
         ↓
 domain use cases + repository interfaces
         ↓
-local persistence
+local persistence implementation
         ↓
-SQLite
+SQLite + app document media
 
 future:
-sync engine → Cloudflare mailbox API
+sync engine → pairing/sync API
+media store → local files + temporary remote mailbox
 ```
 
-Do not couple screens directly to SQLite or HTTP.
+Screens should not depend directly on SQLite or HTTP. Domain code should remain platform-independent.
+
+## Product invariants
+
+- Exactly one relationship per local account/device.
+- Exactly two participants.
+- At most one active message per participant.
+- Sending a new message archives the previous active message rather than deleting it.
+- History is immutable local data.
+- Messages have stable IDs and deterministic order metadata.
+- Sync state is separate from read/seen state; no read receipts exist in MVP.
+- The server, when introduced, is a temporary mailbox rather than the archive/source of truth.
+
+## Pairing direction
+
+Pairing is the next major architecture feature, but it cannot be honestly completed without a remote transport.
+
+The target flow is:
+
+```text
+unpaired
+  ↓
+create invitation
+  ↓
+share deep link / cute human-facing code
+  ↓
+partner submits invitation
+  ↓
+server validates secure token
+  ↓
+paired relationship
+```
+
+The human-facing code is only a usability aid. The secure invitation token must have real entropy, expire after a limited period (target 24 hours), and become invalid immediately after successful pairing.
+
+The implementation should introduce a pairing abstraction before wiring a backend so the UI does not become coupled to HTTP. Do not make the human-facing code the security credential.
+
+## Next implementation phases
+
+### Phase 4b — Drawing
+
+Implement a real local drawing composer and persist its output as durable message media. Drawing should support a media-only message and an optional caption, just like photo/video messages.
+
+### Phase 5 — Backend pairing and synchronization
+
+After the local media/message behavior is stable:
+
+- add anonymous device identity;
+- implement secure invitation creation/acceptance;
+- add shareable deep links and human-facing pairing codes;
+- add backend synchronization behind repository/sync abstractions;
+- preserve offline bursts and immutable local history;
+- acknowledge server items only after durable local persistence.
+
+### Later
+
+- push/background synchronization;
+- notifications;
+- widgets reading local state;
+- statistics/streaks;
+- unpairing/read-only relationship state;
+- E2E encryption using an established protocol/library;
+- final Figma-driven UI pass.
 
 ## Validation
 
-The repository currently contains the Phase 2/3 implementation, but the GitHub integration cannot execute `npm install`, TypeScript, Expo prebuild, or an Android build. Run the following locally after pulling the branch:
+The GitHub integration can inspect and modify source, but cannot run the project's local npm/Expo/Android toolchain. After pulling the branch, run:
 
 ```bash
 npm install
@@ -111,8 +161,4 @@ npx expo prebuild
 npm run android
 ```
 
-Fix any dependency/version issues reported by Expo before continuing with native feature work.
-
-## Next phase
-
-Phase 4 should split the current prototype UI into proper screen/component files, add history, and introduce media/drawing composition. Native photo/video and drawing implementations should follow after the basic UI behavior is stable.
+The owner has already confirmed the Android development build works after the earlier JVM/memory issue was resolved. Any future dependency or native failure should be reported with its actual output rather than inferred.

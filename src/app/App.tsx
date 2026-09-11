@@ -1,186 +1,110 @@
 import { StatusBar } from 'expo-status-bar';
-import { useEffect, useState, type ReactNode } from 'react';
-import { KeyboardAvoidingView, Platform, Pressable, SafeAreaView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { useEffect, useState } from 'react';
+import { Pressable, SafeAreaView, StyleSheet, Text, View } from 'react-native';
 import { getRepository } from '../data/repository';
-import type { Message, Relationship } from '../domain/models';
-import { colors } from '../design/colors';
-import { typography } from '../design/typography';
+import type { Relationship } from '../domain/models';
+import { GetRelationship } from '../domain/useCases';
+import { CalendarScreen } from '../screens/Calendar/CalendarScreen';
 import { HistoryScreen } from '../screens/History/HistoryScreen';
+import { HomeScreen } from '../screens/Home/HomeScreen';
+import { SettingsScreen } from '../screens/Settings/SettingsScreen';
+import { SetupScreen } from '../screens/Setup/SetupScreen';
 
-const repoPromise = getRepository();
-type SetupStep = 'partner' | 'own' | 'together';
-type AppScreen = 'home' | 'history';
+type AppScreen = 'home' | 'history' | 'calendar' | 'settings';
+
+type RepositoryPromise = ReturnType<typeof getRepository>;
 
 export default function App() {
+  const [repositoryPromise, setRepositoryPromise] = useState<RepositoryPromise>(() => getRepository());
   const [relationship, setRelationship] = useState<Relationship | null>(null);
-  const [partnerMessage, setPartnerMessage] = useState<Message | null>(null);
   const [ready, setReady] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     let mounted = true;
-    repoPromise.then(async (repository) => {
-      const value = await repository.getRelationship();
-      const message = value ? await repository.getActiveMessage('PARTNER') : null;
-      if (mounted) {
-        setRelationship(value);
-        setPartnerMessage(message);
-        setReady(true);
-      }
-    }).catch(() => mounted && setReady(true));
+    setReady(false);
+    setError(null);
+
+    void repositoryPromise
+      .then((repository) => new GetRelationship(repository).execute())
+      .then((value) => {
+        if (mounted) {
+          setRelationship(value);
+          setReady(true);
+        }
+      })
+      .catch((cause) => {
+        if (mounted) {
+          setError(cause instanceof Error ? cause.message : 'Could not initialize Rucola.');
+          setReady(true);
+        }
+      });
+
     return () => { mounted = false; };
-  }, []);
+  }, [repositoryPromise]);
+
+  const retry = () => {
+    setRelationship(null);
+    setRepositoryPromise(getRepository());
+  };
 
   if (!ready) return <LoadingScreen />;
-  if (!relationship) return <Setup onComplete={setRelationship} />;
-  return <Home relationship={relationship} partnerMessage={partnerMessage} />;
-}
-
-function LoadingScreen() {
-  return <Screen><Text style={styles.logo}>rucola</Text><Text style={styles.muted}>getting things ready...</Text></Screen>;
-}
-
-function Setup({ onComplete }: { onComplete: (relationship: Relationship) => void }) {
-  const [step, setStep] = useState<SetupStep>('partner');
-  const [partnerNickname, setPartnerNickname] = useState('');
-  const [ownName, setOwnName] = useState('');
-  const [dateText, setDateText] = useState('');
-  const [saving, setSaving] = useState(false);
-
-  const save = async (togetherSince: number | null) => {
-    if (!partnerNickname.trim() || !ownName.trim()) return;
-    setSaving(true);
-    try {
-      const repository = await repoPromise;
-      await repository.saveSetup({ partnerNickname: partnerNickname.trim(), ownName: ownName.trim(), togetherSince });
-      const saved = await repository.getRelationship();
-      if (saved) onComplete(saved);
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const continueFromTogether = () => {
-    const parsed = dateText.trim() ? Date.parse(dateText.trim()) : NaN;
-    void save(Number.isNaN(parsed) ? null : parsed);
-  };
+  if (error && !relationship) return <ErrorScreen message={error} onRetry={retry} />;
+  if (!relationship) return <SetupScreen repositoryPromise={repositoryPromise} onComplete={setRelationship} />;
 
   return (
-    <Screen>
-      <Text style={styles.logo}>rucola</Text>
-      {step === 'partner' && <SetupStepView title="who are they?" placeholder="their nickname..." value={partnerNickname} onChangeText={setPartnerNickname} button="yep!" disabled={!partnerNickname.trim()} onPress={() => setStep('own')} />}
-      {step === 'own' && <SetupStepView title="who are you?" placeholder="your name..." value={ownName} onChangeText={setOwnName} button="that's me!" disabled={!ownName.trim()} onPress={() => setStep('together')} />}
-      {step === 'together' && (
-        <View style={styles.step}>
-          <Text style={styles.heading}>{partnerNickname} & {ownName} have been together since...</Text>
-          <TextInput value={dateText} onChangeText={setDateText} placeholder="YYYY-MM-DD" placeholderTextColor={colors.mutedInk} style={styles.input} autoFocus />
-          <Button label={saving ? 'saving...' : 'yep!'} onPress={continueFromTogether} disabled={saving} />
-          <Text style={styles.or}>or</Text>
-          <Pressable onPress={() => void save(null)} disabled={saving}><Text style={styles.link}>shh... not yet</Text></Pressable>
-        </View>
-      )}
-    </Screen>
+    <MainApp
+      relationship={relationship}
+      repositoryPromise={repositoryPromise}
+      onRelationshipDeleted={() => setRelationship(null)}
+    />
   );
 }
 
-function SetupStepView({ title, placeholder, value, onChangeText, button, disabled, onPress }: {
-  title: string; placeholder: string; value: string; onChangeText: (value: string) => void; button: string; disabled: boolean; onPress: () => void;
+function MainApp({ relationship, repositoryPromise, onRelationshipDeleted }: {
+  relationship: Relationship;
+  repositoryPromise: RepositoryPromise;
+  onRelationshipDeleted: () => void;
 }) {
-  return (
-    <View style={styles.step}>
-      <Text style={styles.heading}>{title}</Text>
-      <TextInput value={value} onChangeText={onChangeText} placeholder={placeholder} placeholderTextColor={colors.mutedInk} style={styles.input} autoFocus returnKeyType="done" onSubmitEditing={() => !disabled && onPress()} />
-      <Button label={button} onPress={onPress} disabled={disabled} />
-    </View>
-  );
-}
-
-function Home({ relationship, partnerMessage }: { relationship: Relationship; partnerMessage: Message | null }) {
   const [screen, setScreen] = useState<AppScreen>('home');
-  const [draft, setDraft] = useState('');
-  const [sending, setSending] = useState(false);
-  const [message, setMessage] = useState(partnerMessage);
+  const [revision, setRevision] = useState(0);
 
-  useEffect(() => setMessage(partnerMessage), [partnerMessage]);
-
-  const send = async () => {
-    if (!draft.trim() || sending) return;
-    setSending(true);
-    try {
-      const repository = await repoPromise;
-      await repository.sendMessage({ type: 'TEXT', body: draft.trim() });
-      setDraft('');
-    } finally {
-      setSending(false);
-    }
-  };
-
-  if (screen === 'history') {
-    return <HistoryContainer relationship={relationship} onBack={() => setScreen('home')} />;
-  }
+  const refresh = () => setRevision((value) => value + 1);
 
   return (
     <SafeAreaView style={styles.safe}>
-      <KeyboardAvoidingView style={styles.home} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-        <View style={styles.homeHeader}>
-          <Text style={styles.logoSmall}>rucola</Text>
-          <Pressable onPress={() => setScreen('history')} accessibilityLabel="history"><Text style={styles.partnerName}>{relationship.partnerNickname} ›</Text></Pressable>
-        </View>
-        <View style={styles.messageArea}>
-          {message ? <><Text style={styles.message}>{message.body}</Text><Text style={styles.messageMeta}>sent with love</Text></> : <Text style={styles.muted}>nothing here yet...</Text>}
-        </View>
-        <View style={styles.composer}>
-          <TextInput value={draft} onChangeText={setDraft} placeholder={`see what ${relationship.partnerNickname} sent you...`} placeholderTextColor={colors.mutedInk} multiline style={styles.composerInput} />
-          <View style={styles.composerRow}>
-            <Pressable style={styles.iconButton} accessibilityLabel="photo or video"><Text style={styles.icon}>＋</Text></Pressable>
-            <Pressable style={styles.iconButton} accessibilityLabel="drawing"><Text style={styles.icon}>✎</Text></Pressable>
-            <Button label={sending ? '...' : 'Send!'} onPress={() => void send()} disabled={!draft.trim() || sending} compact />
-          </View>
-        </View>
-      </KeyboardAvoidingView>
+      {screen === 'home' && <HomeScreen relationship={relationship} repositoryPromise={repositoryPromise} onOpenHistory={() => setScreen('history')} onOpenCalendar={() => setScreen('calendar')} onOpenSettings={() => setScreen('settings')} onChanged={refresh} revision={revision} />}
+      {screen === 'history' && <HistoryScreen relationship={relationship} repositoryPromise={repositoryPromise} onBack={() => setScreen('home')} revision={revision} />}
+      {screen === 'calendar' && <CalendarScreen relationship={relationship} repositoryPromise={repositoryPromise} onBack={() => setScreen('home')} />}
+      {screen === 'settings' && <SettingsScreen relationship={relationship} repositoryPromise={repositoryPromise} onBack={() => setScreen('home')} onRelationshipDeleted={onRelationshipDeleted} />}
       <StatusBar style="dark" />
     </SafeAreaView>
   );
 }
 
-function HistoryContainer({ relationship, onBack }: { relationship: Relationship; onBack: () => void }) {
-  const [messages, setMessages] = useState<Message[]>([]);
-  useEffect(() => { void repoPromise.then((repository) => repository.getMessages()).then(setMessages); }, []);
-  return <SafeAreaView style={styles.safe}><HistoryScreen relationship={relationship} messages={messages} onBack={onBack} /><StatusBar style="dark" /></SafeAreaView>;
+function LoadingScreen() {
+  return <SafeAreaView style={styles.safe}><View style={styles.loading}><Text style={styles.logo}>rucola</Text><Text>getting things ready...</Text></View><StatusBar style="dark" /></SafeAreaView>;
 }
 
-function Screen({ children }: { children: ReactNode }) {
-  return <SafeAreaView style={styles.safe}><View style={styles.screen}>{children}</View><StatusBar style="dark" /></SafeAreaView>;
-}
-
-function Button({ label, onPress, disabled = false, compact = false }: { label: string; onPress: () => void; disabled?: boolean; compact?: boolean }) {
-  return <Pressable onPress={onPress} disabled={disabled} style={({ pressed }) => [styles.button, compact && styles.buttonCompact, disabled && styles.buttonDisabled, pressed && !disabled && styles.buttonPressed]}><Text style={styles.buttonText}>{label}</Text></Pressable>;
+function ErrorScreen({ message, onRetry }: { message: string; onRetry: () => void }) {
+  return (
+    <SafeAreaView style={styles.safe}>
+      <View style={styles.loading}>
+        <Text style={styles.logo}>rucola</Text>
+        <Text style={styles.error}>Could not start the app.</Text>
+        <Text>{message}</Text>
+        <Pressable onPress={onRetry} style={styles.retry}><Text style={styles.retryText}>Try again</Text></Pressable>
+      </View>
+      <StatusBar style="dark" />
+    </SafeAreaView>
+  );
 }
 
 const styles = StyleSheet.create({
-  safe: { flex: 1, backgroundColor: colors.background },
-  screen: { flex: 1, padding: 28, justifyContent: 'center' },
-  logo: { fontSize: typography.display, fontWeight: '800', letterSpacing: -2, color: colors.ink, transform: [{ rotate: '-4deg' }], alignSelf: 'center', marginBottom: 48 },
-  logoSmall: { fontSize: 25, fontWeight: '800', color: colors.ink, transform: [{ rotate: '-3deg' }] },
-  muted: { color: colors.mutedInk, fontSize: typography.body, textAlign: 'center' },
-  step: { width: '100%', maxWidth: 420, alignSelf: 'center' },
-  heading: { color: colors.ink, fontSize: typography.heading, fontWeight: '700', lineHeight: 34, marginBottom: 28 },
-  input: { borderBottomWidth: 2, borderBottomColor: colors.sage, color: colors.ink, fontSize: typography.body, paddingVertical: 12, marginBottom: 28 },
-  button: { alignSelf: 'flex-start', backgroundColor: colors.ink, borderRadius: 18, paddingHorizontal: 24, paddingVertical: 13 },
-  buttonCompact: { paddingHorizontal: 20, paddingVertical: 11 },
-  buttonDisabled: { opacity: 0.3 },
-  buttonPressed: { transform: [{ scale: 0.97 }] },
-  buttonText: { color: colors.background, fontSize: typography.body, fontWeight: '700' },
-  or: { color: colors.mutedInk, textAlign: 'center', marginVertical: 16 },
-  link: { color: colors.olive, fontSize: typography.body, textAlign: 'center', textDecorationLine: 'underline' },
-  home: { flex: 1, padding: 22, justifyContent: 'space-between' },
-  homeHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-  partnerName: { fontSize: typography.title, fontWeight: '700', color: colors.ink },
-  messageArea: { flex: 1, justifyContent: 'center', alignItems: 'center', paddingHorizontal: 20 },
-  message: { color: colors.ink, fontSize: 42, fontWeight: '700', textAlign: 'center', lineHeight: 50 },
-  messageMeta: { marginTop: 14, color: colors.mutedInk, fontSize: typography.small },
-  composer: { paddingTop: 18 },
-  composerInput: { minHeight: 54, maxHeight: 120, backgroundColor: colors.mint, borderRadius: 20, paddingHorizontal: 18, paddingVertical: 14, color: colors.ink, fontSize: typography.body },
-  composerRow: { flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: 10 },
-  iconButton: { width: 44, height: 44, borderRadius: 22, backgroundColor: colors.sage, alignItems: 'center', justifyContent: 'center' },
-  icon: { fontSize: 23, color: colors.ink },
+  safe: { flex: 1 },
+  loading: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 28 },
+  logo: { fontSize: 42, fontWeight: '800', marginBottom: 24 },
+  error: { fontSize: 18, fontWeight: '700', marginBottom: 8 },
+  retry: { marginTop: 20, backgroundColor: '#1D2A1B', borderRadius: 14, paddingHorizontal: 20, paddingVertical: 11 },
+  retryText: { color: '#F3F6E9', fontWeight: '700' },
 });

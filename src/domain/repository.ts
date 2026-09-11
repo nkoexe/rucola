@@ -8,6 +8,7 @@ export interface RucolaRepository {
     partnerColor?: string;
     togetherSince: number | null;
   }): Promise<void>;
+  deleteRelationship(): Promise<void>;
   getMessages(): Promise<Message[]>;
   getActiveMessage(participant: Message['participant']): Promise<Message | null>;
   sendMessage(input: {

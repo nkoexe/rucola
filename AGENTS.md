@@ -2,202 +2,192 @@
 
 ## Mission
 
-Rucola is a private mobile app for exactly two people in a long-distance relationship. It is **not a chat app**. The core idea is: **one thing waiting for you from the person you love**.
+Rucola is a private mobile app for exactly two people in a long-distance relationship. It is **not** a chat app. The core idea is **one thing waiting for you from the person you love**.
 
-Treat this repository as a real product codebase even though it is a personal project. Prefer simple, understandable solutions over enterprise ceremony.
+Treat this as a real product codebase, but prefer simple, understandable solutions over enterprise ceremony.
+
+## Current stack and workflow
+
+- Expo + React Native + TypeScript.
+- Android is the primary target.
+- Use Expo development builds / `expo prebuild`; do not design around Expo Go.
+- Local persistence uses `expo-sqlite`.
+- Local photo/video files use app-owned document storage.
+- The local database is the source of truth in the current prototype.
+- Work on `migration/react-native` until the migration is complete; never implement directly on `main`.
+- The owner is intentionally keeping the UI barebones for now. Prioritize complete behavior, correct state, persistence, and architecture over visual polish.
+- Figma/reference assets are for the later UI pass unless a task explicitly requires them.
 
 ## Before changing code
 
 1. Read `docs/PRODUCT.md` and `docs/ARCHITECTURE.md`.
-2. Inspect the existing code and build configuration before introducing dependencies or patterns.
-3. Inspect the Figma design for visual direction when working on UI:
-   `https://www.figma.com/design/UG8Q1GFnD9ajor0f62RRpK/rucola?node-id=0-1&p=f&t=uoSa92jCklllyBSR-0`
-4. Preserve the product invariants below. If a requested implementation conflicts with them, stop and explain the conflict rather than silently changing the product model.
+2. Inspect the existing implementation and dependencies before introducing patterns or packages.
+3. Preserve the product invariants below.
+4. Keep changes focused and reviewable. Clean up stale/duplicate code when it is clearly part of the area being changed.
+5. Do not claim a build or test was run unless it was actually run.
+
+## Architecture
+
+Use this dependency direction:
+
+```text
+React Native screens/components
+        ↓
+presentation state/hooks
+        ↓
+domain use cases
+        ↓
+repository interfaces
+        ↓
+SQLite persistence
+
+future:
+sync engine → temporary backend/mailbox
+```
+
+Screens must not depend directly on SQLite or HTTP. Domain code must not depend on React Native. Repository interfaces describe capabilities; the SQLite implementation is replaceable.
+
+Keep synchronization state in the domain/data model so a future backend can be introduced without rewriting the UI. Networking is not currently implemented.
 
 ## Product invariants
 
-- One relationship per account/device, exactly two participants.
+- One relationship per device/account, exactly two participants.
 - Each participant has exactly one active message.
 - Sending a new message moves that participant's previous active message into immutable history.
-- Messages are immutable: no editing or deleting in MVP.
+- Messages are immutable: no editing, deleting, replies, threads, or reactions in MVP.
 - History contains both participants' messages and is permanent local data.
-- The phone is the permanent data store; the server is only a temporary mailbox.
-- The server must never become the archive/source of truth.
+- The phone is the permanent data store; a future server is only a temporary mailbox.
 - The home screen focuses on the partner's current message.
-- History is primarily reached by swiping from the home screen.
-- No replies, threads, reactions, or read receipts in MVP.
-- Do not implement a fake "read" state. Delivery/synchronization is different from the user having actually seen something.
-- Offline-first is fundamental. UI should consume local repositories/state, not directly depend on the network.
-- Future synchronization must be possible without rewriting the UI or local data model.
+- Do not implement fake `read`/`unread` semantics. Delivery/synchronization is not the same as the user seeing a message.
+- Offline-first is fundamental. UI consumes local repositories/state.
+- Message ordering must survive offline bursts: A, B, C must all be preserved even though C is the current active message.
 
-## MVP message types
+## Message types
 
-1. Text — text required.
-2. Emoji — the emoji itself is the message.
-3. Photo/video — optional text; media-only is valid.
-4. Drawing — optional text; drawing-only is valid.
+- `TEXT`: content required.
+- `EMOJI`: the emoji itself is the message.
+- `PHOTO_VIDEO`: optional text; media-only is valid. Video is first-class.
+- `DRAWING`: optional text; drawing-only is valid.
 
-Video is a first-class media type, not an afterthought.
+Photo/video now uses the system library/camera picker, copies the selected asset into app-owned document storage, persists that reference with the message, and renders it on home/history/calendar. Drawing remains a real-editor TODO; do not fake it by storing invented paths or placeholder media.
 
-## Current implementation phase
+## Current implementation status
 
-The first implementation milestone is a local/offline UI prototype. Networking is intentionally not required yet, but the architecture must already separate UI, domain, persistence, and future synchronization concerns.
+The React Native branch currently has:
 
-Initial flow:
+- Expo/RN/TypeScript foundation and Android development build setup.
+- Local SQLite schema and repository.
+- Relationship setup with partner name, own name, and optional together-since date.
+- Partner active-message home screen.
+- Local text and emoji message creation and active-message replacement.
+- Local photo/video selection and camera capture with durable media storage.
+- Immutable local history, including media messages.
+- Month/date calendar browsing of historical messages, including media messages.
+- Local-data reset from settings, including cleanup of owned media files.
+- Domain use-case boundary used by the app screens.
 
-1. Fresh-install setup.
-2. Choose partner nickname.
-3. Choose placeholder partner avatar.
-4. Optionally choose a together-since date; allow a cute `shh.. not yet` option.
-5. Main screen showing the partner's local current message.
-6. Create a local message.
-7. Support text and emoji; provide sensible placeholder flows for photo/video and drawing until their real editors/pickers are implemented.
-8. Sending a new own message archives the previous own active message.
-9. Swipe from home into history.
-10. Browse both participants' local message history.
+The UI is deliberately barebones. Do not spend the next implementation phase on Figma fidelity.
 
-Seeded/fake local data is acceptable for demonstrating the UI, but it must pass through the same repository/use-case layer that real data will use.
+## Pairing
 
-## Architecture guidance
+Real two-device pairing requires a remote service and must **not** be faked as local-only communication.
 
-- Android is the primary target.
-- Use Kotlin.
-- Prefer Jetpack Compose unless there is a strong technical reason not to.
-- Choose a modern stable Android toolchain and a reasonable current minimum SDK.
-- Kotlin Multiplatform is allowed only if there is a concrete benefit for the future iOS target. Do not add KMP just for theoretical portability.
-- Use SQLite through a proper abstraction such as Room for local persistence.
-- Keep the structure clean but proportionate to a small personal app.
-- Separate UI, domain/model, persistence, and synchronization/network concerns.
-- Introduce a synchronization abstraction/state model early, without implementing networking in the foundation phase.
-- Do not model Cloudflare or a remote API as the source of truth.
+The intended eventual flow is:
 
-Future backend direction (not required in the first phase): Cloudflare Workers + D1 for metadata/state + R2 for temporary media, unless implementation research identifies a strong technical reason to choose otherwise.
+```text
+unpaired
+  ↓
+create invitation
+  ↓
+share deep link / human-facing code
+  ↓
+partner enters invitation
+  ↓
+server validates secure token
+  ↓
+paired relationship
+```
 
-Future synchronization requirements:
-- Sender may send A, then B, then C while recipient is offline.
-- All three must eventually be deliverable in order.
-- C becomes the current active message; A and B become history.
-- A replaced active message must remain in the server mailbox until the recipient has durably persisted it locally.
-- The server may delete a message/media object only after reliable recipient acknowledgement of durable local persistence.
-- Server storage is transient and minimal.
-- Push notifications should prompt synchronization when platform capabilities permit; notification payloads should not need to contain message content.
-- Widgets read local state/cache, not the network.
-- Background synchronization should update local state and then the widget.
-- Do not claim platform background execution is guaranteed to be immediate.
+The human-facing code is not a security credential. The real invitation token needs cryptographic entropy, expiry (target 24h), and one-time use. Pairing state should be designed behind an abstraction so the future backend can be added without coupling screens to HTTP.
 
-Future security requirements:
-- Network traffic encrypted in MVP.
-- End-to-end encryption is a future milestone, not MVP.
-- When E2E is implemented, use an established protocol/library; never invent cryptography.
-- Pairing will use a cute human-facing code plus a separate secure invitation token. Invitations expire (target: 24h) and become invalid immediately after successful pairing.
+Until a backend exists, do not claim that two separate devices can pair or exchange messages.
 
-## Pairing and relationship setup
+## Onboarding
 
-There is no normal account-registration UX. A fresh install creates an anonymous device identity.
+Current local prototype onboarding is:
 
-Pairing will eventually use a shareable deep link and a cute human-facing pairing code, preferably a short emoji sequence from a controlled set (e.g. hearts/kisses). Human-facing codes are not security tokens.
+1. `who are they?`
+2. `who are you?`
+3. together-since date or `shh... not yet`
+4. home
 
-Each person independently chooses what to call the other person and which avatar represents the partner. Together-since is optional and can be configured later.
+Do not add an avatar/tutorial step unless explicitly requested. Partner avatar support can be added later.
 
-Unpairing behavior:
-- Local history remains.
-- The app becomes read-only.
-- Export/deletion/re-pairing are future work.
+## History and calendar
 
-## UX / visual direction
+- History is immutable and local.
+- Active messages are not history.
+- History includes both participants.
+- Calendar marks days containing historical messages and opens that day's messages.
+- Media messages must remain viewable from both history and calendar.
+- Primary swipe navigation can be added later; a basic navigation control is acceptable while functionality is prioritized.
 
-Rucola should feel like a tiny private mailbox made for a couple: cute, personal, playful, slightly wonky and handmade.
+## Settings / relationship lifecycle
 
-Use the Figma prototype as the source for general visual language. Current direction:
-- pastel, cutesy palette
-- very pale green background
-- pastel green/yellow surfaces
-- large playful rounded/organic shapes
-- intentionally imperfect geometry and borders
-- hand-drawn/pixel-art feeling
-- playful typography
-- cute animations where useful
-- warm and personal rather than sterile/corporate
-- do not turn the app into a generic Material 3 showcase
+`Clear local data` is a destructive local reset and may remove the local relationship, messages, and owned media from this device.
 
-The owner will create the final pixel-art assets later. Do not fabricate a large asset library just to fill space.
+This is **not** the same as the eventual unpair flow. Eventual unpairing must preserve local history and make the app read-only. Do not silently implement one as the other.
 
-Material components may be used where useful, but Rucola's own design tokens/components should control the visual identity.
+## Future backend direction
 
-## Important product features for later phases
+Likely direction: Cloudflare Workers + D1 for metadata/state + R2 for temporary media, unless implementation research gives a strong reason to change it.
 
-- Permanent local history.
-- Fullscreen calendar history overview; days containing messages are indicated and a day opens that day's messages.
-- Relationship information: `Together for` and an `X days until we meet` countdown.
-- Either partner can change the next-meeting date and relevant relationship settings; changes synchronize to both.
-- Statistics such as exchanged messages, active days, streaks, message-type counts, most-used emoji, longest message, drawings/photos, etc. Avoid engagement-gaming.
-- Streaks are planned; exact definition is TBD.
-- Important, affectionate notifications such as `💌 Emma left something for you`, potentially varying by message type.
-- Home-screen widgets showing the partner's current message; widget sizes/design can evolve.
+The future server must:
 
-Do not implement future features opportunistically unless the current task explicitly asks for them.
+- queue unsynchronized messages in order;
+- preserve replaced messages until the recipient durably persists and acknowledges them;
+- treat local persistence as the archive/source of truth;
+- support media with the same durability/acknowledgement rule;
+- never require the UI to depend directly on the network.
 
-## Explicit MVP exclusions
+Push/background synchronization and widgets come later and must respect platform execution limits.
 
-Do NOT add:
-- replies
-- editing
-- deleting
-- reactions
-- read receipts/read tracking
-- distance/location
-- multiple relationships
-- public/social profiles
-- ads
-- E2E encryption
-- device recovery
-- export/backup
-- web/desktop client
-- next-meeting date during initial onboarding
-- unnecessary advanced customization
+## UI direction
 
-## Testing and CI
+The final UI should feel cute, personal, playful, slightly wonky and handmade, based on the Rucola Figma/reference assets. The owner will handle the detailed visual pass later.
 
-Tests and CI are required. Formatting/linting are useful but not a priority.
+For current development:
+- use plain React Native controls;
+- keep screens usable and testable;
+- avoid unnecessary design-system work;
+- do not turn the app into a generic Material showcase.
 
-At minimum, test domain/repository behavior for:
-- creating a message
-- replacing an active message
-- moving the previous active message to history
-- ordering
-- persistence
-- the one-active-message-per-participant invariant
+## Testing and validation
 
-Add Android UI/instrumentation tests for critical flows where practical.
+Tests are required for important domain/repository behavior:
 
-GitHub Actions should:
-- build the project
-- run tests
-- produce a development APK artifact
-- exercise the production/release build path
-- keep signing credentials out of the repository; production signing will be supplied through GitHub Secrets later
+- message creation;
+- replacing an active message;
+- moving the previous active message into history;
+- ordering;
+- persistence;
+- one-active-message-per-participant invariant.
 
-Avoid elaborate CI infrastructure for its own sake.
+Relevant local commands:
+
+```bash
+npm install
+npm run typecheck
+npx expo prebuild
+npm run android
+```
+
+If native/build validation cannot be performed by an agent, state that explicitly. Do not fabricate results.
 
 ## Git workflow
 
-- Work on a feature/chore branch; never implement directly on `main`.
-- Open a pull request against `main`.
-- Keep commits focused and understandable.
-- Do not rewrite unrelated code.
-- Do not commit secrets, signing material, local machine configuration, generated build output, or IDE state.
-- PR descriptions should explain what changed, how it was tested, and any deliberate trade-offs.
-
-## Definition of done
-
-A task is not done merely because the code compiles locally.
-
-Before opening a PR:
-1. Build from a clean checkout.
-2. Run the relevant tests.
-3. Verify the app behavior described by the task.
-4. Check that the implementation respects the product invariants.
-5. Keep the diff focused.
-6. Update minimal documentation if the behavior or setup changed.
-
-If something cannot be verified, state that clearly in the PR instead of pretending it was tested.
+- Work on `migration/react-native` or a focused feature/chore branch, never `main`.
+- Keep commits small and understandable.
+- Do not commit secrets, generated build output, IDE state, or machine-specific configuration.
+- Review the final diff for stale files, duplicate implementations, unused code, and contradictory documentation.
+- Update documentation when architecture or behavior changes.
