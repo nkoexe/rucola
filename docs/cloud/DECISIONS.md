@@ -14,7 +14,7 @@
 
 ## Protocol hardening decisions
 
-The adversarial protocol review is complete. The following are now hard invariants for implementation:
+The adversarial protocol review is complete. The following are hard invariants:
 
 - Client-generated `message_id` is stable across retries.
 - `sender_seq` is durable per sender device and cannot be reused for a different message.
@@ -38,7 +38,7 @@ The adversarial protocol review is complete. The following are now hard invarian
 - `server_seq` is the authoritative **mailbox acceptance/delivery order** within a relationship.
 - `server_seq` is **not** creation order and is not a claim about the true conversational order of concurrent offline messages.
 - A remote message receives the next local `orderIndex` when it is durably inserted. Existing local history is not renumbered because of remote delivery.
-- Two phones may therefore have different local insertion orders for concurrently created/offline messages. This is an intentional consequence of preserving append-only local history without inventing a false global creation order.
+- Two phones may therefore have different local insertion orders for concurrently created/offline messages. This is intentional.
 - Pull remains ascending by `server_seq`; sender-sequence gaps do not block delivery.
 - A reinstall creates a new `device_id` and therefore a new sender-sequence namespace. Sequence recovery for an old installation requires a separate recovery protocol.
 
@@ -46,11 +46,11 @@ The adversarial protocol review is complete. The following are now hard invarian
 
 - One D1 database is used initially; relationships are rows, not separate databases.
 - `relationships.next_server_seq` is the per-relationship mailbox sequence counter. Do not allocate `server_seq` using `MAX()+1`.
-- Sender sequences are client-owned and persisted by the originating device. The server permits gaps and out-of-order arrival; it does not require contiguous HTTP arrival.
+- Sender sequences are client-owned and persisted by the originating device. The server permits gaps and out-of-order arrival.
 - `mailbox_messages` uses `(relationship_id, message_id)` as its primary key and additionally enforces unique `(relationship_id, sender_device_id, sender_seq)` and unique `(relationship_id, server_seq)`.
 - An exact message retry returns the original acceptance; a reused sender sequence with a different message is a conflict.
 - Mailbox messages are immutable. Delivery state is represented by nullable `acknowledged_at` in the MVP.
-- A separate ACK table is deliberately deferred until multi-device delivery is actually required.
+- A separate ACK table is deliberately deferred until multi-device delivery is required.
 - Media uses a separate `media_uploads` table because uploads exist before messages. Lifecycle: `PENDING -> READY -> ATTACHED`, with `ABANDONED` for failed/expired uploads.
 - `mailbox_messages.media_upload_id` is unique, so one media upload can be attached to only one message.
 - Media must be `READY` and still valid when the message transaction attaches it. The Worker must verify the R2 object before accepting the attachment.
@@ -71,26 +71,29 @@ The adversarial protocol review is complete. The following are now hard invarian
 - Expired unacknowledged mailbox data is not treated as successfully delivered.
 - Cleanup is bounded and separate from delivery semantics.
 
-## Pairing contract decisions
+## Pairing decisions
 
 - Pairing uses a high-entropy one-time invitation token as the actual credential.
-- A human-friendly confirmation code is usability/confirmation material only and cannot authenticate by itself.
-- Invitation acceptance atomically creates the second device, consumes the invitation, and transitions `PAIRING -> ACTIVE`.
-- Concurrent acceptance of one invitation must result in exactly one successful second-device creation.
+- The six-digit human-friendly confirmation code is confirmation/usability material only.
+- An unauthenticated `/v1/pairing/bootstrap` creates the initial `PAIRING` relationship, first `ME` device, and invitation atomically because the first device has no credential yet.
+- Authenticated `/v1/pairing/create` regenerates an invitation while the relationship remains `PAIRING`.
+- `/v1/pairing/accept` atomically consumes an invitation, creates `PARTNER`, and transitions `PAIRING -> ACTIVE`.
+- Conditional SQL writes prevent concurrent acceptance from creating two partner devices.
 - Device credentials and invitation tokens are stored only as hashes.
-- The server derives participant identity from authenticated device/relationship state; client-supplied participant or relationship IDs are not authorization inputs.
-- Pairing endpoints remain `501` until the contract and adversarial tests are implemented and passing.
+- The server derives participant identity from relationship/device state; client-supplied participant or relationship IDs are not authorization inputs.
+- Pairing implementation does not implement E2E cryptography.
+- Pairing endpoints require rate limiting before production exposure.
 
 ## Artifacts
 
 - `docs/cloud/SCHEMA.md` — schema, constraints, transaction boundaries, and test matrix.
-- `docs/cloud/MIGRATION_0001.sql` — initial D1 migration draft.
+- `docs/cloud/MIGRATION_0001.sql` — initial D1 migration.
 - `docs/cloud/PROTOCOL_REVIEW.md` — adversarial protocol review.
 - `docs/cloud/ARCHITECTURE.md` — broader cloud architecture research.
 - `docs/cloud/ORDERING.md` — frozen offline/concurrent message ordering model.
-- `docs/cloud/PAIRING_PROTOCOL.md` — frozen pairing API and transaction contract plus adversarial test matrix.
+- `docs/cloud/PAIRING_PROTOCOL.md` — pairing API and transaction contract plus adversarial test coverage.
 
-## Remaining product decisions
+## Remaining product/deployment decisions
 
 1. Maximum unacknowledged mailbox retention.
 2. Exact photo/video size limits and multipart threshold.
@@ -99,9 +102,10 @@ The adversarial protocol review is complete. The following are now hard invarian
 5. Future multi-device acknowledgement model.
 6. Relationship-end UX for already accepted/pending mailbox messages.
 7. Cloudflare billing/plan choice for production.
+8. Pairing endpoint rate-limit configuration.
 
 ## Current implementation boundary
 
-The Worker skeleton and local D1 environment exist, but protocol endpoints remain intentionally inactive. Do not implement mobile sync against them yet.
+The pairing protocol is implemented on `cloud/research`. Synchronization remains intentionally inactive. Do not implement mobile sync yet.
 
-The next backend implementation step is pairing: implement the frozen contract, add executable transaction/concurrency tests, perform another code review, and only then proceed to message synchronization.
+Before synchronization, run the Worker test suite, fix any runtime/type failures, perform another adversarial review of the actual pairing code, and add production rate limiting. Only then move to message synchronization.
