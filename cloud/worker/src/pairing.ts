@@ -38,10 +38,12 @@ function randomId(): string {
 function randomConfirmationCode(): string {
   const limit = Math.floor(0x1_0000_0000 / 1_000_000) * 1_000_000;
   const bytes = new Uint32Array(1);
+  let value = 0;
   do {
     crypto.getRandomValues(bytes);
-  } while (bytes[0] >= limit);
-  return String(bytes[0] % 1_000_000).padStart(6, "0");
+    value = bytes[0] ?? 0;
+  } while (value >= limit);
+  return String(value % 1_000_000).padStart(6, "0");
 }
 
 function parseJsonObject(value: unknown): Record<string, unknown> | null {
@@ -215,6 +217,8 @@ export async function acceptInvitation(env: Env, request: Request): Promise<Resp
       headers: {
         "content-type": "application/json; charset=utf-8",
         "cache-control": "no-store",
+        "x-content-type-options": "nosniff",
+        "referrer-policy": "no-referrer",
         "retry-after": String(retryAfter),
       },
     });
