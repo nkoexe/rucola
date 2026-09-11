@@ -77,12 +77,17 @@ The adversarial protocol review is complete. The following are hard invariants:
 - The six-digit human-friendly confirmation code is confirmation/usability material only.
 - An unauthenticated `/v1/pairing/bootstrap` creates the initial `PAIRING` relationship, first `ME` device, and invitation atomically because the first device has no credential yet.
 - Authenticated `/v1/pairing/create` regenerates an invitation while the relationship remains `PAIRING`.
+- The invitation insert is conditionally tied to `relationships.status = 'PAIRING'` so acceptance cannot race it into creating a useless invitation after activation.
 - `/v1/pairing/accept` atomically consumes an invitation, creates `PARTNER`, and transitions `PAIRING -> ACTIVE`.
+- The partner device is inserted before the invitation records its `consumed_by_device_id`, satisfying the immediate foreign key while remaining inside one atomic D1 batch.
 - Conditional SQL writes prevent concurrent acceptance from creating two partner devices.
-- Device credentials and invitation tokens are stored only as hashes.
+- Device credentials, invitation tokens, and confirmation codes are stored only as hashes.
+- Confirmation codes are protected by a five-failure / fifteen-minute invitation lockout because six digits alone are brute-forceable.
+- Pairing JSON request bodies are bounded to 16 KiB before parsing.
+- API responses use `no-store`, `nosniff`, and `no-referrer` defensive headers.
 - The server derives participant identity from relationship/device state; client-supplied participant or relationship IDs are not authorization inputs.
 - Pairing implementation does not implement E2E cryptography.
-- Pairing endpoints require rate limiting before production exposure.
+- The unauthenticated bootstrap endpoint additionally requires Cloudflare edge rate limiting before public exposure because it creates D1 state without authentication.
 
 ## Artifacts
 
@@ -102,10 +107,10 @@ The adversarial protocol review is complete. The following are hard invariants:
 5. Future multi-device acknowledgement model.
 6. Relationship-end UX for already accepted/pending mailbox messages.
 7. Cloudflare billing/plan choice for production.
-8. Pairing endpoint rate-limit configuration.
+8. Cloudflare edge rate-limit configuration for bootstrap.
 
 ## Current implementation boundary
 
 The pairing protocol is implemented on `cloud/research`. Synchronization remains intentionally inactive. Do not implement mobile sync yet.
 
-Before synchronization, run the Worker test suite, fix any runtime/type failures, perform another adversarial review of the actual pairing code, and add production rate limiting. Only then move to message synchronization.
+Before synchronization, run the Worker test suite, fix any runtime/type failures, perform another adversarial review of the actual pairing code, and configure production edge rate limiting. Only then move to message synchronization.
