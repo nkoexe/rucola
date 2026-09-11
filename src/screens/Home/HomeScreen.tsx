@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { KeyboardAvoidingView, Platform, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import type { getRepository } from '../../data/repository';
 import type { Message, Relationship } from '../../domain/models';
+import { GetActiveMessage, SendMessage } from '../../domain/useCases';
 
 type RepositoryPromise = ReturnType<typeof getRepository>;
 
@@ -19,24 +20,34 @@ export function HomeScreen({ relationship, repositoryPromise, revision, onChange
   const [message, setMessage] = useState<Message | null>(null);
   const [draft, setDraft] = useState('');
   const [sending, setSending] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     let mounted = true;
-    void repositoryPromise.then((repository) => repository.getActiveMessage('PARTNER')).then((value) => {
-      if (mounted) setMessage(value);
-    });
+    void repositoryPromise
+      .then((repository) => new GetActiveMessage(repository).execute('PARTNER'))
+      .then((value) => {
+        if (mounted) setMessage(value);
+      })
+      .catch((cause) => {
+        if (mounted) setError(cause instanceof Error ? cause.message : 'Could not load the message.');
+      });
     return () => { mounted = false; };
   }, [repositoryPromise, revision]);
 
   const send = async () => {
     const body = draft.trim();
     if (!body || sending) return;
+
     setSending(true);
+    setError(null);
     try {
       const repository = await repositoryPromise;
-      await repository.sendMessage({ type: 'TEXT', body });
+      await new SendMessage(repository).execute({ type: 'TEXT', body });
       setDraft('');
       onChanged();
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Could not send the message.');
     } finally {
       setSending(false);
     }
@@ -57,7 +68,7 @@ export function HomeScreen({ relationship, repositoryPromise, revision, onChange
         <Text style={styles.partner}>{relationship.partnerNickname}</Text>
         {message ? (
           <>
-            <Text style={styles.message}>{message.body}</Text>
+            <Text style={styles.message}>{message.body || message.type.toLowerCase()}</Text>
             <Text style={styles.meta}>{new Date(message.createdAt).toLocaleString()}</Text>
           </>
         ) : (
@@ -66,16 +77,17 @@ export function HomeScreen({ relationship, repositoryPromise, revision, onChange
       </View>
 
       <View style={styles.composer}>
+        {error ? <Text style={styles.error}>{error}</Text> : null}
         <TextInput
           value={draft}
-          onChangeText={setDraft}
+          onChangeText={(value) => { setError(null); setDraft(value); }}
           placeholder={`message ${relationship.partnerNickname}...`}
           multiline
           style={styles.input}
         />
         <View style={styles.composerRow}>
-          <Pressable style={styles.secondaryButton} onPress={() => {}}><Text>Photo / Video</Text></Pressable>
-          <Pressable style={styles.secondaryButton} onPress={() => {}}><Text>Draw</Text></Pressable>
+          <Pressable style={styles.secondaryButton} onPress={() => setError('Photo / video is not implemented yet.')}><Text>Photo / Video</Text></Pressable>
+          <Pressable style={styles.secondaryButton} onPress={() => setError('Drawing is not implemented yet.')}><Text>Draw</Text></Pressable>
           <Pressable disabled={!draft.trim() || sending} onPress={() => void send()} style={[styles.send, (!draft.trim() || sending) && styles.disabled]}>
             <Text style={styles.sendText}>{sending ? '...' : 'Send'}</Text>
           </Pressable>
@@ -97,6 +109,7 @@ const styles = StyleSheet.create({
   meta: { marginTop: 12, opacity: 0.55 },
   muted: { opacity: 0.55, fontSize: 18 },
   composer: { paddingTop: 12 },
+  error: { marginBottom: 8, color: '#9B2C2C' },
   input: { minHeight: 54, maxHeight: 120, backgroundColor: '#E4F0D9', borderRadius: 18, paddingHorizontal: 16, paddingVertical: 12, fontSize: 17 },
   composerRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 10 },
   secondaryButton: { padding: 10, borderWidth: 1, borderRadius: 12 },
