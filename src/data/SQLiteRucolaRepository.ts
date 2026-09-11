@@ -171,18 +171,20 @@ export class SQLiteRucolaRepository implements RucolaRepository {
   private async withExclusiveWrite(action: (tx: SQLiteWriteContext) => Promise<void>, afterCommit?: AfterCommit): Promise<void> {
     const previous = writeQueues.get(this.db) ?? Promise.resolve();
     const run = previous.then(async () => {
+      let committed = false;
       for (let attempt = 0; attempt < SQLITE_WRITE_RETRY_ATTEMPTS; attempt += 1) {
         try {
           await this.db.withExclusiveTransactionAsync(action);
-          if (afterCommit) await afterCommit();
-          return;
+          committed = true;
+          break;
         } catch (cause) {
           if (!isTransientSQLiteLock(cause) || attempt === SQLITE_WRITE_RETRY_ATTEMPTS - 1) throw cause;
           await sleep(SQLITE_WRITE_RETRY_DELAY_MS * (attempt + 1));
         }
       }
 
-      throw new Error('Unreachable SQLite write retry state.');
+      if (!committed) throw new Error('Unreachable SQLite write retry state.');
+      if (afterCommit) await afterCommit();
     });
 
     writeQueues.set(this.db, run.catch(() => undefined));
