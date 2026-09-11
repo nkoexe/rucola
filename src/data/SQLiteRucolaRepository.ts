@@ -19,10 +19,14 @@ export class SQLiteRucolaRepository implements RucolaRepository {
   }
 
   async saveSetup(input: { partnerNickname: string; ownName: string; partnerColor?: string; togetherSince: number | null }): Promise<void> {
+    const partnerNickname = input.partnerNickname.trim();
+    const ownName = input.ownName.trim();
+    if (!partnerNickname || !ownName) throw new Error('Both names are required.');
+
     await this.db.withTransactionAsync(async () => {
       await this.db.runAsync(
         `INSERT OR REPLACE INTO relationships (id, partnerNickname, ownName, partnerColor, togetherSince) VALUES (?, ?, ?, ?, ?)`,
-        RELATIONSHIP_ID, input.partnerNickname, input.ownName, input.partnerColor ?? '#8FC56A', input.togetherSince,
+        RELATIONSHIP_ID, partnerNickname, ownName, input.partnerColor ?? '#8FC56A', input.togetherSince,
       );
       const count = await this.db.getFirstAsync<{ count: number }>('SELECT COUNT(*) AS count FROM messages WHERE relationshipId = ?', RELATIONSHIP_ID);
       if ((count?.count ?? 0) === 0) {
@@ -59,7 +63,13 @@ export class SQLiteRucolaRepository implements RucolaRepository {
   }
 
   async sendMessage(input: { type: MessageType; body: string; mediaReference?: string | null }): Promise<Message> {
-    const message: Message = { id: randomUUID(), relationshipId: RELATIONSHIP_ID, participant: 'ME', type: input.type, body: input.body, createdAt: Date.now(), orderIndex: 0, isActive: true, mediaReference: input.mediaReference ?? null, syncState: 'PENDING' };
+    const body = input.body.trim();
+    if ((input.type === 'TEXT' || input.type === 'EMOJI') && !body) throw new Error('This message type requires content.');
+
+    const relationship = await this.getRelationship();
+    if (!relationship) throw new Error('Cannot send a message before setup is complete.');
+
+    const message: Message = { id: randomUUID(), relationshipId: RELATIONSHIP_ID, participant: 'ME', type: input.type, body, createdAt: Date.now(), orderIndex: 0, isActive: true, mediaReference: input.mediaReference ?? null, syncState: 'PENDING' };
     await this.db.withTransactionAsync(async () => {
       const next = await this.db.getFirstAsync<{ nextOrderIndex: number }>('SELECT COALESCE(MAX(orderIndex), 0) + 1 AS nextOrderIndex FROM messages WHERE relationshipId = ?', RELATIONSHIP_ID);
       message.orderIndex = next?.nextOrderIndex ?? 1;
