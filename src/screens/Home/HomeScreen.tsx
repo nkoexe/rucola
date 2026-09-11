@@ -42,6 +42,7 @@ export function HomeScreen({ relationship, repositoryPromise, revision, onChange
 
   useEffect(() => {
     let mounted = true;
+    setError(null);
     void repositoryPromise
       .then((repository) => new GetActiveMessage(repository).execute('PARTNER'))
       .then((value) => {
