@@ -2,6 +2,7 @@ import { StatusBar } from 'expo-status-bar';
 import { useEffect, useState } from 'react';
 import { Pressable, SafeAreaView, StyleSheet, Text, View } from 'react-native';
 import { getRepository } from '../data/repository';
+import { recoverPendingPickerResult } from '../data/pendingPicker';
 import type { Relationship } from '../domain/models';
 import { GetRelationship } from '../domain/useCases';
 import { CalendarScreen } from '../screens/Calendar/CalendarScreen';
@@ -26,7 +27,15 @@ export default function App() {
     setError(null);
 
     void repositoryPromise
-      .then((repository) => new GetRelationship(repository).execute())
+      .then(async (repository) => {
+        const currentRelationship = await new GetRelationship(repository).execute();
+
+        if (currentRelationship) {
+          await recoverPendingPickerResult(repository);
+        }
+
+        return currentRelationship;
+      })
       .then((value) => {
         if (mounted) {
           setRelationship(value);
