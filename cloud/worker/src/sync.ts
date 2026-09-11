@@ -85,10 +85,6 @@ function isBoundedIdentifier(value: unknown): value is string {
   return bytes.byteLength <= MAX_IDENTIFIER_BYTES && /^[A-Za-z0-9_-]+$/.test(value);
 }
 
-function byteLength(value: string): number {
-  return new TextEncoder().encode(value).byteLength;
-}
-
 function normalizeCiphertext(value: string | number[]): Uint8Array {
   if (Array.isArray(value)) return Uint8Array.from(value);
   return new TextEncoder().encode(value);
@@ -204,25 +200,13 @@ async function validateMedia(env: Env, device: AuthenticatedDevice, mediaUploadI
   return null;
 }
 
-async function acceptNewMessage(env: Env, device: AuthenticatedDevice, message: ValidatedPush, now: number, serverSeq: number): Promise<"success" | "retry" | "media-conflict"> {
+async function acceptNewMessage(env: Env, device: AuthenticatedDevice, message: ValidatedPush, now: number, serverSeq: number): Promise<"success" | "retry"> {
   const expiresAt = now + MAILBOX_RETENTION_MS;
 
   try {
     const statements: D1PreparedStatement[] = [];
 
     if (message.mediaUploadId) {
-      statements.push(
-        env.DB.prepare(
-          `UPDATE media_uploads
-           SET status = 'ATTACHED', attached_at = ?1
-           WHERE id = ?2
-             AND relationship_id = ?3
-             AND created_by_device_id = ?4
-             AND status = 'READY'
-             AND expires_at > ?1`,
-        ).bind(now, message.mediaUploadId, device.relationshipId, device.id),
-      );
-
       statements.push(
         env.DB.prepare(
           `INSERT INTO mailbox_messages
@@ -232,7 +216,10 @@ async function acceptNewMessage(env: Env, device: AuthenticatedDevice, message: 
            SELECT ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, id, ?12
            FROM media_uploads
            WHERE id = ?13
-             AND status = 'ATTACHED'`,
+             AND relationship_id = ?1
+             AND created_by_device_id = ?3
+             AND status = 'READY'
+             AND expires_at > ?8`,
         ).bind(
           device.relationshipId,
           message.messageId,
@@ -248,6 +235,18 @@ async function acceptNewMessage(env: Env, device: AuthenticatedDevice, message: 
           expiresAt,
           message.mediaUploadId,
         ),
+      );
+
+      statements.push(
+        env.DB.prepare(
+          `UPDATE media_uploads
+           SET status = 'ATTACHED', attached_at = ?1
+           WHERE id = ?2
+             AND relationship_id = ?3
+             AND created_by_device_id = ?4
+             AND status = 'READY'
+             AND expires_at > ?1`,
+        ).bind(now, message.mediaUploadId, device.relationshipId, device.id),
       );
     } else {
       statements.push(
@@ -278,7 +277,8 @@ async function acceptNewMessage(env: Env, device: AuthenticatedDevice, message: 
       env.DB.prepare(
         `UPDATE relationships
          SET next_server_seq = CASE
-           WHEN next_server_seq = ?2
+           WHEN status = 'ACTIVE'
+            AND next_server_seq = ?2
             AND EXISTS (
               SELECT 1 FROM mailbox_messages
               WHERE relationship_id = ?1 AND message_id = ?3
