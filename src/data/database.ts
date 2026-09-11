@@ -39,9 +39,10 @@ export async function initializeDatabase(): Promise<SQLite.SQLiteDatabase> {
     if (tables.length !== 3) {
       throw new Error('Rucola database is incomplete and cannot be migrated safely.');
     }
-    await migrateLegacySchema(db, 0);
+    await migrateLegacySchema(db);
   } else if (version === 1) {
-    await migrateLegacySchema(db, 1);
+    // Version 1 uses the same schema as the original unversioned database.
+    await migrateLegacySchema(db);
   }
 
   return verifyDatabase(db);
@@ -147,7 +148,7 @@ function parseLegacyNullableInteger(
   return parseLegacyInteger(value, field, rowId);
 }
 
-async function migrateLegacySchema(db: SQLite.SQLiteDatabase, sourceVersion: 0 | 1): Promise<void> {
+async function migrateLegacySchema(db: SQLite.SQLiteDatabase): Promise<void> {
   await db.withTransactionAsync(async () => {
     const relationships = await db.getAllAsync<LegacyRelationshipRow>(
       'SELECT id, partnerNickname, ownName, partnerColor, togetherSince FROM relationships',
@@ -173,7 +174,7 @@ async function migrateLegacySchema(db: SQLite.SQLiteDatabase, sourceVersion: 0 |
         throw new Error(`Legacy active slot references missing message ${slot.messageId}.`);
       }
       if (message.relationshipId !== slot.relationshipId || message.participant !== slot.participant) {
-        throw new Error(`Legacy active slot references a message from the wrong relationship or participant.`);
+        throw new Error('Legacy active slot references a message from the wrong relationship or participant.');
       }
       if (message.isActive !== 1) {
         throw new Error(`Legacy active slot ${slot.messageId} disagrees with message isActive state.`);
@@ -255,9 +256,5 @@ async function migrateLegacySchema(db: SQLite.SQLiteDatabase, sourceVersion: 0 |
       DROP INDEX IF EXISTS messages_relationship_participant_active;
       PRAGMA user_version = ${SCHEMA_VERSION};
     `);
-
-    // Keep this explicit so future migration reviews can see that both legacy
-    // version 0 (pre-versioned schema) and version 1 have the same source shape.
-    void sourceVersion;
   });
 }
