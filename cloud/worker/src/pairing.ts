@@ -44,7 +44,7 @@ function parseJsonObject(value: unknown): Record<string, unknown> | null {
     : null;
 }
 
-async function readJson<T extends Record<string, unknown>>(request: Request): Promise<T | null> {
+async function readJson<T extends object>(request: Request): Promise<T | null> {
   try {
     return parseJsonObject(await request.json()) as T | null;
   } catch {
@@ -183,17 +183,17 @@ export async function acceptInvitation(env: Env, request: Request): Promise<Resp
   try {
     await env.DB.batch([
       env.DB.prepare(
-        `UPDATE invitations
-         SET consumed_at = ?1, consumed_by_device_id = ?2
-         WHERE id = ?3 AND consumed_at IS NULL AND expires_at > ?1`,
-      ).bind(now, deviceId, invitation.id),
-      env.DB.prepare(
         `INSERT INTO devices
          (id, relationship_id, participant, credential_hash, created_at, last_seen_at)
          SELECT ?1, relationship_id, 'PARTNER', ?2, ?3, ?3
          FROM invitations
-         WHERE id = ?4 AND consumed_by_device_id = ?1`,
+         WHERE id = ?4 AND consumed_at IS NULL AND expires_at > ?3`,
       ).bind(deviceId, credentialHash, now, invitation.id),
+      env.DB.prepare(
+        `UPDATE invitations
+         SET consumed_at = ?1, consumed_by_device_id = ?2
+         WHERE id = ?3 AND consumed_at IS NULL AND expires_at > ?1`,
+      ).bind(now, deviceId, invitation.id),
       env.DB.prepare(
         `UPDATE relationships
          SET status = 'ACTIVE'
