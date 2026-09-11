@@ -43,9 +43,9 @@ describe("Rucola mailbox push", () => {
   });
 
   it("returns the original result for an exact retry without advancing state", async () => {
-    const { me } = await bootstrapAndAccept(); const messageId = crypto.randomUUID(); const request = pushRequest(me.credential, { messageId, senderSeq: 4, ciphertext: "stable" });
-    const first = await exports.default.fetch("https://rucola.test/v1/sync/push", request); const firstBody = await json(first);
-    const second = await exports.default.fetch("https://rucola.test/v1/sync/push", pushRequest(me.credential, { messageId, senderSeq: 4, ciphertext: "stable" })); const secondBody = await json(second);
+    const { me } = await bootstrapAndAccept(); const messageId = crypto.randomUUID(); const body: PushBody = { messageId, senderSeq: 4, type: "TEXT", ciphertext: "stable", encryptionVersion: 1, createdAt: Date.now() };
+    const first = await exports.default.fetch("https://rucola.test/v1/sync/push", pushRequest(me.credential, body)); const firstBody = await json(first);
+    const second = await exports.default.fetch("https://rucola.test/v1/sync/push", pushRequest(me.credential, body)); const secondBody = await json(second);
     expect(first.status).toBe(200); expect(second.status).toBe(200); expect(secondBody).toEqual(firstBody);
     const count = await env.DB.prepare("SELECT COUNT(*) AS count FROM mailbox_messages WHERE relationship_id = ?1 AND message_id = ?2").bind(me.relationshipId, messageId).first<{ count: number }>();
     const relationship = await env.DB.prepare("SELECT next_server_seq FROM relationships WHERE id = ?1").bind(me.relationshipId).first<{ next_server_seq: number }>();
@@ -104,9 +104,9 @@ describe("Rucola mailbox push", () => {
   });
 
   it("attaches only an owned READY media upload", async () => {
-    const { me, partner } = await bootstrapAndAccept(); const mediaId = crypto.randomUUID(); await insertReadyMedia(me.relationshipId, me.deviceId, mediaId); const response = await push(me.credential, { type: "PHOTO_VIDEO", mediaUploadId: mediaId, ciphertext: "photo-meta" }); expect(response.status).toBe(200);
+    const { me, partner } = await bootstrapAndAccept(); const mediaId = crypto.randomUUID(); await insertReadyMedia(me.relationshipId, me.deviceId, mediaId); const createdAt = Date.now(); const response = await push(me.credential, { type: "PHOTO_VIDEO", mediaUploadId: mediaId, ciphertext: "photo-meta", createdAt }); expect(response.status).toBe(200);
     const media = await env.DB.prepare("SELECT status FROM media_uploads WHERE id = ?1").bind(mediaId).first<{ status: string }>(); const mailbox = await env.DB.prepare("SELECT media_upload_id FROM mailbox_messages WHERE relationship_id = ?1 AND media_upload_id = ?2").bind(me.relationshipId, mediaId).first<{ media_upload_id: string }>(); expect(media?.status).toBe("ATTACHED"); expect(mailbox?.media_upload_id).toBe(mediaId);
-    const retry = await push(me.credential, { type: "PHOTO_VIDEO", mediaUploadId: mediaId, ciphertext: "photo-meta" }); expect(retry.status).toBe(200); const otherMediaId = crypto.randomUUID(); await insertReadyMedia(me.relationshipId, partner.deviceId, otherMediaId); const ownership = await push(me.credential, { type: "PHOTO_VIDEO", mediaUploadId: otherMediaId, ciphertext: "other-photo" }); expect(ownership.status).toBe(409); expect((await json(ownership)).error).toMatchObject({ code: "MEDIA_CONFLICT" });
+    const retry = await push(me.credential, { type: "PHOTO_VIDEO", mediaUploadId: mediaId, ciphertext: "photo-meta", createdAt }); expect(retry.status).toBe(200); const otherMediaId = crypto.randomUUID(); await insertReadyMedia(me.relationshipId, partner.deviceId, otherMediaId); const ownership = await push(me.credential, { type: "PHOTO_VIDEO", mediaUploadId: otherMediaId, ciphertext: "other-photo" }); expect(ownership.status).toBe(409); expect((await json(ownership)).error).toMatchObject({ code: "MEDIA_CONFLICT" });
   });
 
   it("does not allow one media upload to be attached to two messages concurrently", async () => {
