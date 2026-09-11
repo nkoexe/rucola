@@ -26,6 +26,8 @@ async function sleep(milliseconds: number): Promise<void> {
 }
 
 export class SQLiteRucolaRepository implements RucolaRepository {
+  private writeQueue: Promise<void> = Promise.resolve();
+
   constructor(private readonly db: SQLiteDatabase) {}
 
   async getRelationship(): Promise<Relationship | null> {
@@ -160,17 +162,22 @@ export class SQLiteRucolaRepository implements RucolaRepository {
   }
 
   private async withExclusiveWrite(action: (tx: SQLiteWriteContext) => Promise<void>): Promise<void> {
-    for (let attempt = 0; attempt < SQLITE_WRITE_RETRY_ATTEMPTS; attempt += 1) {
-      try {
-        await this.db.withExclusiveTransactionAsync(action);
-        return;
-      } catch (cause) {
-        if (!isTransientSQLiteLock(cause) || attempt === SQLITE_WRITE_RETRY_ATTEMPTS - 1) throw cause;
-        await sleep(SQLITE_WRITE_RETRY_DELAY_MS * (attempt + 1));
+    const run = this.writeQueue.then(async () => {
+      for (let attempt = 0; attempt < SQLITE_WRITE_RETRY_ATTEMPTS; attempt += 1) {
+        try {
+          await this.db.withExclusiveTransactionAsync(action);
+          return;
+        } catch (cause) {
+          if (!isTransientSQLiteLock(cause) || attempt === SQLITE_WRITE_RETRY_ATTEMPTS - 1) throw cause;
+          await sleep(SQLITE_WRITE_RETRY_DELAY_MS * (attempt + 1));
+        }
       }
-    }
 
-    throw new Error('Unreachable SQLite write retry state.');
+      throw new Error('Unreachable SQLite write retry state.');
+    });
+
+    this.writeQueue = run.catch(() => undefined);
+    await run;
   }
 
   private async insertMessage(db: SQLiteWriteContext, message: Message): Promise<void> {
