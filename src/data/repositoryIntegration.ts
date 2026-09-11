@@ -81,35 +81,64 @@ async function testInvariantViolations(db: SQLiteDatabase): Promise<void> {
     VALUES ('invalid-type', 'the-one', 'ME', 'NOPE', 'x', 1, 1, NULL, 'LOCAL_ONLY')`), 'Message type CHECK invariant must reject invalid types');
 }
 
-async function testMediaReferenceOwnership(db: SQLiteDatabase): Promise<void> {
-  const directory = FileSystem.documentDirectory;
-  assert(directory, 'Document storage is required for media reference validation');
+async function testMediaReferenceInvariant(db: SQLiteDatabase): Promise<void> {
   const repository = new SQLiteRucolaRepository(db);
   await repository.saveSetup({ partnerNickname: 'Partner', ownName: 'Nico', togetherSince: null });
 
-  const ownedReference = `${directory}media/reference-validation.jpg`;
-  const validMessage = await repository.sendMessage({ type: 'PHOTO_VIDEO', body: '', mediaReference: ownedReference });
-  assertEqual(validMessage.mediaReference, ownedReference, 'Owned media references should be persisted unchanged');
+  const messageCount = async (): Promise<number> => (await repository.getMessages()).length;
+  const before = await messageCount();
 
   await assertRejects(
-    () => repository.sendMessage({ type: 'PHOTO_VIDEO', body: '', mediaReference: `${directory}other/file.jpg` }),
-    'Repository must reject media references outside the owned media directory',
+    () => repository.sendMessage({ type: 'PHOTO_VIDEO', body: '', mediaReference: 'content://external/photo' }),
+    'External media URI must be rejected',
   );
   await assertRejects(
-    () => repository.sendMessage({ type: 'PHOTO_VIDEO', body: '', mediaReference: `${directory}media/../outside.jpg` }),
-    'Repository must reject path traversal media references',
+    () => repository.sendMessage({ type: 'PHOTO_VIDEO', body: '', mediaReference: 'file:///rucola/media/../outside.jpg' }),
+    'Path traversal media URI must be rejected',
   );
   await assertRejects(
-    () => repository.sendMessage({ type: 'PHOTO_VIDEO', body: '', mediaReference: 'content://media/external-photo' }),
-    'Repository must reject external media URIs',
+    () => repository.sendMessage({ type: 'TEXT', body: 'text', mediaReference: 'file:///external/photo.jpg' }),
+    'Non-media messages must not carry media references',
   );
-  await assertRejects(
-    () => repository.sendMessage({ type: 'TEXT', body: 'no media here', mediaReference: ownedReference }),
-    'Repository must reject media references on non-media messages',
-  );
+  assertEqual(await messageCount(), before, 'Rejected media references must not mutate message state');
+}
 
-  const messages = await repository.getMessages();
-  assertEqual(messages.filter((message) => message.mediaReference === ownedReference).length, 1, 'Rejected media references must not be persisted');
+async function testResetRecreatesCleanState(db: SQLiteDatabase): Promise<void> {
+  const repository = new SQLiteRucolaRepository(db);
+  await repository.saveSetup({ partnerNickname: 'Old Partner', ownName: 'Old Nico', togetherSince: null });
+  await repository.sendMessage({ type: 'TEXT', body: 'old message' });
+
+  await repository.deleteRelationship();
+  assertEqual(await repository.getRelationship(), null, 'Reset should remove the old relationship');
+  assertEqual((await repository.getMessages()).length, 0, 'Reset should remove old messages');
+  assertEqual(await repository.getActiveMessage('ME'), null, 'Reset should remove the own active slot');
+  assertEqual(await repository.getActiveMessage('PARTNER'), null, 'Reset should remove the partner active slot');
+
+  await repository.saveSetup({ partnerNickname: 'New Partner', ownName: 'New Nico', togetherSince: 789 });
+  const sent = await repository.sendMessage({ type: 'TEXT', body: 'new message' });
+  assertEqual((await repository.getRelationship())?.partnerNickname, 'New Partner', 'Setup after reset must create a fresh relationship');
+  assertEqual((await repository.getMessages()).filter((message) => message.participant === 'ME').length, 1, 'Fresh state must not retain old own messages');
+  assertEqual((await repository.getActiveMessage('ME'))?.id, sent.id, 'Fresh state should accept new messages normally');
+  assertEqual((await repository.getActiveMessage('PARTNER'))?.body, 'good luck today ♡', 'Fresh setup should recreate the partner seed');
+}
+
+async function testConcurrentSetupIsIdempotent(db: SQLiteDatabase): Promise<void> {
+  const first = new SQLiteRucolaRepository(db);
+  const second = new SQLiteRucolaRepository(db);
+  await Promise.all([
+    first.saveSetup({ partnerNickname: 'Partner A', ownName: 'Nico A', togetherSince: 1 }),
+    second.saveSetup({ partnerNickname: 'Partner B', ownName: 'Nico B', togetherSince: 2 }),
+  ]);
+
+  const relationship = await first.getRelationship();
+  assert(relationship, 'Concurrent setup should leave a relationship');
+  assert(
+    (relationship.partnerNickname === 'Partner A' && relationship.ownName === 'Nico A' && relationship.togetherSince === 1)
+      || (relationship.partnerNickname === 'Partner B' && relationship.ownName === 'Nico B' && relationship.togetherSince === 2),
+    'Concurrent setup must leave one complete setup state rather than mixed fields',
+  );
+  assertEqual((await first.getMessages()).filter((message) => message.participant === 'PARTNER').length, 1, 'Concurrent setup must create only one partner seed');
+  assert((await first.getActiveMessage('PARTNER')) !== null, 'Concurrent setup must leave a valid partner active slot');
 }
 
 async function testSerializedMediaCleanup(db: SQLiteDatabase): Promise<void> {
@@ -125,9 +154,7 @@ async function testSerializedMediaCleanup(db: SQLiteDatabase): Promise<void> {
   });
 
   await repository.saveSetup({ partnerNickname: 'Partner', ownName: 'Nico', togetherSince: null });
-  const directory = FileSystem.documentDirectory;
-  assert(directory, 'Document storage is required for serialized media cleanup testing');
-  const mediaReference = `${directory}media/cleanup-race.jpg`;
+  const mediaReference = 'file:///rucola-media-cleanup-race';
   await repository.sendMessage({ type: 'PHOTO_VIDEO', body: '', mediaReference });
 
   let resetSettled = false;
@@ -178,7 +205,9 @@ export async function runRepositoryIntegrationTests(db: SQLiteDatabase): Promise
   await testActiveReplacementAndHistoryImmutability(db);
   await testRapidConcurrentWrites(db);
   await testInvariantViolations(db);
-  await testMediaReferenceOwnership(db);
+  await testMediaReferenceInvariant(db);
+  await testResetRecreatesCleanState(db);
+  await testConcurrentSetupIsIdempotent(db);
   await testSerializedMediaCleanup(db);
   await testResetAndMediaCleanup(db);
 }
