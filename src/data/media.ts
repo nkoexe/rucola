@@ -9,6 +9,17 @@ function ownedMediaDirectory(): string | null {
   return documentDirectory ? `${documentDirectory}${MEDIA_DIRECTORY}` : null;
 }
 
+export function isOwnedMediaUri(uri: string): boolean {
+  const ownedPrefix = ownedMediaDirectory();
+  if (!ownedPrefix || !uri.startsWith(ownedPrefix)) return false;
+
+  const relativePath = uri.slice(ownedPrefix.length);
+  return Boolean(relativePath)
+    && !relativePath.includes('..')
+    && !relativePath.includes('/')
+    && !relativePath.includes('\\');
+}
+
 function extensionForAsset(asset: ImagePickerAsset): string {
   const mimeType = asset.mimeType?.toLowerCase();
   if (mimeType?.includes('png')) return 'png';
@@ -54,11 +65,7 @@ export async function persistPickedMedia(asset: ImagePickerAsset): Promise<strin
 }
 
 export async function deleteOwnedMedia(uri: string): Promise<void> {
-  const ownedPrefix = ownedMediaDirectory();
-  if (!ownedPrefix || !uri.startsWith(ownedPrefix)) return;
-
-  const relativePath = uri.slice(ownedPrefix.length);
-  if (!relativePath || relativePath.includes('..') || relativePath.includes('/') || relativePath.includes('\\')) return;
+  if (!isOwnedMediaUri(uri)) return;
 
   try {
     const info = await FileSystem.getInfoAsync(uri);
@@ -80,7 +87,7 @@ export async function reconcileOwnedMedia(mediaReferences: readonly string[]): P
 
   try {
     const entries = await FileSystem.readDirectoryAsync(directory);
-    const referenced = new Set(mediaReferences.filter((uri) => uri.startsWith(directory)));
+    const referenced = new Set(mediaReferences.filter(isOwnedMediaUri));
 
     await Promise.all(
       entries.map(async (entry) => {
