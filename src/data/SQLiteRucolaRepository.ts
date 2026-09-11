@@ -7,7 +7,7 @@ import type { RucolaRepository } from '../domain/repository';
 
 interface RelationshipRow { id: string; partnerNickname: string; ownName: string; partnerColor: string; togetherSince: number | null; }
 interface MessageRow { id: string; relationshipId: string; participant: Participant; type: MessageType; body: string; createdAt: number; orderIndex: number; isActive: number; mediaReference: string | null; syncState: SyncState; }
-type SQLiteWriteContext = Pick<SQLiteDatabase, 'getFirstAsync' | 'runAsync'>;
+type SQLiteWriteContext = Pick<SQLiteDatabase, 'getFirstAsync' | 'getAllAsync' | 'runAsync'>;
 
 const SQLITE_WRITE_RETRY_ATTEMPTS = 6;
 const SQLITE_WRITE_RETRY_DELAY_MS = 10;
@@ -159,10 +159,11 @@ export class SQLiteRucolaRepository implements RucolaRepository {
     return message;
   }
 
-  private async withExclusiveWrite<T>(action: (tx: SQLiteWriteContext) => Promise<T>): Promise<T> {
+  private async withExclusiveWrite(action: (tx: SQLiteWriteContext) => Promise<void>): Promise<void> {
     for (let attempt = 0; attempt < SQLITE_WRITE_RETRY_ATTEMPTS; attempt += 1) {
       try {
-        return await this.db.withExclusiveTransactionAsync(action);
+        await this.db.withExclusiveTransactionAsync(action);
+        return;
       } catch (cause) {
         if (!isTransientSQLiteLock(cause) || attempt === SQLITE_WRITE_RETRY_ATTEMPTS - 1) throw cause;
         await sleep(SQLITE_WRITE_RETRY_DELAY_MS * (attempt + 1));
