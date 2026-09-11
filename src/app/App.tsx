@@ -3,8 +3,9 @@ import { useEffect, useState } from 'react';
 import { SafeAreaView, StyleSheet, Text, View } from 'react-native';
 import { getRepository } from '../data/repository';
 import type { Relationship } from '../domain/models';
-import { HistoryScreen } from '../screens/History/HistoryScreen';
+import { GetRelationship } from '../domain/useCases';
 import { CalendarScreen } from '../screens/Calendar/CalendarScreen';
+import { HistoryScreen } from '../screens/History/HistoryScreen';
 import { HomeScreen } from '../screens/Home/HomeScreen';
 import { SettingsScreen } from '../screens/Settings/SettingsScreen';
 import { SetupScreen } from '../screens/Setup/SetupScreen';
@@ -15,21 +16,38 @@ type AppScreen = 'home' | 'history' | 'calendar' | 'settings';
 export default function App() {
   const [relationship, setRelationship] = useState<Relationship | null>(null);
   const [ready, setReady] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     let mounted = true;
     void repositoryPromise
-      .then((repository) => repository.getRelationship())
+      .then((repository) => new GetRelationship(repository).execute())
       .then((value) => {
-        if (mounted) { setRelationship(value); setReady(true); }
+        if (mounted) {
+          setRelationship(value);
+          setReady(true);
+        }
       })
-      .catch(() => mounted && setReady(true));
+      .catch((cause) => {
+        if (mounted) {
+          setError(cause instanceof Error ? cause.message : 'Could not initialize Rucola.');
+          setReady(true);
+        }
+      });
     return () => { mounted = false; };
   }, []);
 
   if (!ready) return <LoadingScreen />;
+  if (error && !relationship) return <ErrorScreen message={error} />;
   if (!relationship) return <SetupScreen repositoryPromise={repositoryPromise} onComplete={setRelationship} />;
-  return <MainApp relationship={relationship} repositoryPromise={repositoryPromise} onRelationshipDeleted={() => setRelationship(null)} />;
+
+  return (
+    <MainApp
+      relationship={relationship}
+      repositoryPromise={repositoryPromise}
+      onRelationshipDeleted={() => setRelationship(null)}
+    />
+  );
 }
 
 function MainApp({ relationship, repositoryPromise, onRelationshipDeleted }: {
@@ -57,4 +75,13 @@ function LoadingScreen() {
   return <SafeAreaView style={styles.safe}><View style={styles.loading}><Text style={styles.logo}>rucola</Text><Text>getting things ready...</Text></View><StatusBar style="dark" /></SafeAreaView>;
 }
 
-const styles = StyleSheet.create({ safe: { flex: 1 }, loading: { flex: 1, alignItems: 'center', justifyContent: 'center' }, logo: { fontSize: 42, fontWeight: '800', marginBottom: 24 } });
+function ErrorScreen({ message }: { message: string }) {
+  return <SafeAreaView style={styles.safe}><View style={styles.loading}><Text style={styles.logo}>rucola</Text><Text style={styles.error}>Could not start the app.</Text><Text>{message}</Text></View><StatusBar style="dark" /></SafeAreaView>;
+}
+
+const styles = StyleSheet.create({
+  safe: { flex: 1 },
+  loading: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 28 },
+  logo: { fontSize: 42, fontWeight: '800', marginBottom: 24 },
+  error: { fontSize: 18, fontWeight: '700', marginBottom: 8 },
+});
