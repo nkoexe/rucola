@@ -16,13 +16,18 @@ Implemented scenarios:
 - deterministic ordering across repeated sends;
 - repository re-instantiation persistence;
 - foreign-key rejection;
-- relationship deletion.
+- relationship deletion;
+- v0 legacy-schema migration;
+- v1 legacy-schema migration;
+- malformed active-slot fixtures (missing message and participant mismatch);
+- invalid legacy `isActive` rejection;
+- orphan active-message rejection;
+- transactional rollback after a migration fails during data transformation.
 
 Still required:
 
-- partner seed recovery from history;
 - media reference and owned-media cleanup behavior;
-- v0/v1 migration fixtures and malformed migration rollback;
 - additional foreign-key/check-constraint cases;
 - initialization failure and retry;
-- concurrent/order-allocation behavior.
+- concurrent/order-allocation behavior;
+- native execution of the full suite.
