@@ -52,7 +52,7 @@ Keep synchronization state in the domain/data model so a future backend can be i
 ## Product invariants
 
 - One relationship per device/account, exactly two participants.
-- Each participant has exactly one active message.
+- At most one active message per participant; the normal lifecycle gives the partner a seeded active message during setup and gives the user an active message when they first send one.
 - Sending a new message moves that participant's previous active message into immutable history.
 - Messages are immutable: no editing, deleting, replies, threads, or reactions in MVP.
 - History contains both participants' messages and is permanent local data.
@@ -85,6 +85,8 @@ The React Native branch currently has:
 - Month/date calendar browsing of historical messages, including media messages.
 - Local-data reset from settings, including cleanup of owned media files.
 - Domain use-case boundary used by the app screens.
+- Explicit SQLite v0/v1 → v2 migration handling and integrity validation.
+- Domain/use-case tests executed through Node's built-in test runner and wired into CI.
 
 The UI is deliberately barebones. Do not spend the next implementation phase on Figma fidelity.
 
@@ -171,13 +173,18 @@ Tests are required for important domain/repository behavior:
 - moving the previous active message into history;
 - ordering;
 - persistence;
-- one-active-message-per-participant invariant.
+- one-active-message-per-participant invariant;
+- migration and malformed-data handling;
+- media cleanup and failure recovery.
+
+The current Node test suite covers use-case validation. Real SQLite repository behavior still requires native integration coverage before backend work.
 
 Relevant local commands:
 
 ```bash
-npm install
+npm ci
 npm run typecheck
+npm run test:domain
 npx expo prebuild
 npm run android
 ```
