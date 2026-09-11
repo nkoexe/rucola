@@ -33,6 +33,17 @@ export async function persistPickedMedia(asset: ImagePickerAsset): Promise<strin
   return destination;
 }
 
+export async function deleteOwnedMedia(uri: string): Promise<void> {
+  const documentDirectory = FileSystem.documentDirectory;
+  if (!documentDirectory || !uri.startsWith(`${documentDirectory}${MEDIA_DIRECTORY}`)) return;
+
+  try {
+    await FileSystem.deleteAsync(uri, { idempotent: true });
+  } catch {
+    // Database reset must not fail because an already-missing media file could not be removed.
+  }
+}
+
 export function isVideoMedia(uri: string): boolean {
   return /\.(mp4|mov|m4v|webm|avi)$/i.test(uri.split('?')[0] ?? uri);
 }
