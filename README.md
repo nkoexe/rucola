@@ -67,13 +67,19 @@ Read these before substantial changes:
 Install dependencies:
 
 ```bash
-npm install
+npm ci
 ```
 
 Run TypeScript validation:
 
 ```bash
 npm run typecheck
+```
+
+Run the domain/use-case test suite:
+
+```bash
+npm run test:domain
 ```
 
 Generate/update the native project:
