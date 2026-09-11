@@ -64,7 +64,7 @@ export class SQLiteRucolaRepository implements RucolaRepository {
               m.orderIndex, 1 AS isActive, m.mediaReference, m.syncState
        FROM messages m
        INNER JOIN active_message_slots s ON s.relationshipId = m.relationshipId AND s.messageId = m.id
-       WHERE s.relationshipId = ? AND s.participant = ?`,
+       WHERE s.relationshipId = ? AND s.participant = ? AND m.participant = s.participant`,
       RELATIONSHIP_ID, participant,
     );
     return row ? mapMessage(row) : null;
