@@ -21,6 +21,7 @@ export async function runMediaRobustnessIntegrationTests(): Promise<void> {
   const mediaDirectory = `${documentDirectory}media/`;
   const source = `${documentDirectory}rucola-media-robustness-${Date.now()}.txt`;
   const created: string[] = [];
+  let emptyDirectory: string | null = null;
 
   const persist = async (asset: Record<string, unknown>): Promise<string> => {
     const uri = await persistPickedMedia(asset as Parameters<typeof persistPickedMedia>[0]);
@@ -70,7 +71,7 @@ export async function runMediaRobustnessIntegrationTests(): Promise<void> {
     await FileSystem.writeAsStringAsync(orphanB, 'orphan b');
     created.push(orphanA, orphanB);
 
-    const emptyDirectory = `${mediaDirectory}rucola-empty-${Date.now()}/`;
+    emptyDirectory = `${mediaDirectory}rucola-empty-${Date.now()}/`;
     await FileSystem.makeDirectoryAsync(emptyDirectory, { intermediates: true });
     await reconcileOwnedMedia([mimeWins, mimeOnly, videoTypeOnly, firstUnique, secondUnique]);
 
@@ -89,7 +90,6 @@ export async function runMediaRobustnessIntegrationTests(): Promise<void> {
     await deleteOwnedMedia(emptyDirectory);
     assert(await FileSystem.getInfoAsync(emptyDirectory).then((info) => info.exists), 'Owned directories must not be deleted as media files');
 
-    await FileSystem.deleteAsync(`${mediaDirectory}nonexistent-directory-${Date.now()}/`, { idempotent: true });
     await reconcileOwnedMedia([]);
     for (const uri of [mimeWins, mimeOnly, videoTypeOnly, firstUnique, secondUnique]) {
       assert(!(await FileSystem.getInfoAsync(uri)).exists, 'Unreferenced media should be removed by reconciliation');
@@ -97,6 +97,9 @@ export async function runMediaRobustnessIntegrationTests(): Promise<void> {
   } finally {
     for (const uri of created) {
       await FileSystem.deleteAsync(uri, { idempotent: true }).catch(() => undefined);
+    }
+    if (emptyDirectory) {
+      await FileSystem.deleteAsync(emptyDirectory, { idempotent: true }).catch(() => undefined);
     }
     await FileSystem.deleteAsync(source, { idempotent: true }).catch(() => undefined);
   }
