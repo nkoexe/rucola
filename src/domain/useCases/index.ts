@@ -38,14 +38,20 @@ export class SendMessage {
     mediaReference?: string | null;
   }): Promise<Message> {
     const body = input.body?.trim() ?? '';
+    const mediaReference = input.mediaReference?.trim() || null;
 
     if ((input.type === 'TEXT' || input.type === 'EMOJI') && !body) {
       return Promise.reject(new Error('This message type requires content.'));
     }
 
+    if ((input.type === 'PHOTO_VIDEO' || input.type === 'DRAWING') && !mediaReference) {
+      return Promise.reject(new Error('This message type requires media.'));
+    }
+
     return this.repository.sendMessage({
       ...input,
       body,
+      mediaReference,
     });
   }
 }
