@@ -2,7 +2,11 @@ import type { Message, MessageType, Participant, Relationship } from '../models'
 import type { RucolaRepository } from '../repository';
 
 export class SaveSetup {
-  constructor(private readonly repository: RucolaRepository) {}
+  private readonly repository: RucolaRepository;
+
+  constructor(repository: RucolaRepository) {
+    this.repository = repository;
+  }
 
   execute(input: {
     partnerNickname: string;
@@ -30,7 +34,11 @@ export class SaveSetup {
 }
 
 export class SendMessage {
-  constructor(private readonly repository: RucolaRepository) {}
+  private readonly repository: RucolaRepository;
+
+  constructor(repository: RucolaRepository) {
+    this.repository = repository;
+  }
 
   execute(input: {
     type: MessageType;
@@ -57,7 +65,11 @@ export class SendMessage {
 }
 
 export class GetRelationship {
-  constructor(private readonly repository: RucolaRepository) {}
+  private readonly repository: RucolaRepository;
+
+  constructor(repository: RucolaRepository) {
+    this.repository = repository;
+  }
 
   execute(): Promise<Relationship | null> {
     return this.repository.getRelationship();
@@ -65,7 +77,11 @@ export class GetRelationship {
 }
 
 export class GetMessages {
-  constructor(private readonly repository: RucolaRepository) {}
+  private readonly repository: RucolaRepository;
+
+  constructor(repository: RucolaRepository) {
+    this.repository = repository;
+  }
 
   execute(): Promise<Message[]> {
     return this.repository.getMessages();
@@ -73,7 +89,11 @@ export class GetMessages {
 }
 
 export class GetActiveMessage {
-  constructor(private readonly repository: RucolaRepository) {}
+  private readonly repository: RucolaRepository;
+
+  constructor(repository: RucolaRepository) {
+    this.repository = repository;
+  }
 
   execute(participant: Participant): Promise<Message | null> {
     return this.repository.getActiveMessage(participant);
@@ -81,7 +101,11 @@ export class GetActiveMessage {
 }
 
 export class DeleteRelationship {
-  constructor(private readonly repository: RucolaRepository) {}
+  private readonly repository: RucolaRepository;
+
+  constructor(repository: RucolaRepository) {
+    this.repository = repository;
+  }
 
   execute(): Promise<void> {
     return this.repository.deleteRelationship();
