@@ -81,6 +81,44 @@ async function testInvariantViolations(db: SQLiteDatabase): Promise<void> {
     VALUES ('invalid-type', 'the-one', 'ME', 'NOPE', 'x', 1, 1, NULL, 'LOCAL_ONLY')`), 'Message type CHECK invariant must reject invalid types');
 }
 
+async function testSerializedMediaCleanup(db: SQLiteDatabase): Promise<void> {
+  let cleanupStartedResolve!: () => void;
+  let releaseCleanup!: () => void;
+  const cleanupStarted = new Promise<void>((resolve) => { cleanupStartedResolve = resolve; });
+  const cleanupGate = new Promise<void>((resolve) => { releaseCleanup = resolve; });
+  const cleanupReferences: string[] = [];
+  const repository = new SQLiteRucolaRepository(db, async (uri) => {
+    cleanupReferences.push(uri);
+    cleanupStartedResolve();
+    await cleanupGate;
+  });
+
+  await repository.saveSetup({ partnerNickname: 'Partner', ownName: 'Nico', togetherSince: null });
+  const mediaReference = 'file:///rucola-media-cleanup-race';
+  await repository.sendMessage({ type: 'PHOTO_VIDEO', body: '', mediaReference });
+
+  let resetSettled = false;
+  const resetPromise = repository.deleteRelationship().finally(() => { resetSettled = true; });
+  await cleanupStarted;
+
+  let sendError: unknown = null;
+  let sendSettled = false;
+  const sendPromise = repository.sendMessage({ type: 'PHOTO_VIDEO', body: '', mediaReference }).catch((cause) => { sendError = cause; }).finally(() => { sendSettled = true; });
+
+  await Promise.resolve();
+  await Promise.resolve();
+  assertEqual(resetSettled, false, 'Relationship reset must remain pending until media cleanup finishes');
+  assertEqual(sendSettled, false, 'A following repository write must remain queued until media cleanup finishes');
+  assertEqual(cleanupReferences.length, 1, 'Reset should clean each referenced media file once');
+  assertEqual(cleanupReferences[0], mediaReference, 'Reset should clean the referenced media file');
+
+  releaseCleanup();
+  await resetPromise;
+  await sendPromise;
+  assert(sendError instanceof Error, 'A write queued behind reset should observe the reset relationship state');
+  assertEqual(await repository.getRelationship(), null, 'Reset should leave the relationship deleted');
+}
+
 async function testResetAndMediaCleanup(db: SQLiteDatabase): Promise<void> {
   const directory = FileSystem.documentDirectory;
   assert(directory, 'Document storage is required for reset media testing');
@@ -107,5 +145,6 @@ export async function runRepositoryIntegrationTests(db: SQLiteDatabase): Promise
   await testActiveReplacementAndHistoryImmutability(db);
   await testRapidConcurrentWrites(db);
   await testInvariantViolations(db);
+  await testSerializedMediaCleanup(db);
   await testResetAndMediaCleanup(db);
 }
