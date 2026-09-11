@@ -6,6 +6,9 @@ const DEFAULT_INVITATION_LIFETIME_MS = 24 * 60 * 60 * 1000;
 const MAX_INVITATION_LIFETIME_MS = 24 * 60 * 60 * 1000;
 const TOKEN_BYTES = 32;
 const CREDENTIAL_BYTES = 32;
+const MAX_JSON_BODY_BYTES = 16 * 1024;
+const MAX_CONFIRMATION_ATTEMPTS = 5;
+const CONFIRMATION_LOCKOUT_MS = 15 * 60 * 1000;
 
 interface PairingCreateRequest {
   expiresInSeconds?: unknown;
@@ -33,8 +36,11 @@ function randomId(): string {
 }
 
 function randomConfirmationCode(): string {
+  const limit = Math.floor(0x1_0000_0000 / 1_000_000) * 1_000_000;
   const bytes = new Uint32Array(1);
-  crypto.getRandomValues(bytes);
+  do {
+    crypto.getRandomValues(bytes);
+  } while (bytes[0] >= limit);
   return String(bytes[0] % 1_000_000).padStart(6, "0");
 }
 
@@ -45,8 +51,47 @@ function parseJsonObject(value: unknown): Record<string, unknown> | null {
 }
 
 async function readJson<T extends object>(request: Request): Promise<T | null> {
+  const contentLength = request.headers.get("content-length");
+  if (contentLength !== null) {
+    const parsedLength = Number(contentLength);
+    if (!Number.isSafeInteger(parsedLength) || parsedLength < 0 || parsedLength > MAX_JSON_BODY_BYTES) {
+      return null;
+    }
+  }
+
+  if (!request.body) return null;
+
+  const reader = request.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+
   try {
-    return parseJsonObject(await request.json()) as T | null;
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      if (!value) continue;
+      total += value.byteLength;
+      if (total > MAX_JSON_BODY_BYTES) {
+        await reader.cancel("request body too large");
+        return null;
+      }
+      chunks.push(value);
+    }
+  } catch {
+    return null;
+  } finally {
+    reader.releaseLock();
+  }
+
+  const body = new Uint8Array(total);
+  let offset = 0;
+  for (const chunk of chunks) {
+    body.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+
+  try {
+    return parseJsonObject(JSON.parse(new TextDecoder().decode(body))) as T | null;
   } catch {
     return null;
   }
@@ -58,6 +103,15 @@ function invitationLifetime(body: PairingCreateRequest | null): number {
   const seconds = Math.floor(body.expiresInSeconds);
   if (seconds <= 0) return 0;
   return Math.min(seconds * 1000, MAX_INVITATION_LIFETIME_MS);
+}
+
+function equalHex(a: string, b: string): boolean {
+  if (a.length !== b.length) return false;
+  let difference = 0;
+  for (let index = 0; index < a.length; index += 1) {
+    difference |= a.charCodeAt(index) ^ b.charCodeAt(index);
+  }
+  return difference === 0;
 }
 
 async function insertInvitation(
@@ -135,7 +189,8 @@ export async function acceptInvitation(env: Env, request: Request): Promise<Resp
 
   const tokenHash = await sha256Hex(token);
   const invitation = await env.DB.prepare(
-    `SELECT id, relationship_id, confirmation_code_hash, expires_at, consumed_at
+    `SELECT id, relationship_id, confirmation_code_hash, expires_at, consumed_at,
+            failed_attempts, locked_until
      FROM invitations WHERE token_hash = ?1`,
   )
     .bind(tokenHash)
@@ -145,14 +200,40 @@ export async function acceptInvitation(env: Env, request: Request): Promise<Resp
       confirmation_code_hash: string;
       expires_at: number;
       consumed_at: number | null;
+      failed_attempts: number;
+      locked_until: number | null;
     }>();
 
   if (!invitation) return errorResponse("INVALID_INVITATION", "Invalid invitation", 400);
   if (invitation.consumed_at !== null) return errorResponse("INVITATION_CONSUMED", "Invitation has already been consumed", 409);
-  if (invitation.expires_at <= Date.now()) return errorResponse("INVALID_INVITATION", "Invitation has expired", 400);
+  const now = Date.now();
+  if (invitation.expires_at <= now) return errorResponse("INVALID_INVITATION", "Invitation has expired", 400);
+  if (invitation.locked_until !== null && invitation.locked_until > now) {
+    const retryAfter = Math.max(1, Math.ceil((invitation.locked_until - now) / 1000));
+    return new Response(JSON.stringify({ error: { code: "PAIRING_RATE_LIMITED", message: "Too many invalid confirmation attempts" } }), {
+      status: 429,
+      headers: {
+        "content-type": "application/json; charset=utf-8",
+        "cache-control": "no-store",
+        "retry-after": String(retryAfter),
+      },
+    });
+  }
 
   const suppliedCodeHash = await sha256Hex(confirmationCode);
-  if (suppliedCodeHash !== invitation.confirmation_code_hash) {
+  if (!equalHex(suppliedCodeHash, invitation.confirmation_code_hash)) {
+    const lockUntil = now + CONFIRMATION_LOCKOUT_MS;
+    await env.DB.prepare(
+      `UPDATE invitations
+       SET failed_attempts = failed_attempts + 1,
+           locked_until = CASE
+             WHEN failed_attempts + 1 >= ?1 THEN ?2
+             ELSE locked_until
+           END
+       WHERE id = ?3 AND consumed_at IS NULL AND expires_at > ?4`,
+    )
+      .bind(MAX_CONFIRMATION_ATTEMPTS, lockUntil, invitation.id, now)
+      .run();
     return errorResponse("INVALID_INVITATION", "Invalid invitation", 400);
   }
 
@@ -178,7 +259,6 @@ export async function acceptInvitation(env: Env, request: Request): Promise<Resp
   const deviceId = randomId();
   const credential = randomToken(CREDENTIAL_BYTES);
   const credentialHash = await sha256Hex(credential);
-  const now = Date.now();
 
   try {
     await env.DB.batch([
@@ -187,12 +267,14 @@ export async function acceptInvitation(env: Env, request: Request): Promise<Resp
          (id, relationship_id, participant, credential_hash, created_at, last_seen_at)
          SELECT ?1, relationship_id, 'PARTNER', ?2, ?3, ?3
          FROM invitations
-         WHERE id = ?4 AND consumed_at IS NULL AND expires_at > ?3`,
+         WHERE id = ?4 AND consumed_at IS NULL AND expires_at > ?3
+           AND (locked_until IS NULL OR locked_until <= ?3)`,
       ).bind(deviceId, credentialHash, now, invitation.id),
       env.DB.prepare(
         `UPDATE invitations
          SET consumed_at = ?1, consumed_by_device_id = ?2
-         WHERE id = ?3 AND consumed_at IS NULL AND expires_at > ?1`,
+         WHERE id = ?3 AND consumed_at IS NULL AND expires_at > ?1
+           AND (locked_until IS NULL OR locked_until <= ?1)`,
       ).bind(now, deviceId, invitation.id),
       env.DB.prepare(
         `UPDATE relationships
