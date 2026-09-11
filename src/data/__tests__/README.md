@@ -2,21 +2,27 @@
 
 `SQLiteRucolaRepository` uses `expo-sqlite`, so these tests cannot be executed by the plain Node test runner used by `npm run test:domain`.
 
-The integration suite must run inside a native Expo development build (or another supported native test environment) so the real SQLite module is loaded. Until that runner is wired into CI, keep repository tests separate from the Node-only domain suite and never label mock tests as SQLite integration coverage.
+The development-only runner is implemented in `nativeIntegration.ts` and is exposed from Settings in a native development build. It creates disposable databases and constructs the real `SQLiteRucolaRepository`; it never uses the user's normal `rucola.db`.
 
-Required scenarios:
+The current runner has not been executed in this environment. Do not report native integration coverage as passing until the suite has actually been run in a native development build.
+
+Implemented scenarios:
 
 - fresh database creation and schema verification;
-- setup persistence and repository re-instantiation;
-- partner seed persistence/recovery;
+- setup and partner seed creation;
 - first send and active-message replacement;
-- previous active message remaining immutable history;
+- previous active message remaining history;
 - independent ME/PARTNER active slots;
 - deterministic ordering across repeated sends;
-- media reference persistence;
-- relationship deletion and owned-media cleanup;
-- v0/v1 migration fixtures;
-- malformed migration rollback;
-- foreign-key integrity;
+- repository re-instantiation persistence;
+- foreign-key rejection;
+- relationship deletion.
+
+Still required:
+
+- partner seed recovery from history;
+- media reference and owned-media cleanup behavior;
+- v0/v1 migration fixtures and malformed migration rollback;
+- additional foreign-key/check-constraint cases;
 - initialization failure and retry;
 - concurrent/order-allocation behavior.
