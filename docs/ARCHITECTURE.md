@@ -57,7 +57,7 @@ A backend outage must not make existing local history disappear or become inacce
 
 The current prototype has one fixed local relationship ID (`the-one`) because there is only one relationship per installation. This is an implementation simplification, not a promise that a server should use that identifier.
 
-Each participant has zero or one active message and zero or more immutable historical messages.
+Each participant is intended to have exactly one active message and zero or more immutable historical messages. The application lifecycle establishes the active slots; SQLite enforces that a participant cannot have more than one active slot and that each slot points to a message belonging to the same relationship and participant.
 
 Messages contain:
 
@@ -68,11 +68,10 @@ Messages contain:
 - body;
 - creation timestamp;
 - deterministic order index;
-- active state;
 - optional media reference;
 - synchronization state.
 
-The local database also has an `active_message_slots` table keyed by relationship and participant. The slot identifies the active message independently from the immutable message history.
+Active state is **derived**, not stored on the message row. The `active_message_slots` table is the source of truth for which message is active for each participant.
 
 ## 5. Message replacement
 
@@ -80,11 +79,10 @@ Creating a message is transactional:
 
 1. determine the next relationship-local order index;
 2. persist the new message;
-3. deactivate the previous active message for that participant;
-4. activate the new message;
-5. update the participant's active slot.
+3. replace the participant's active slot with the new message;
+4. commit the transaction.
 
-The previous message is never deleted.
+The previous message is never deleted, so it becomes immutable history automatically because it is no longer referenced by the participant's active slot.
 
 This same semantic must hold when synchronization later delivers several messages while a recipient was offline.
 
@@ -135,7 +133,17 @@ The local model already has `mediaReference`, `PHOTO_VIDEO`, and `DRAWING` messa
 
 The current UI deliberately uses placeholders. Real media must be durably stored locally before it is treated as local message data.
 
-## 9. Pairing/security direction
+## 9. Database migrations
+
+SQLite uses `PRAGMA user_version` for schema versioning. The current schema is version 2.
+
+Fresh databases are created directly at the latest schema. Existing version-0 databases that contain the original tables and version-1 databases both use the legacy schema and are migrated transactionally to version 2.
+
+The migration validates legacy active-message slots before changing the schema. It rejects mismatched slots, missing messages, invalid active flags, duplicate active slots, and values that cannot be represented safely as integers. After migration, `PRAGMA foreign_key_check` is run and the database must report exactly the supported schema version.
+
+A database newer than the application is rejected rather than downgraded. Migration failures are allowed to abort the transaction so the old database is not partially replaced.
+
+## 10. Pairing/security direction
 
 Fresh installations eventually receive anonymous device identities. There is no normal account-registration UX.
 
@@ -151,7 +159,7 @@ The human-facing code is **not** a security credential.
 
 Real two-device pairing must not be simulated as local communication. The UI can be prepared behind a pairing abstraction before the backend exists, but pairing is not considered complete until two installations can actually establish the relationship through a real transport.
 
-## 10. Future backend
+## 11. Future backend
 
 The current preferred direction is:
 
@@ -161,13 +169,13 @@ The current preferred direction is:
 
 This remains future work. The local app must continue to function without the backend.
 
-## 11. Widgets and notifications
+## 12. Widgets and notifications
 
 Widgets should read local state and never require a network request just to render the current partner message.
 
 Push notifications should generally prompt synchronization rather than carry message content. Background execution is platform-dependent and must not be treated as guaranteed immediate execution.
 
-## 12. Unpairing
+## 13. Unpairing
 
 Unpairing is different from clearing local data.
 
@@ -183,22 +191,24 @@ app becomes read-only
 
 Export/deletion is a separate future feature. The current Settings `Clear local data` action is an explicit destructive local reset and must not be presented as unpairing.
 
-## 13. Core invariants for tests
+## 14. Core invariants for tests
 
 Tests should protect at least:
 
 1. one relationship per local installation;
-2. at most one active message per participant;
-3. creating a new message archives the previous active message;
-4. history is not destroyed by replacement;
-5. both participants' messages coexist in local history;
-6. message order is deterministic;
-7. persistence survives process/app restarts;
-8. sync state is distinct from read/seen state;
+2. at most one active message per participant at the database level;
+3. normal relationship lifecycle establishes one active message per participant;
+4. creating a new message archives the previous active message;
+5. history is not destroyed by replacement;
+6. both participants' messages coexist in local history;
+7. message order is deterministic;
+8. persistence survives process/app restarts;
 9. invalid message input is rejected before persistence;
-10. media-only message types remain valid when their real media implementation is added.
+10. media-only message types remain valid when their real media implementation is added;
+11. version-1 legacy databases migrate to the current schema without losing data;
+12. malformed legacy data causes migration to fail without a partial migration.
 
-## 14. Technology rule
+## 15. Technology rule
 
 Use the current Expo/React Native stack and stable Expo-compatible packages. Do not add dependencies merely to make a small feature look architectural.
 
