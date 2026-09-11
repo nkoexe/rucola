@@ -4,6 +4,11 @@ import type { ImagePickerAsset } from 'expo-image-picker';
 
 const MEDIA_DIRECTORY = 'media/';
 
+function ownedMediaDirectory(): string | null {
+  const documentDirectory = FileSystem.documentDirectory;
+  return documentDirectory ? `${documentDirectory}${MEDIA_DIRECTORY}` : null;
+}
+
 function extensionForAsset(asset: ImagePickerAsset): string {
   const fileName = asset.fileName?.trim();
   if (fileName) {
@@ -22,25 +27,25 @@ function extensionForAsset(asset: ImagePickerAsset): string {
 }
 
 export async function persistPickedMedia(asset: ImagePickerAsset): Promise<string> {
-  const documentDirectory = FileSystem.documentDirectory;
-  if (!documentDirectory) throw new Error('Local document storage is unavailable.');
+  if (!asset.uri?.trim()) throw new Error('The selected media has no usable URI.');
 
-  await FileSystem.makeDirectoryAsync(`${documentDirectory}${MEDIA_DIRECTORY}`, { intermediates: true });
+  const directory = ownedMediaDirectory();
+  if (!directory) throw new Error('Local document storage is unavailable.');
+
+  await FileSystem.makeDirectoryAsync(directory, { intermediates: true });
 
   const extension = extensionForAsset(asset);
-  const destination = `${documentDirectory}${MEDIA_DIRECTORY}${randomUUID()}.${extension}`;
+  const destination = `${directory}${randomUUID()}.${extension}`;
   await FileSystem.copyAsync({ from: asset.uri, to: destination });
   return destination;
 }
 
 export async function deleteOwnedMedia(uri: string): Promise<void> {
-  const documentDirectory = FileSystem.documentDirectory;
-  const ownedPrefix = documentDirectory ? `${documentDirectory}${MEDIA_DIRECTORY}` : null;
+  const ownedPrefix = ownedMediaDirectory();
   if (!ownedPrefix || !uri.startsWith(ownedPrefix)) return;
 
-  // Prefix checks alone are not sufficient for a URI containing path traversal.
   const relativePath = uri.slice(ownedPrefix.length);
-  if (!relativePath || relativePath.includes('..') || relativePath.includes('/')) return;
+  if (!relativePath || relativePath.includes('..') || relativePath.includes('/') || relativePath.includes('\\')) return;
 
   try {
     await FileSystem.deleteAsync(uri, { idempotent: true });
@@ -49,6 +54,30 @@ export async function deleteOwnedMedia(uri: string): Promise<void> {
   }
 }
 
+/**
+ * Removes app-owned media files that are no longer referenced by the database.
+ * This closes the unavoidable crash window between copying a picked asset and
+ * committing the corresponding SQLite message row.
+ */
+export async function reconcileOwnedMedia(mediaReferences: readonly string[]): Promise<void> {
+  const directory = ownedMediaDirectory();
+  if (!directory) return;
+
+  try {
+    const entries = await FileSystem.readDirectoryAsync(directory);
+    const referenced = new Set(mediaReferences.filter((uri) => uri.startsWith(directory)));
+
+    await Promise.all(
+      entries.map(async (entry) => {
+        const uri = `${directory}${entry}`;
+        if (!referenced.has(uri)) await deleteOwnedMedia(uri);
+      }),
+    );
+  } catch {
+    // Media reconciliation is recovery hygiene, not a reason to block app startup.
+  }
+}
+
 export function isVideoMedia(uri: string): boolean {
-  return /\.(mp4|mov|m4v|webm|avi)$/i.test(uri.split('?')[0] ?? uri);
+  return /\.(mp4|mov|m4v|webm|avi)$/i.test(uri.split(/[?#]/, 1)[0] ?? uri);
 }
