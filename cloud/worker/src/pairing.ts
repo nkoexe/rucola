@@ -14,7 +14,6 @@ interface PairingCreateRequest {
 interface PairingAcceptRequest {
   token?: unknown;
   confirmationCode?: unknown;
-  deviceName?: unknown;
 }
 
 function randomToken(byteLength: number): string {
@@ -47,8 +46,7 @@ function parseJsonObject(value: unknown): Record<string, unknown> | null {
 
 async function readJson<T extends Record<string, unknown>>(request: Request): Promise<T | null> {
   try {
-    const body = await request.json();
-    return parseJsonObject(body) as T | null;
+    return parseJsonObject(await request.json()) as T | null;
   } catch {
     return null;
   }
@@ -56,16 +54,10 @@ async function readJson<T extends Record<string, unknown>>(request: Request): Pr
 
 function invitationLifetime(body: PairingCreateRequest | null): number {
   if (!body || body.expiresInSeconds === undefined) return DEFAULT_INVITATION_LIFETIME_MS;
-  if (typeof body.expiresInSeconds !== "number" || !Number.isFinite(body.expiresInSeconds)) {
-    return 0;
-  }
+  if (typeof body.expiresInSeconds !== "number" || !Number.isFinite(body.expiresInSeconds)) return 0;
   const seconds = Math.floor(body.expiresInSeconds);
   if (seconds <= 0) return 0;
   return Math.min(seconds * 1000, MAX_INVITATION_LIFETIME_MS);
-}
-
-function validDeviceName(value: unknown): boolean {
-  return value === undefined || (typeof value === "string" && value.length <= 100);
 }
 
 export async function createInvitation(
@@ -73,15 +65,13 @@ export async function createInvitation(
   request: Request,
   device: AuthenticatedDevice,
 ): Promise<Response> {
-  const body = await readJson<PairingCreateRequest>(request);
   if (request.headers.get("content-type")?.toLowerCase().startsWith("application/json") !== true) {
     return errorResponse("INVALID_REQUEST", "JSON request body required", 400);
   }
 
+  const body = await readJson<PairingCreateRequest>(request);
   const lifetime = invitationLifetime(body);
-  if (lifetime <= 0) {
-    return errorResponse("INVALID_REQUEST", "Invalid invitation lifetime", 400);
-  }
+  if (lifetime <= 0) return errorResponse("INVALID_REQUEST", "Invalid invitation lifetime", 400);
 
   const relationship = await env.DB.prepare(
     `SELECT status FROM relationships WHERE id = ?1`,
@@ -118,13 +108,7 @@ export async function createInvitation(
     .run();
 
   return json(
-    {
-      relationshipId: device.relationshipId,
-      invitationId,
-      token,
-      confirmationCode,
-      expiresAt,
-    },
+    { relationshipId: device.relationshipId, invitationId, token, confirmationCode, expiresAt },
     201,
   );
 }
@@ -138,15 +122,14 @@ export async function acceptInvitation(env: Env, request: Request): Promise<Resp
   const token = typeof body?.token === "string" ? body.token : null;
   const confirmationCode = typeof body?.confirmationCode === "string" ? body.confirmationCode : null;
 
-  if (!token || !confirmationCode || !/^\d{6}$/.test(confirmationCode) || !validDeviceName(body?.deviceName)) {
+  if (!token || !confirmationCode || !/^\d{6}$/.test(confirmationCode)) {
     return errorResponse("INVALID_REQUEST", "Invalid pairing request", 400);
   }
 
   const tokenHash = await sha256Hex(token);
   const invitation = await env.DB.prepare(
     `SELECT id, relationship_id, confirmation_code_hash, expires_at, consumed_at
-     FROM invitations
-     WHERE token_hash = ?1`,
+     FROM invitations WHERE token_hash = ?1`,
   )
     .bind(tokenHash)
     .first<{
@@ -158,12 +141,8 @@ export async function acceptInvitation(env: Env, request: Request): Promise<Resp
     }>();
 
   if (!invitation) return errorResponse("INVALID_INVITATION", "Invalid invitation", 400);
-  if (invitation.consumed_at !== null) {
-    return errorResponse("INVITATION_CONSUMED", "Invitation has already been consumed", 409);
-  }
-  if (invitation.expires_at <= Date.now()) {
-    return errorResponse("INVALID_INVITATION", "Invitation has expired", 400);
-  }
+  if (invitation.consumed_at !== null) return errorResponse("INVITATION_CONSUMED", "Invitation has already been consumed", 409);
+  if (invitation.expires_at <= Date.now()) return errorResponse("INVALID_INVITATION", "Invitation has expired", 400);
 
   const suppliedCodeHash = await sha256Hex(confirmationCode);
   if (suppliedCodeHash !== invitation.confirmation_code_hash) {
@@ -181,15 +160,12 @@ export async function acceptInvitation(env: Env, request: Request): Promise<Resp
   }
 
   const activeDevice = await env.DB.prepare(
-    `SELECT id FROM devices
-     WHERE relationship_id = ?1 AND revoked_at IS NULL`,
+    `SELECT id FROM devices WHERE relationship_id = ?1 AND revoked_at IS NULL`,
   )
     .bind(invitation.relationship_id)
     .first<{ id: string }>();
 
-  if (!activeDevice) {
-    return errorResponse("PAIRING_CONFLICT", "Pairing state is invalid", 409);
-  }
+  if (!activeDevice) return errorResponse("PAIRING_CONFLICT", "Pairing state is invalid", 409);
 
   const deviceId = randomId();
   const credential = randomToken(CREDENTIAL_BYTES);
@@ -206,26 +182,32 @@ export async function acceptInvitation(env: Env, request: Request): Promise<Resp
       env.DB.prepare(
         `INSERT INTO devices
          (id, relationship_id, participant, credential_hash, created_at, last_seen_at)
-         VALUES (?1, ?2, 'PARTNER', ?3, ?4, ?4)`,
-      ).bind(deviceId, invitation.relationship_id, credentialHash, now),
+         SELECT ?1, relationship_id, 'PARTNER', ?2, ?3, ?3
+         FROM invitations
+         WHERE id = ?4 AND consumed_by_device_id = ?1`,
+      ).bind(deviceId, credentialHash, now, invitation.id),
       env.DB.prepare(
         `UPDATE relationships
          SET status = 'ACTIVE'
-         WHERE id = ?1 AND status = 'PAIRING'`,
-      ).bind(invitation.relationship_id),
+         WHERE id = ?1 AND status = 'PAIRING'
+           AND EXISTS (
+             SELECT 1 FROM invitations
+             WHERE id = ?2 AND consumed_by_device_id = ?3
+           )`,
+      ).bind(invitation.relationship_id, invitation.id, deviceId),
     ]);
   } catch {
     return errorResponse("PAIRING_CONFLICT", "Pairing could not be completed", 409);
   }
 
-  const state = await env.DB.prepare(
-    `SELECT status FROM relationships WHERE id = ?1`,
+  const createdDevice = await env.DB.prepare(
+    `SELECT id FROM devices WHERE id = ?1 AND relationship_id = ?2 AND participant = 'PARTNER'`,
   )
-    .bind(invitation.relationship_id)
-    .first<{ status: "PAIRING" | "ACTIVE" | "ENDED" }>();
+    .bind(deviceId, invitation.relationship_id)
+    .first<{ id: string }>();
 
-  if (!state || state.status !== "ACTIVE") {
-    return errorResponse("INTERNAL_ERROR", "Pairing state could not be verified", 500);
+  if (!createdDevice) {
+    return errorResponse("PAIRING_CONFLICT", "Invitation was already consumed", 409);
   }
 
   return json(
@@ -244,7 +226,7 @@ export async function bootstrapPairing(env: Env, request: Request): Promise<Resp
     return errorResponse("INVALID_REQUEST", "JSON request body required", 400);
   }
 
-  const body = await readJson<{ expiresInSeconds?: unknown }>(request);
+  const body = await readJson<PairingCreateRequest>(request);
   const lifetime = invitationLifetime(body);
   if (lifetime <= 0) return errorResponse("INVALID_REQUEST", "Invalid invitation lifetime", 400);
 
@@ -275,15 +257,7 @@ export async function bootstrapPairing(env: Env, request: Request): Promise<Resp
         `INSERT INTO invitations
          (id, relationship_id, token_hash, confirmation_code_hash, created_by_device_id, created_at, expires_at)
          VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)`,
-      ).bind(
-        invitationId,
-        relationshipId,
-        tokenHash,
-        confirmationCodeHash,
-        deviceId,
-        now,
-        expiresAt,
-      ),
+      ).bind(invitationId, relationshipId, tokenHash, confirmationCodeHash, deviceId, now, expiresAt),
     ]);
   } catch {
     return errorResponse("INTERNAL_ERROR", "Pairing could not be initialized", 500);
