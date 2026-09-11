@@ -12,40 +12,40 @@ export function getDatabase(): Promise<SQLite.SQLiteDatabase> {
   return databasePromise;
 }
 
-export async function initializeDatabase(): Promise<SQLite.SQLiteDatabase> {
-  const db = await getDatabase();
+export async function initializeDatabase(db?: SQLite.SQLiteDatabase): Promise<SQLite.SQLiteDatabase> {
+  const database = db ?? await getDatabase();
 
-  await db.execAsync('PRAGMA foreign_keys = ON;');
-  await db.execAsync('PRAGMA journal_mode = WAL;');
+  await database.execAsync('PRAGMA foreign_keys = ON;');
+  await database.execAsync('PRAGMA journal_mode = WAL;');
 
-  const versionRow = await db.getFirstAsync<{ user_version: number }>('PRAGMA user_version;');
+  const versionRow = await database.getFirstAsync<{ user_version: number }>('PRAGMA user_version;');
   const version = versionRow?.user_version ?? 0;
 
   if (version > SCHEMA_VERSION) {
     throw new Error(`Rucola database version ${version} is newer than this app supports.`);
   }
 
-  const tables = await db.getAllAsync<{ name: string }>(
+  const tables = await database.getAllAsync<{ name: string }>(
     "SELECT name FROM sqlite_master WHERE type = 'table' AND name IN ('relationships', 'messages', 'active_message_slots')",
   );
 
   if (version === 0 && tables.length === 0) {
-    await createLatestSchema(db);
-    await db.execAsync(`PRAGMA user_version = ${SCHEMA_VERSION};`);
-    return verifyDatabase(db);
+    await createLatestSchema(database);
+    await database.execAsync(`PRAGMA user_version = ${SCHEMA_VERSION};`);
+    return verifyDatabase(database);
   }
 
   if (version === 0) {
     if (tables.length !== 3) {
       throw new Error('Rucola database is incomplete and cannot be migrated safely.');
     }
-    await migrateLegacySchema(db);
+    await migrateLegacySchema(database);
   } else if (version === 1) {
     // Version 1 uses the same schema as the original unversioned database.
-    await migrateLegacySchema(db);
+    await migrateLegacySchema(database);
   }
 
-  return verifyDatabase(db);
+  return verifyDatabase(database);
 }
 
 async function verifyDatabase(db: SQLite.SQLiteDatabase): Promise<SQLite.SQLiteDatabase> {
