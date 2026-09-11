@@ -1,5 +1,5 @@
-import { useEffect, useState } from 'react';
-import { KeyboardAvoidingView, Platform, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { useEffect, useRef, useState } from 'react';
+import { KeyboardAvoidingView, PanResponder, Platform, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import type { getRepository } from '../../data/repository';
 import type { Message, Relationship } from '../../domain/models';
 import { GetActiveMessage, SendMessage } from '../../domain/useCases';
@@ -8,6 +8,7 @@ type RepositoryPromise = ReturnType<typeof getRepository>;
 type ComposerType = 'TEXT' | 'EMOJI';
 
 const QUICK_EMOJIS = ['❤️', '😘', '🥰', '🫶', '💋', '💕', '🥹', '✨'];
+const SWIPE_THRESHOLD = 60;
 
 type Props = {
   relationship: Relationship;
@@ -25,6 +26,15 @@ export function HomeScreen({ relationship, repositoryPromise, revision, onChange
   const [composerType, setComposerType] = useState<ComposerType>('TEXT');
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const historyPanResponder = useRef(
+    PanResponder.create({
+      onMoveShouldSetPanResponder: (_, gesture) => Math.abs(gesture.dx) > Math.abs(gesture.dy) && Math.abs(gesture.dx) > 10,
+      onPanResponderRelease: (_, gesture) => {
+        if (gesture.dx < -SWIPE_THRESHOLD) onOpenHistory();
+      },
+    }),
+  ).current;
 
   useEffect(() => {
     let mounted = true;
@@ -49,6 +59,7 @@ export function HomeScreen({ relationship, repositoryPromise, revision, onChange
       const repository = await repositoryPromise;
       await new SendMessage(repository).execute({ type: composerType, body });
       setDraft('');
+      setComposerType('TEXT');
       onChanged();
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Could not send the message.');
@@ -68,7 +79,7 @@ export function HomeScreen({ relationship, repositoryPromise, revision, onChange
         </View>
       </View>
 
-      <View style={styles.messageArea}>
+      <View style={styles.messageArea} {...historyPanResponder.panHandlers}>
         <Text style={styles.partner}>{relationship.partnerNickname}</Text>
         {message ? (
           <>
@@ -93,7 +104,7 @@ export function HomeScreen({ relationship, repositoryPromise, revision, onChange
         {composerType === 'EMOJI' ? (
           <View style={styles.emojiRow}>
             {QUICK_EMOJIS.map((emoji) => (
-              <Pressable key={emoji} onPress={() => setDraft(emoji)} style={styles.emojiButton} accessibilityLabel={`Choose ${emoji}`}>
+              <Pressable key={emoji} onPress={() => { setError(null); setDraft(emoji); }} style={styles.emojiButton} accessibilityLabel={`Choose ${emoji}`}>
                 <Text style={styles.emoji}>{emoji}</Text>
               </Pressable>
             ))}
