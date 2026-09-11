@@ -82,6 +82,26 @@ async function testMessageLifecycle(db: SQLite.SQLiteDatabase): Promise<void> {
   assertEqual(second.orderIndex, first.orderIndex + 1, 'Message ordering should increase monotonically');
 }
 
+async function testConcurrentMessageOrdering(db: SQLite.SQLiteDatabase): Promise<void> {
+  const repository = new SQLiteRucolaRepository(db);
+  await repository.saveSetup({ partnerNickname: 'Partner', ownName: 'Nico', togetherSince: null });
+
+  const sent = await Promise.all(
+    Array.from({ length: 20 }, (_, index) => repository.sendMessage({ type: 'TEXT', body: `concurrent-${index}` })),
+  );
+  const messages = await repository.getMessages();
+  const ownMessages = messages
+    .filter((message) => message.participant === 'ME')
+    .sort((a, b) => a.orderIndex - b.orderIndex);
+
+  assertEqual(ownMessages.length, 20, 'Concurrent sends should persist every message');
+  assertEqual(new Set(sent.map((message) => message.id)).size, 20, 'Concurrent sends should generate unique message IDs');
+  for (let index = 0; index < ownMessages.length; index += 1) {
+    assertEqual(ownMessages[index].orderIndex, index + 2, 'Concurrent sends should allocate contiguous order indexes');
+  }
+  assertEqual((await repository.getActiveMessage('ME'))?.id, ownMessages[ownMessages.length - 1].id, 'Last committed concurrent send should be active');
+}
+
 async function testPersistenceAcrossRepositoryInstances(db: SQLite.SQLiteDatabase): Promise<void> {
   const firstRepository = new SQLiteRucolaRepository(db);
   await firstRepository.saveSetup({
@@ -166,6 +186,7 @@ async function testMediaLifecycle(): Promise<void> {
 const coreTests: Array<[string, (db: SQLite.SQLiteDatabase) => Promise<void>]> = [
   ['fresh database', testFreshDatabase],
   ['message lifecycle', testMessageLifecycle],
+  ['concurrent message ordering', testConcurrentMessageOrdering],
   ['persistence across repository instances', testPersistenceAcrossRepositoryInstances],
   ['foreign-key invariant', testForeignKeyInvariant],
   ['relationship reset', testReset],
