@@ -1,5 +1,6 @@
 export interface Env {
   DB: D1Database;
+  PAIRING_BOOTSTRAP_LIMITER: RateLimit;
 }
 
 export type Participant = "ME" | "PARTNER";
