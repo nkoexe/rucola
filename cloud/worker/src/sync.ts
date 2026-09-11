@@ -213,15 +213,18 @@ async function acceptNewMessage(env: Env, device: AuthenticatedDevice, message: 
              (relationship_id, message_id, sender_device_id, sender_participant, sender_seq,
               client_created_at, server_seq, server_received_at, type, ciphertext,
               encryption_version, media_upload_id, expires_at)
-           SELECT ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, id, ?12
-           FROM media_uploads
-           WHERE id = ?13
-             AND relationship_id = ?1
-             AND created_by_device_id = ?3
-             AND status = 'READY'
-             AND expires_at > ?8`,
+           SELECT r.id, ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, m.id, ?11
+           FROM relationships AS r
+           JOIN media_uploads AS m
+             ON m.id = ?12
+            AND m.relationship_id = r.id
+            AND m.created_by_device_id = ?2
+            AND m.status = 'READY'
+            AND m.expires_at > ?7
+           WHERE r.id = ?13
+             AND r.status = 'ACTIVE'
+             AND r.next_server_seq = ?6`,
         ).bind(
-          device.relationshipId,
           message.messageId,
           device.id,
           device.participant,
@@ -234,6 +237,7 @@ async function acceptNewMessage(env: Env, device: AuthenticatedDevice, message: 
           message.encryptionVersion,
           expiresAt,
           message.mediaUploadId,
+          device.relationshipId,
         ),
       );
 
@@ -255,9 +259,12 @@ async function acceptNewMessage(env: Env, device: AuthenticatedDevice, message: 
              (relationship_id, message_id, sender_device_id, sender_participant, sender_seq,
               client_created_at, server_seq, server_received_at, type, ciphertext,
               encryption_version, media_upload_id, expires_at)
-           VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, NULL, ?12)`,
+           SELECT id, ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, NULL, ?11
+           FROM relationships
+           WHERE id = ?12
+             AND status = 'ACTIVE'
+             AND next_server_seq = ?6`,
         ).bind(
-          device.relationshipId,
           message.messageId,
           device.id,
           device.participant,
@@ -269,6 +276,7 @@ async function acceptNewMessage(env: Env, device: AuthenticatedDevice, message: 
           message.ciphertextBytes,
           message.encryptionVersion,
           expiresAt,
+          device.relationshipId,
         ),
       );
     }
@@ -276,23 +284,21 @@ async function acceptNewMessage(env: Env, device: AuthenticatedDevice, message: 
     statements.push(
       env.DB.prepare(
         `UPDATE relationships
-         SET next_server_seq = CASE
-           WHEN status = 'ACTIVE'
-            AND next_server_seq = ?2
-            AND EXISTS (
-              SELECT 1 FROM mailbox_messages
-              WHERE relationship_id = ?1 AND message_id = ?3
-            )
-           THEN next_server_seq + 1
-           ELSE 0
-         END
-         WHERE id = ?1`,
-      ).bind(device.relationshipId, serverSeq, message.messageId),
+         SET next_server_seq = next_server_seq + 1
+         WHERE id = ?1
+           AND status = 'ACTIVE'
+           AND next_server_seq = ?2`,
+      ).bind(device.relationshipId, serverSeq),
     );
 
     const results = await env.DB.batch(statements);
-    const finalResult = results[results.length - 1];
-    if (finalResult?.meta.changes !== 1) return "retry";
+    const insertResult = results[0];
+    const mediaResult = message.mediaUploadId ? results[1] : null;
+    const sequenceResult = results[results.length - 1];
+
+    if (insertResult?.meta.changes !== 1) return "retry";
+    if (message.mediaUploadId && mediaResult?.meta.changes !== 1) return "retry";
+    if (sequenceResult?.meta.changes !== 1) return "retry";
     return "success";
   } catch (cause) {
     const messageText = cause instanceof Error ? cause.message.toLowerCase() : "";
