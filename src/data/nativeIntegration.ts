@@ -220,13 +220,26 @@ async function testMediaLifecycle(): Promise<void> {
     assert(persisted.startsWith(`${documentDirectory}media/`), 'Persisted media must live under the app media directory');
     assert(await FileSystem.getInfoAsync(persisted).then((info) => info.exists), 'Persisted media file should exist');
 
+    const videoPersisted = await persistPickedMedia({
+      uri: source,
+      fileName: 'video.jpg',
+      mimeType: 'video/mp4',
+      type: 'video',
+      duration: 1,
+      width: 1,
+      height: 1,
+    });
+    persistedUris.push(videoPersisted);
+    assert(videoPersisted.endsWith('.mp4'), 'Video MIME type should determine the stored extension');
+
     const mediaDirectory = `${documentDirectory}media/`;
     const orphan = `${mediaDirectory}rucola-test-orphan-${Date.now()}.jpg`;
     await FileSystem.makeDirectoryAsync(mediaDirectory, { intermediates: true });
     await FileSystem.writeAsStringAsync(orphan, 'orphan');
     try {
-      await reconcileOwnedMedia([persisted]);
+      await reconcileOwnedMedia([persisted, videoPersisted]);
       assert(await FileSystem.getInfoAsync(persisted).then((info) => info.exists), 'Referenced media must survive reconciliation');
+      assert(await FileSystem.getInfoAsync(videoPersisted).then((info) => info.exists), 'Referenced video must survive reconciliation');
       assert(!(await FileSystem.getInfoAsync(orphan)).exists, 'Unreferenced owned media should be reconciled');
     } finally {
       await FileSystem.deleteAsync(orphan, { idempotent: true }).catch(() => undefined);
