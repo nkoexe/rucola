@@ -40,6 +40,12 @@ async function handleCreateInvitation(env: Env, request: Request): Promise<Respo
   return createInvitation(env, request, device);
 }
 
+async function allowPairingBootstrap(env: Env, request: Request): Promise<boolean> {
+  const clientKey = request.headers.get("cf-connecting-ip") ?? "local-development";
+  const result = await env.PAIRING_BOOTSTRAP_LIMITER.limit({ key: `pairing-bootstrap:${clientKey}` });
+  return result.success;
+}
+
 function notImplemented(route: string): Response {
   return errorResponse(
     "NOT_IMPLEMENTED",
@@ -67,6 +73,18 @@ export default {
     if (url.pathname === "/v1/auth/probe" && request.method === "GET") return handleAuthProbe(env, request);
 
     if (url.pathname === "/v1/pairing/bootstrap" && request.method === "POST") {
+      if (!(await allowPairingBootstrap(env, request))) {
+        return new Response(JSON.stringify({ error: { code: "PAIRING_RATE_LIMITED", message: "Too many pairing bootstrap attempts" } }), {
+          status: 429,
+          headers: {
+            "content-type": "application/json; charset=utf-8",
+            "cache-control": "no-store",
+            "x-content-type-options": "nosniff",
+            "referrer-policy": "no-referrer",
+            "retry-after": "60",
+          },
+        });
+      }
       return bootstrapPairing(env, request);
     }
 
