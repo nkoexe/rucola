@@ -300,14 +300,27 @@ async function acceptNewMessage(env: Env, device: AuthenticatedDevice, message: 
       ).bind(device.relationshipId, serverSeq),
     );
 
-    const results = await env.DB.batch(statements);
-    const insertResult = results[0];
-    const mediaResult = message.mediaUploadId ? results[1] : null;
-    const sequenceResult = results[results.length - 1];
+    await env.DB.batch(statements);
 
-    if (insertResult?.meta.changes !== 1) return "retry";
-    if (message.mediaUploadId && mediaResult?.meta.changes !== 1) return "retry";
-    if (sequenceResult?.meta.changes !== 1) return "retry";
+    const accepted = await findExistingMessage(env, device, message.messageId);
+    const relationship = await env.DB.prepare(
+      `SELECT next_server_seq FROM relationships WHERE id = ?1 AND status = 'ACTIVE'`,
+    )
+      .bind(device.relationshipId)
+      .first<{ next_server_seq: number }>();
+
+    if (!accepted || relationship?.next_server_seq !== serverSeq + 1) return "retry";
+
+    if (message.mediaUploadId) {
+      const media = await env.DB.prepare(
+        `SELECT status FROM media_uploads
+         WHERE id = ?1 AND relationship_id = ?2 AND created_by_device_id = ?3`,
+      )
+        .bind(message.mediaUploadId, device.relationshipId, device.id)
+        .first<{ status: "ATTACHED" | "READY" | "PENDING" | "ABANDONED" }>();
+      if (media?.status !== "ATTACHED") return "retry";
+    }
+
     return "success";
   } catch (cause) {
     const messageText = cause instanceof Error ? cause.message.toLowerCase() : "";
