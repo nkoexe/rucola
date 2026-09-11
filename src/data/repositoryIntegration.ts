@@ -81,6 +81,37 @@ async function testInvariantViolations(db: SQLiteDatabase): Promise<void> {
     VALUES ('invalid-type', 'the-one', 'ME', 'NOPE', 'x', 1, 1, NULL, 'LOCAL_ONLY')`), 'Message type CHECK invariant must reject invalid types');
 }
 
+async function testMediaReferenceOwnership(db: SQLiteDatabase): Promise<void> {
+  const directory = FileSystem.documentDirectory;
+  assert(directory, 'Document storage is required for media reference validation');
+  const repository = new SQLiteRucolaRepository(db);
+  await repository.saveSetup({ partnerNickname: 'Partner', ownName: 'Nico', togetherSince: null });
+
+  const ownedReference = `${directory}media/reference-validation.jpg`;
+  const validMessage = await repository.sendMessage({ type: 'PHOTO_VIDEO', body: '', mediaReference: ownedReference });
+  assertEqual(validMessage.mediaReference, ownedReference, 'Owned media references should be persisted unchanged');
+
+  await assertRejects(
+    () => repository.sendMessage({ type: 'PHOTO_VIDEO', body: '', mediaReference: `${directory}other/file.jpg` }),
+    'Repository must reject media references outside the owned media directory',
+  );
+  await assertRejects(
+    () => repository.sendMessage({ type: 'PHOTO_VIDEO', body: '', mediaReference: `${directory}media/../outside.jpg` }),
+    'Repository must reject path traversal media references',
+  );
+  await assertRejects(
+    () => repository.sendMessage({ type: 'PHOTO_VIDEO', body: '', mediaReference: 'content://media/external-photo' }),
+    'Repository must reject external media URIs',
+  );
+  await assertRejects(
+    () => repository.sendMessage({ type: 'TEXT', body: 'no media here', mediaReference: ownedReference }),
+    'Repository must reject media references on non-media messages',
+  );
+
+  const messages = await repository.getMessages();
+  assertEqual(messages.filter((message) => message.mediaReference === ownedReference).length, 1, 'Rejected media references must not be persisted');
+}
+
 async function testSerializedMediaCleanup(db: SQLiteDatabase): Promise<void> {
   let cleanupStartedResolve!: () => void;
   let releaseCleanup!: () => void;
@@ -94,7 +125,9 @@ async function testSerializedMediaCleanup(db: SQLiteDatabase): Promise<void> {
   });
 
   await repository.saveSetup({ partnerNickname: 'Partner', ownName: 'Nico', togetherSince: null });
-  const mediaReference = 'file:///rucola-media-cleanup-race';
+  const directory = FileSystem.documentDirectory;
+  assert(directory, 'Document storage is required for serialized media cleanup testing');
+  const mediaReference = `${directory}media/cleanup-race.jpg`;
   await repository.sendMessage({ type: 'PHOTO_VIDEO', body: '', mediaReference });
 
   let resetSettled = false;
@@ -145,6 +178,7 @@ export async function runRepositoryIntegrationTests(db: SQLiteDatabase): Promise
   await testActiveReplacementAndHistoryImmutability(db);
   await testRapidConcurrentWrites(db);
   await testInvariantViolations(db);
+  await testMediaReferenceOwnership(db);
   await testSerializedMediaCleanup(db);
   await testResetAndMediaCleanup(db);
 }
