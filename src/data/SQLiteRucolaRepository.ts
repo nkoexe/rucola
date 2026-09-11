@@ -35,11 +35,48 @@ export class SQLiteRucolaRepository implements RucolaRepository {
            togetherSince = excluded.togetherSince`,
         RELATIONSHIP_ID, partnerNickname, ownName, input.partnerColor ?? '#8FC56A', input.togetherSince,
       );
-      const count = await this.db.getFirstAsync<{ count: number }>('SELECT COUNT(*) AS count FROM messages WHERE relationshipId = ?', RELATIONSHIP_ID);
-      if ((count?.count ?? 0) === 0) {
-        await this.insertMessage({ id: 'seed-partner-message', relationshipId: RELATIONSHIP_ID, participant: 'PARTNER', type: 'TEXT', body: 'good luck today ♡', createdAt: Date.now(), orderIndex: 1, mediaReference: null, syncState: 'LOCAL_ONLY' });
-        await this.setActiveSlot('PARTNER', 'seed-partner-message');
+
+      const activePartner = await this.db.getFirstAsync<{ messageId: string }>(
+        `SELECT messageId
+         FROM active_message_slots
+         WHERE relationshipId = ? AND participant = 'PARTNER'`,
+        RELATIONSHIP_ID,
+      );
+      if (activePartner) {
+        return;
       }
+
+      const existingPartner = await this.db.getFirstAsync<{ id: string }>(
+        `SELECT id
+         FROM messages
+         WHERE relationshipId = ? AND participant = 'PARTNER'
+         ORDER BY orderIndex DESC, createdAt DESC, id DESC
+         LIMIT 1`,
+        RELATIONSHIP_ID,
+      );
+      if (existingPartner) {
+        await this.setActiveSlot('PARTNER', existingPartner.id);
+        return;
+      }
+
+      const next = await this.db.getFirstAsync<{ nextOrderIndex: number }>(
+        'SELECT COALESCE(MAX(orderIndex), 0) + 1 AS nextOrderIndex FROM messages WHERE relationshipId = ?',
+        RELATIONSHIP_ID,
+      );
+      const seedMessageId = 'seed-partner-message';
+      await this.insertMessage({
+        id: seedMessageId,
+        relationshipId: RELATIONSHIP_ID,
+        participant: 'PARTNER',
+        type: 'TEXT',
+        body: 'good luck today ♡',
+        createdAt: Date.now(),
+        orderIndex: next?.nextOrderIndex ?? 1,
+        mediaReference: null,
+        syncState: 'LOCAL_ONLY',
+        isActive: true,
+      });
+      await this.setActiveSlot('PARTNER', seedMessageId);
     });
   }
 
