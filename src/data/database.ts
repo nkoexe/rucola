@@ -35,8 +35,12 @@ export async function initializeDatabase(db?: SQLite.SQLiteDatabase): Promise<SQ
   );
 
   if (version === 0 && tables.length === 0) {
-    await createLatestSchema(database);
-    await database.execAsync(`PRAGMA user_version = ${SCHEMA_VERSION};`);
+    // Keep first-run schema creation atomic so an interrupted startup cannot leave
+    // a version-0 database that looks like a legacy database on the next launch.
+    await database.withTransactionAsync(async () => {
+      await createLatestSchema(database);
+      await database.execAsync(`PRAGMA user_version = ${SCHEMA_VERSION};`);
+    });
     return verifyDatabase(database);
   }
 
