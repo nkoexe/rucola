@@ -126,7 +126,7 @@ async function insertInvitation(
   token: string;
   confirmationCode: string;
   expiresAt: number;
-}> {
+} | null> {
   const invitationId = randomId();
   const token = randomToken(TOKEN_BYTES);
   const confirmationCode = randomConfirmationCode();
@@ -135,14 +135,19 @@ async function insertInvitation(
   const createdAt = Date.now();
   const expiresAt = createdAt + lifetime;
 
-  await env.DB.prepare(
+  const result = await env.DB.prepare(
     `INSERT INTO invitations
       (id, relationship_id, token_hash, confirmation_code_hash, created_by_device_id, created_at, expires_at)
-     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)`,
+     SELECT ?1, ?2, ?3, ?4, ?5, ?6, ?7
+     WHERE EXISTS (
+       SELECT 1 FROM relationships
+       WHERE id = ?2 AND status = 'PAIRING'
+     )`,
   )
     .bind(invitationId, relationshipId, tokenHash, confirmationCodeHash, deviceId, createdAt, expiresAt)
     .run();
 
+  if (result.meta.changes !== 1) return null;
   return { invitationId, token, confirmationCode, expiresAt };
 }
 
@@ -171,6 +176,7 @@ export async function createInvitation(
 
   try {
     const invitation = await insertInvitation(env, device.relationshipId, device.id, lifetime);
+    if (!invitation) return errorResponse("PAIRING_CLOSED", "Relationship is not currently pairable", 409);
     return json({ relationshipId: device.relationshipId, ...invitation }, 201);
   } catch {
     return errorResponse("INTERNAL_ERROR", "Invitation could not be created", 500);
