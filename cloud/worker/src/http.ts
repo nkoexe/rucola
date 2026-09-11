@@ -2,6 +2,8 @@ export function json(data: unknown, status = 200, headers?: HeadersInit): Respon
   const merged = new Headers(headers);
   merged.set("content-type", "application/json; charset=utf-8");
   merged.set("cache-control", "no-store");
+  merged.set("x-content-type-options", "nosniff");
+  merged.set("referrer-policy", "no-referrer");
   return new Response(JSON.stringify(data), { status, headers: merged });
 }
 
@@ -14,5 +16,7 @@ export function errorResponse(
 }
 
 export function methodNotAllowed(allowed: string[]): Response {
-  return errorResponse("METHOD_NOT_ALLOWED", "Method not allowed", 405);
+  const response = errorResponse("METHOD_NOT_ALLOWED", "Method not allowed", 405);
+  response.headers.set("allow", allowed.join(", "));
+  return response;
 }
