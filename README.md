@@ -13,6 +13,8 @@ The active development branch is `migration/react-native` and uses:
 - Expo + React Native + TypeScript
 - Android development builds / Expo prebuild
 - `expo-sqlite` for local persistence
+- `expo-image-picker` + `expo-file-system` for durable local photo/video messages
+- `expo-video` for local video playback
 - a domain/use-case layer over the repository boundary
 
 The current prototype supports:
@@ -21,11 +23,14 @@ The current prototype supports:
 - partner active-message home screen;
 - local text messages;
 - local emoji messages;
+- local photo/video selection and camera capture;
+- durable local media references;
+- photo/video messages with optional captions;
 - immutable message history;
 - month/date calendar browsing;
-- local-data reset from settings.
+- local-data reset including owned media cleanup.
 
-Photo/video and drawing are currently explicit placeholders. Real two-device pairing, backend synchronization, notifications, widgets, and E2E encryption are not implemented yet.
+Drawing is still a placeholder. Real two-device pairing, backend synchronization, notifications, widgets, and E2E encryption are not implemented yet.
 
 The UI is intentionally barebones during this phase. Detailed Figma implementation will happen after the functional feature set is stable.
 
