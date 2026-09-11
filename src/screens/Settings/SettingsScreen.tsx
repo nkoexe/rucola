@@ -1,9 +1,32 @@
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { useState } from 'react';
+import { Alert, Pressable, StyleSheet, Text, View } from 'react-native';
+import type { getRepository } from '../../data/repository';
 import type { Relationship } from '../../domain/models';
 
-type Props = { relationship: Relationship; onBack: () => void };
+type Props = { relationship: Relationship; repositoryPromise: ReturnType<typeof getRepository>; onBack: () => void; onRelationshipDeleted: () => void };
 
-export function SettingsScreen({ relationship, onBack }: Props) {
+export function SettingsScreen({ relationship, repositoryPromise, onBack, onRelationshipDeleted }: Props) {
+  const [deleting, setDeleting] = useState(false);
+
+  const clearLocalData = () => {
+    Alert.alert('Clear local data?', 'This removes the relationship and all locally stored messages from this device.', [
+      { text: 'Cancel', style: 'cancel' },
+      { text: 'Clear data', style: 'destructive', onPress: () => void confirmClear() },
+    ]);
+  };
+
+  const confirmClear = async () => {
+    if (deleting) return;
+    setDeleting(true);
+    try {
+      const repository = await repositoryPromise;
+      await repository.deleteRelationship();
+      onRelationshipDeleted();
+    } finally {
+      setDeleting(false);
+    }
+  };
+
   return (
     <View style={styles.container}>
       <Pressable onPress={onBack}><Text style={styles.back}>‹ back</Text></Pressable>
@@ -14,8 +37,15 @@ export function SettingsScreen({ relationship, onBack }: Props) {
         {relationship.togetherSince ? <Text style={styles.muted}>together since {new Date(relationship.togetherSince).toLocaleDateString()}</Text> : null}
       </View>
       <View style={styles.section}>
-        <Text style={styles.label}>account</Text>
-        <Text style={styles.muted}>Pairing, notifications, and data management will be implemented here.</Text>
+        <Text style={styles.label}>local data</Text>
+        <Text style={styles.muted}>Messages are currently stored on this device. Cloud sync will be added later.</Text>
+        <Pressable onPress={clearLocalData} disabled={deleting} style={styles.dangerButton}>
+          <Text style={styles.dangerText}>{deleting ? 'clearing...' : 'Clear local data'}</Text>
+        </Pressable>
+      </View>
+      <View style={styles.section}>
+        <Text style={styles.label}>coming later</Text>
+        <Text style={styles.muted}>Pairing, notifications, account management, and sync.</Text>
       </View>
       <Text style={styles.version}>Rucola 0.1.0</Text>
     </View>
@@ -30,5 +60,7 @@ const styles = StyleSheet.create({
   label: { fontSize: 14, fontWeight: '700', opacity: 0.6, marginBottom: 8 },
   value: { fontSize: 20, fontWeight: '600' },
   muted: { marginTop: 6, opacity: 0.6, lineHeight: 22 },
+  dangerButton: { alignSelf: 'flex-start', marginTop: 18, borderWidth: 1, borderRadius: 12, paddingHorizontal: 14, paddingVertical: 10 },
+  dangerText: { fontWeight: '700' },
   version: { marginTop: 'auto', opacity: 0.45 },
 });
