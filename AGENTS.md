@@ -12,6 +12,7 @@ Treat this as a real product codebase, but prefer simple, understandable solutio
 - Android is the primary target.
 - Use Expo development builds / `expo prebuild`; do not design around Expo Go.
 - Local persistence uses `expo-sqlite`.
+- Local photo/video files use app-owned document storage.
 - The local database is the source of truth in the current prototype.
 - Work on `migration/react-native` until the migration is complete; never implement directly on `main`.
 - The owner is intentionally keeping the UI barebones for now. Prioritize complete behavior, correct state, persistence, and architecture over visual polish.
@@ -68,7 +69,7 @@ Keep synchronization state in the domain/data model so a future backend can be i
 - `PHOTO_VIDEO`: optional text; media-only is valid. Video is first-class.
 - `DRAWING`: optional text; drawing-only is valid.
 
-The current UI exposes text composition and placeholder photo/video/drawing controls. Do not fake media persistence by storing invented paths or pretending a picker/editor exists.
+Photo/video now uses the system library/camera picker, copies the selected asset into app-owned document storage, persists that reference with the message, and renders it on home/history/calendar. Drawing remains a real-editor TODO; do not fake it by storing invented paths or placeholder media.
 
 ## Current implementation status
 
@@ -78,10 +79,11 @@ The React Native branch currently has:
 - Local SQLite schema and repository.
 - Relationship setup with partner name, own name, and optional together-since date.
 - Partner active-message home screen.
-- Local text message creation and active-message replacement.
-- Immutable local history.
-- Month/date calendar browsing of historical messages.
-- Local-data reset from settings.
+- Local text and emoji message creation and active-message replacement.
+- Local photo/video selection and camera capture with durable media storage.
+- Immutable local history, including media messages.
+- Month/date calendar browsing of historical messages, including media messages.
+- Local-data reset from settings, including cleanup of owned media files.
 - Domain use-case boundary used by the app screens.
 
 The UI is deliberately barebones. Do not spend the next implementation phase on Figma fidelity.
@@ -127,11 +129,12 @@ Do not add an avatar/tutorial step unless explicitly requested. Partner avatar s
 - Active messages are not history.
 - History includes both participants.
 - Calendar marks days containing historical messages and opens that day's messages.
+- Media messages must remain viewable from both history and calendar.
 - Primary swipe navigation can be added later; a basic navigation control is acceptable while functionality is prioritized.
 
 ## Settings / relationship lifecycle
 
-`Clear local data` is a destructive local reset and may remove the local relationship and messages from this device.
+`Clear local data` is a destructive local reset and may remove the local relationship, messages, and owned media from this device.
 
 This is **not** the same as the eventual unpair flow. Eventual unpairing must preserve local history and make the app read-only. Do not silently implement one as the other.
 
