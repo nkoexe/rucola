@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import type { getRepository } from '../../data/repository';
 import type { Message, Relationship } from '../../domain/models';
+import { GetMessages } from '../../domain/useCases';
 
 type Props = {
   relationship: Relationship;
@@ -12,12 +13,19 @@ type Props = {
 
 export function HistoryScreen({ relationship, repositoryPromise, onBack, revision }: Props) {
   const [messages, setMessages] = useState<Message[]>([]);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     let mounted = true;
-    void repositoryPromise.then((repository) => repository.getMessages()).then((value) => {
-      if (mounted) setMessages(value.filter((message) => !message.isActive));
-    });
+    setError(null);
+    void repositoryPromise
+      .then((repository) => new GetMessages(repository).execute())
+      .then((value) => {
+        if (mounted) setMessages(value.filter((message) => !message.isActive));
+      })
+      .catch((cause) => {
+        if (mounted) setError(cause instanceof Error ? cause.message : 'Could not load history.');
+      });
     return () => { mounted = false; };
   }, [repositoryPromise, revision]);
 
@@ -30,8 +38,9 @@ export function HistoryScreen({ relationship, repositoryPromise, onBack, revisio
         <Text style={styles.title}>history</Text>
         <View style={styles.spacer} />
       </View>
+      {error ? <Text style={styles.error}>{error}</Text> : null}
       <ScrollView contentContainerStyle={history.length === 0 ? styles.empty : styles.list}>
-        {history.length === 0 ? (
+        {history.length === 0 && !error ? (
           <Text style={styles.emptyText}>nothing here yet...</Text>
         ) : history.map((message) => (
           <View key={message.id} style={styles.entry}>
@@ -58,4 +67,5 @@ const styles = StyleSheet.create({
   date: { fontSize: 13, marginTop: 8, opacity: 0.55 },
   empty: { flex: 1, justifyContent: 'center', alignItems: 'center' },
   emptyText: { fontSize: 17, opacity: 0.55 },
+  error: { color: '#9B2C2C', marginBottom: 10 },
 });
