@@ -11,6 +11,10 @@
     },
     "ios": {
       "bundleIdentifier": "com.rucola.app"
-    }
+    },
+    "plugins": [
+      "expo-sqlite",
+      "expo-status-bar"
+    ]
   }
 }
