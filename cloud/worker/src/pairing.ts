@@ -23,6 +23,10 @@ function randomConfirmationCode(): string {
   return String(value % 1_000_000).padStart(6, "0");
 }
 function parseJsonObject(value: unknown): Record<string, unknown> | null { return value !== null && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : null; }
+function isJsonContentType(request: Request): boolean {
+  const contentType = request.headers.get("content-type");
+  return contentType?.split(";", 1)[0]?.trim().toLowerCase() === "application/json";
+}
 
 async function readJson<T extends object>(request: Request): Promise<T | null> {
   const contentLength = request.headers.get("content-length");
@@ -39,7 +43,8 @@ async function readJson<T extends object>(request: Request): Promise<T | null> {
 }
 
 function invitationLifetime(body: PairingCreateRequest | null): number {
-  if (!body || body.expiresInSeconds === undefined) return DEFAULT_INVITATION_LIFETIME_MS;
+  if (!body) return 0;
+  if (body.expiresInSeconds === undefined) return DEFAULT_INVITATION_LIFETIME_MS;
   if (typeof body.expiresInSeconds !== "number" || !Number.isFinite(body.expiresInSeconds)) return 0;
   const seconds = Math.floor(body.expiresInSeconds); if (seconds <= 0) return 0;
   return Math.min(seconds * 1000, MAX_INVITATION_LIFETIME_MS);
@@ -58,7 +63,8 @@ async function insertInvitation(env: Env, relationshipId: string, deviceId: stri
 }
 
 export async function createInvitation(env: Env, request: Request, device: AuthenticatedDevice): Promise<Response> {
-  if (request.headers.get("content-type")?.toLowerCase().startsWith("application/json") !== true) return errorResponse("INVALID_REQUEST", "JSON request body required", 400);
+  if (!isJsonContentType(request)) return errorResponse("INVALID_REQUEST", "JSON request body required", 400);
+  if (device.participant !== "ME") return errorResponse("PAIRING_CLOSED", "Only the first device can create invitations", 409);
   const body = await readJson<PairingCreateRequest>(request); const lifetime = invitationLifetime(body);
   if (lifetime <= 0) return errorResponse("INVALID_REQUEST", "Invalid invitation lifetime", 400);
   const relationship = await env.DB.prepare(`SELECT status FROM relationships WHERE id = ?1`).bind(device.relationshipId).first<{ status: "PAIRING" | "ACTIVE" | "ENDED" }>();
@@ -68,7 +74,7 @@ export async function createInvitation(env: Env, request: Request, device: Authe
 }
 
 export async function acceptInvitation(env: Env, request: Request): Promise<Response> {
-  if (request.headers.get("content-type")?.toLowerCase().startsWith("application/json") !== true) return errorResponse("INVALID_REQUEST", "JSON request body required", 400);
+  if (!isJsonContentType(request)) return errorResponse("INVALID_REQUEST", "JSON request body required", 400);
   const body = await readJson<PairingAcceptRequest>(request); const token = typeof body?.token === "string" ? body.token : null; const confirmationCode = typeof body?.confirmationCode === "string" ? body.confirmationCode : null;
   if (!token || !confirmationCode || !/^\d{6}$/.test(confirmationCode)) return errorResponse("INVALID_REQUEST", "Invalid pairing request", 400);
   const tokenHash = await sha256Hex(token);
@@ -95,7 +101,7 @@ export async function acceptInvitation(env: Env, request: Request): Promise<Resp
 }
 
 export async function bootstrapPairing(env: Env, request: Request): Promise<Response> {
-  if (request.headers.get("content-type")?.toLowerCase().startsWith("application/json") !== true) return errorResponse("INVALID_REQUEST", "JSON request body required", 400);
+  if (!isJsonContentType(request)) return errorResponse("INVALID_REQUEST", "JSON request body required", 400);
   const body = await readJson<PairingCreateRequest>(request); const lifetime = invitationLifetime(body); if (lifetime <= 0) return errorResponse("INVALID_REQUEST", "Invalid invitation lifetime", 400);
   const relationshipId = randomId(); const deviceId = randomId(); const invitationId = randomId(); const credential = randomToken(CREDENTIAL_BYTES); const token = randomToken(TOKEN_BYTES); const confirmationCode = randomConfirmationCode();
   const credentialHash = await sha256Hex(credential); const tokenHash = await sha256Hex(token); const confirmationCodeHash = await sha256Hex(confirmationCode); const now = Date.now(); const expiresAt = now + lifetime;
