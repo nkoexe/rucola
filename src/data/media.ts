@@ -35,7 +35,12 @@ export async function persistPickedMedia(asset: ImagePickerAsset): Promise<strin
 
 export async function deleteOwnedMedia(uri: string): Promise<void> {
   const documentDirectory = FileSystem.documentDirectory;
-  if (!documentDirectory || !uri.startsWith(`${documentDirectory}${MEDIA_DIRECTORY}`)) return;
+  const ownedPrefix = documentDirectory ? `${documentDirectory}${MEDIA_DIRECTORY}` : null;
+  if (!ownedPrefix || !uri.startsWith(ownedPrefix)) return;
+
+  // Prefix checks alone are not sufficient for a URI containing path traversal.
+  const relativePath = uri.slice(ownedPrefix.length);
+  if (!relativePath || relativePath.includes('..') || relativePath.includes('/')) return;
 
   try {
     await FileSystem.deleteAsync(uri, { idempotent: true });
