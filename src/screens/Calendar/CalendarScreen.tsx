@@ -2,10 +2,9 @@ import { useEffect, useMemo, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import type { getRepository } from '../../data/repository';
 import type { Message, Relationship } from '../../domain/models';
+import { GetMessages } from '../../domain/useCases';
 
 type Props = { relationship: Relationship; repositoryPromise: ReturnType<typeof getRepository>; onBack: () => void };
-
-const DAY_MS = 24 * 60 * 60 * 1000;
 
 function startOfDay(timestamp: number) {
   const date = new Date(timestamp);
@@ -15,6 +14,7 @@ function startOfDay(timestamp: number) {
 
 export function CalendarScreen({ relationship, repositoryPromise, onBack }: Props) {
   const [messages, setMessages] = useState<Message[]>([]);
+  const [error, setError] = useState<string | null>(null);
   const [month, setMonth] = useState(() => {
     const date = new Date();
     return new Date(date.getFullYear(), date.getMonth(), 1);
@@ -23,19 +23,26 @@ export function CalendarScreen({ relationship, repositoryPromise, onBack }: Prop
 
   useEffect(() => {
     let mounted = true;
-    void repositoryPromise.then((repository) => repository.getMessages()).then((value) => { if (mounted) setMessages(value); });
+    setError(null);
+    void repositoryPromise
+      .then((repository) => new GetMessages(repository).execute())
+      .then((value) => {
+        if (mounted) setMessages(value.filter((message) => !message.isActive));
+      })
+      .catch((cause) => {
+        if (mounted) setError(cause instanceof Error ? cause.message : 'Could not load calendar history.');
+      });
     return () => { mounted = false; };
   }, [repositoryPromise]);
 
-  const history = useMemo(() => messages.filter((message) => !message.isActive), [messages]);
   const messagesByDay = useMemo(() => {
     const map = new Map<number, Message[]>();
-    for (const message of history) {
+    for (const message of messages) {
       const day = startOfDay(message.createdAt);
       map.set(day, [...(map.get(day) ?? []), message]);
     }
     return map;
-  }, [history]);
+  }, [messages]);
 
   const year = month.getFullYear();
   const monthIndex = month.getMonth();
@@ -47,7 +54,8 @@ export function CalendarScreen({ relationship, repositoryPromise, onBack }: Prop
     return day >= 1 && day <= daysInMonth ? day : null;
   });
 
-  const selectedMessages = selectedDay === null ? [] : messagesByDay.get(startOfDay(new Date(year, monthIndex, selectedDay).getTime())) ?? [];
+  const selectedTimestamp = selectedDay === null ? null : startOfDay(new Date(year, monthIndex, selectedDay).getTime());
+  const selectedMessages = selectedTimestamp === null ? [] : messagesByDay.get(selectedTimestamp) ?? [];
   const today = startOfDay(Date.now());
 
   return (
@@ -55,11 +63,12 @@ export function CalendarScreen({ relationship, repositoryPromise, onBack }: Prop
       <Pressable onPress={onBack}><Text style={styles.back}>‹ back</Text></Pressable>
       <Text style={styles.title}>calendar</Text>
       <Text style={styles.subtitle}>{relationship.partnerNickname}</Text>
+      {error ? <Text style={styles.error}>{error}</Text> : null}
 
       <View style={styles.monthHeader}>
-        <Pressable onPress={() => { setMonth(new Date(year, monthIndex - 1, 1)); setSelectedDay(null); }}><Text style={styles.nav}>‹</Text></Pressable>
+        <Pressable accessibilityRole="button" accessibilityLabel="Previous month" onPress={() => { setMonth(new Date(year, monthIndex - 1, 1)); setSelectedDay(null); }}><Text style={styles.nav}>‹</Text></Pressable>
         <Text style={styles.monthTitle}>{month.toLocaleDateString(undefined, { month: 'long', year: 'numeric' })}</Text>
-        <Pressable onPress={() => { setMonth(new Date(year, monthIndex + 1, 1)); setSelectedDay(null); }}><Text style={styles.nav}>›</Text></Pressable>
+        <Pressable accessibilityRole="button" accessibilityLabel="Next month" onPress={() => { setMonth(new Date(year, monthIndex + 1, 1)); setSelectedDay(null); }}><Text style={styles.nav}>›</Text></Pressable>
       </View>
 
       <View style={styles.weekRow}>{['Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa', 'Su'].map((day) => <Text key={day} style={styles.weekday}>{day}</Text>)}</View>
@@ -91,6 +100,7 @@ const styles = StyleSheet.create({
   back: { fontSize: 17, textDecorationLine: 'underline', marginBottom: 20 },
   title: { fontSize: 32, fontWeight: '800' },
   subtitle: { marginTop: 4, opacity: 0.6 },
+  error: { color: '#9B2C2C', marginTop: 12 },
   monthHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 30 },
   monthTitle: { fontSize: 20, fontWeight: '700' },
   nav: { fontSize: 32, paddingHorizontal: 14 },
