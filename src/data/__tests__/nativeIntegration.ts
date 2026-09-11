@@ -1,6 +1,7 @@
 import * as SQLite from 'expo-sqlite';
 import { SQLiteRucolaRepository } from '../SQLiteRucolaRepository';
 import { initializeDatabase } from '../database';
+import { runMigrationIntegrationTests } from './migrationIntegration';
 
 export type NativeIntegrationResult = {
   name: string;
@@ -16,6 +17,15 @@ function assertEqual<T>(actual: T, expected: T, message: string): void {
   if (actual !== expected) {
     throw new Error(`${message} (expected ${String(expected)}, got ${String(actual)})`);
   }
+}
+
+async function assertRejects(action: () => Promise<unknown>, message: string): Promise<void> {
+  try {
+    await action();
+  } catch {
+    return;
+  }
+  throw new Error(message);
 }
 
 async function withTestDatabase<T>(test: (db: SQLite.SQLiteDatabase) => Promise<T>): Promise<T> {
@@ -58,8 +68,8 @@ async function testMessageLifecycle(db: SQLite.SQLiteDatabase): Promise<void> {
 
   const first = await repository.sendMessage({ type: 'TEXT', body: 'first' });
   const second = await repository.sendMessage({ type: 'TEXT', body: 'second' });
-
   const messages = await repository.getMessages();
+
   assertEqual(messages.length, 3, 'Two sent messages plus the seed should exist');
   assertEqual((await repository.getActiveMessage('ME'))?.id, second.id, 'Latest sent message should be active');
   assertEqual((await repository.getActiveMessage('PARTNER'))?.id, seeded.id, 'Partner seed should remain active');
@@ -111,16 +121,7 @@ async function testReset(db: SQLite.SQLiteDatabase): Promise<void> {
   assertEqual((await repository.getMessages()).length, 0, 'Reset should delete all messages');
 }
 
-async function assertRejects(action: () => Promise<unknown>, message: string): Promise<void> {
-  try {
-    await action();
-  } catch {
-    return;
-  }
-  throw new Error(message);
-}
-
-const tests: Array<[string, (db: SQLite.SQLiteDatabase) => Promise<void>]> = [
+const coreTests: Array<[string, (db: SQLite.SQLiteDatabase) => Promise<void>]> = [
   ['fresh database', testFreshDatabase],
   ['message lifecycle', testMessageLifecycle],
   ['persistence across repository instances', testPersistenceAcrossRepositoryInstances],
@@ -131,7 +132,7 @@ const tests: Array<[string, (db: SQLite.SQLiteDatabase) => Promise<void>]> = [
 export async function runNativeIntegrationTests(): Promise<NativeIntegrationResult[]> {
   const results: NativeIntegrationResult[] = [];
 
-  for (const [name, test] of tests) {
+  for (const [name, test] of coreTests) {
     try {
       await withTestDatabase(test);
       results.push({ name, passed: true });
@@ -142,6 +143,17 @@ export async function runNativeIntegrationTests(): Promise<NativeIntegrationResu
         error: cause instanceof Error ? cause.message : String(cause),
       });
     }
+  }
+
+  try {
+    await runMigrationIntegrationTests();
+    results.push({ name: 'migration fixtures and rollback', passed: true });
+  } catch (cause) {
+    results.push({
+      name: 'migration fixtures and rollback',
+      passed: false,
+      error: cause instanceof Error ? cause.message : String(cause),
+    });
   }
 
   return results;
