@@ -1,0 +1,16 @@
+{
+  "expo": {
+    "name": "Rucola",
+    "slug": "rucola",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "light",
+    "scheme": "rucola",
+    "android": {
+      "package": "com.rucola.app"
+    },
+    "ios": {
+      "bundleIdentifier": "com.rucola.app"
+    }
+  }
+}
