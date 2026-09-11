@@ -14,9 +14,13 @@ export function getDatabase(): Promise<SQLite.SQLiteDatabase> {
 export async function initializeDatabase(): Promise<SQLite.SQLiteDatabase> {
   const db = await getDatabase();
 
-  await db.execAsync(`
-    PRAGMA journal_mode = WAL;
+  // Foreign-key enforcement is connection-local in SQLite. Enable it before
+  // creating/using the relationship/message tables so orphaned active slots
+  // cannot be introduced accidentally.
+  await db.execAsync('PRAGMA foreign_keys = ON;');
+  await db.execAsync('PRAGMA journal_mode = WAL;');
 
+  await db.execAsync(`
     CREATE TABLE IF NOT EXISTS relationships (
       id TEXT PRIMARY KEY NOT NULL,
       partnerNickname TEXT NOT NULL,
@@ -35,7 +39,8 @@ export async function initializeDatabase(): Promise<SQLite.SQLiteDatabase> {
       orderIndex INTEGER NOT NULL,
       isActive INTEGER NOT NULL DEFAULT 0,
       mediaReference TEXT,
-      syncState TEXT NOT NULL
+      syncState TEXT NOT NULL,
+      FOREIGN KEY (relationshipId) REFERENCES relationships(id) ON DELETE CASCADE
     );
 
     CREATE INDEX IF NOT EXISTS messages_relationship_participant_active
@@ -46,6 +51,7 @@ export async function initializeDatabase(): Promise<SQLite.SQLiteDatabase> {
       participant TEXT NOT NULL,
       messageId TEXT NOT NULL UNIQUE,
       PRIMARY KEY (relationshipId, participant),
+      FOREIGN KEY (relationshipId) REFERENCES relationships(id) ON DELETE CASCADE,
       FOREIGN KEY (messageId) REFERENCES messages(id) ON DELETE RESTRICT
     );
   `);
