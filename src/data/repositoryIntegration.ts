@@ -142,6 +142,8 @@ async function testConcurrentSetupIsIdempotent(db: SQLiteDatabase): Promise<void
 }
 
 async function testSerializedMediaCleanup(db: SQLiteDatabase): Promise<void> {
+  const directory = FileSystem.documentDirectory;
+  assert(directory, 'Document storage is required for serialized media cleanup testing');
   let cleanupStartedResolve!: () => void;
   let releaseCleanup!: () => void;
   const cleanupStarted = new Promise<void>((resolve) => { cleanupStartedResolve = resolve; });
@@ -154,7 +156,7 @@ async function testSerializedMediaCleanup(db: SQLiteDatabase): Promise<void> {
   });
 
   await repository.saveSetup({ partnerNickname: 'Partner', ownName: 'Nico', togetherSince: null });
-  const mediaReference = 'file:///rucola-media-cleanup-race';
+  const mediaReference = `${directory}media/rucola-media-cleanup-race.jpg`;
   await repository.sendMessage({ type: 'PHOTO_VIDEO', body: '', mediaReference });
 
   let resetSettled = false;
