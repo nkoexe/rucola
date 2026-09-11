@@ -31,19 +31,53 @@ The adversarial protocol review is complete. The following are now hard invarian
 - Mailbox expiry is an explicit delivery boundary, not an implicit guarantee.
 - Bounded pull batches and a recoverable poison-message path are required so one invalid message cannot permanently block the mailbox.
 
-## Current blockers before backend implementation
+## C2 schema decisions
 
-1. Decide maximum unacknowledged mailbox retention.
-2. Decide whether manual code-only pairing is allowed. Recommendation: no; require the secure token.
-3. Decide one-device-per-participant vs preparing for multiple devices immediately. Recommendation: one active device initially, but keep device identity distinct from participant identity.
-4. Confirm that server receipt order is acceptable as the deterministic cross-participant total order.
-5. Set photo/video size limits and multipart threshold.
-6. Select the eventual E2E protocol/library separately after checking Expo/RN support.
-7. Decide whether strict server-side sender-sequence contiguity is required when HTTP requests arrive out of order. Recommendation: do not require it initially; preserve sender sequence and make the client sync/order logic explicit.
-8. Decide poison-message handling UX/state.
-9. Decide behavior for already accepted mailbox messages when a relationship is ended.
-10. Choose the concrete media schema shape: separate `media_uploads` table is recommended because it cleanly represents the pre-message upload lifecycle.
+- One D1 database is used initially; relationships are rows, not separate databases.
+- `relationships.next_server_seq` is the per-relationship mailbox sequence counter. Do not allocate `server_seq` using `MAX()+1`.
+- Sender sequences are client-owned and persisted by the originating device. The server permits gaps and out-of-order arrival; it does not require contiguous HTTP arrival.
+- `mailbox_messages` uses `(relationship_id, message_id)` as its primary key and additionally enforces unique `(relationship_id, sender_device_id, sender_seq)` and unique `(relationship_id, server_seq)`.
+- An exact message retry returns the original acceptance; a reused sender sequence with a different message is a conflict.
+- Mailbox messages are immutable. Delivery state is represented by nullable `acknowledged_at` in the MVP.
+- A separate ACK table is deliberately deferred until multi-device delivery is actually required.
+- Media uses a separate `media_uploads` table because uploads exist before messages. Lifecycle: `PENDING -> READY -> ATTACHED`, with `ABANDONED` for failed/expired uploads.
+- `mailbox_messages.media_upload_id` is unique, so one media upload can be attached to only one message.
+- Media must be `READY` and still valid when the message transaction attaches it. The Worker must verify the R2 object before accepting the attachment.
+- `encryption_version` and opaque `ciphertext` are part of the mailbox schema now so E2E does not require a server data-model rewrite later.
+- Server timestamps are authoritative for retention; client timestamps are metadata only.
+- Relationship end blocks new message acceptance but does not retroactively erase already accepted mailbox messages.
+- One active device per participant is enforced with a partial unique index in the MVP; revoked devices remain as historical records.
+- Device credentials and invitation tokens are stored only as hashes.
 
-## Next implementation phase
+## C2 edge-case decisions
 
-**C2 — schema/protocol lock.** Convert the hard invariants into a concrete D1 schema and migration plan, including the relationship server-sequence counter, durable device/sender sequence strategy, idempotency constraints, media upload lifecycle, and ACK/retention state. No production Cloudflare resources should be created during C2.
+- Out-of-order sender sequence arrival is valid; sequence 7 may arrive before 6.
+- A new device after reinstall gets a new device identity rather than reusing the old sender-sequence namespace.
+- Duplicate media attachment races fail safely through conditional state transition + unique media reference.
+- If an R2 object cannot be verified after a media row says `READY`, message acceptance fails conservatively.
+- Pull is cursor-based and ascending by `server_seq`; the client cursor is advanced atomically with local SQLite persistence.
+- Repeated ACK is a successful no-op.
+- Expired unacknowledged mailbox data is not treated as successfully delivered.
+- Cleanup is bounded and separate from delivery semantics.
+
+## C2 artifacts
+
+- `docs/cloud/SCHEMA.md` — schema, constraints, transaction boundaries, and test matrix.
+- `docs/cloud/MIGRATION_0001.sql` — initial D1 migration draft; documentation only until backend implementation begins.
+- `docs/cloud/PROTOCOL_REVIEW.md` — C1 adversarial review.
+- `docs/cloud/ARCHITECTURE.md` — broader cloud architecture research.
+
+## Remaining decisions before backend implementation
+
+1. Maximum unacknowledged mailbox retention.
+2. Manual code-only pairing. Recommendation: no; secure token required.
+3. Exact photo/video size limits and multipart threshold.
+4. Poison-message UX and permanent-invalid handling.
+5. Eventual E2E protocol/library after Expo/RN compatibility research.
+6. Future multi-device acknowledgement model.
+7. Relationship-end UX for already accepted/pending mailbox messages.
+8. Cloudflare billing/plan choice for production.
+
+## Next phase
+
+**C3 — Worker skeleton and local D1 test environment.** No production Cloudflare resources should be created until the C2 artifacts have been reviewed and the remaining product decisions that affect protocol behavior have been explicitly accepted.
