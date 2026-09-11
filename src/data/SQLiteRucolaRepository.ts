@@ -11,6 +11,7 @@ type SQLiteWriteContext = Pick<SQLiteDatabase, 'getFirstAsync' | 'getAllAsync' |
 
 const SQLITE_WRITE_RETRY_ATTEMPTS = 6;
 const SQLITE_WRITE_RETRY_DELAY_MS = 10;
+const writeQueues = new WeakMap<SQLiteDatabase, Promise<void>>();
 
 function mapRelationship(row: RelationshipRow): Relationship { return { ...row }; }
 function mapMessage(row: MessageRow): Message { return { ...row, isActive: row.isActive === 1 }; }
@@ -26,8 +27,6 @@ async function sleep(milliseconds: number): Promise<void> {
 }
 
 export class SQLiteRucolaRepository implements RucolaRepository {
-  private writeQueue: Promise<void> = Promise.resolve();
-
   constructor(private readonly db: SQLiteDatabase) {}
 
   async getRelationship(): Promise<Relationship | null> {
@@ -162,7 +161,8 @@ export class SQLiteRucolaRepository implements RucolaRepository {
   }
 
   private async withExclusiveWrite(action: (tx: SQLiteWriteContext) => Promise<void>): Promise<void> {
-    const run = this.writeQueue.then(async () => {
+    const previous = writeQueues.get(this.db) ?? Promise.resolve();
+    const run = previous.then(async () => {
       for (let attempt = 0; attempt < SQLITE_WRITE_RETRY_ATTEMPTS; attempt += 1) {
         try {
           await this.db.withExclusiveTransactionAsync(action);
@@ -176,7 +176,7 @@ export class SQLiteRucolaRepository implements RucolaRepository {
       throw new Error('Unreachable SQLite write retry state.');
     });
 
-    this.writeQueue = run.catch(() => undefined);
+    writeQueues.set(this.db, run.catch(() => undefined));
     await run;
   }
 
