@@ -60,6 +60,36 @@ function invitationLifetime(body: PairingCreateRequest | null): number {
   return Math.min(seconds * 1000, MAX_INVITATION_LIFETIME_MS);
 }
 
+async function insertInvitation(
+  env: Env,
+  relationshipId: string,
+  deviceId: string,
+  lifetime: number,
+): Promise<{
+  invitationId: string;
+  token: string;
+  confirmationCode: string;
+  expiresAt: number;
+}> {
+  const invitationId = randomId();
+  const token = randomToken(TOKEN_BYTES);
+  const confirmationCode = randomConfirmationCode();
+  const tokenHash = await sha256Hex(token);
+  const confirmationCodeHash = await sha256Hex(confirmationCode);
+  const createdAt = Date.now();
+  const expiresAt = createdAt + lifetime;
+
+  await env.DB.prepare(
+    `INSERT INTO invitations
+      (id, relationship_id, token_hash, confirmation_code_hash, created_by_device_id, created_at, expires_at)
+     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)`,
+  )
+    .bind(invitationId, relationshipId, tokenHash, confirmationCodeHash, deviceId, createdAt, expiresAt)
+    .run();
+
+  return { invitationId, token, confirmationCode, expiresAt };
+}
+
 export async function createInvitation(
   env: Env,
   request: Request,
@@ -79,38 +109,16 @@ export async function createInvitation(
     .bind(device.relationshipId)
     .first<{ status: "PAIRING" | "ACTIVE" | "ENDED" }>();
 
-  if (!relationship || relationship.status !== "ACTIVE") {
-    return errorResponse("PAIRING_CLOSED", "Relationship is not eligible for a new invitation", 409);
+  if (!relationship || relationship.status !== "PAIRING") {
+    return errorResponse("PAIRING_CLOSED", "Relationship is not currently pairable", 409);
   }
 
-  const invitationId = randomId();
-  const token = randomToken(TOKEN_BYTES);
-  const confirmationCode = randomConfirmationCode();
-  const tokenHash = await sha256Hex(token);
-  const confirmationCodeHash = await sha256Hex(confirmationCode);
-  const createdAt = Date.now();
-  const expiresAt = createdAt + lifetime;
-
-  await env.DB.prepare(
-    `INSERT INTO invitations
-      (id, relationship_id, token_hash, confirmation_code_hash, created_by_device_id, created_at, expires_at)
-     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)`,
-  )
-    .bind(
-      invitationId,
-      device.relationshipId,
-      tokenHash,
-      confirmationCodeHash,
-      device.id,
-      createdAt,
-      expiresAt,
-    )
-    .run();
-
-  return json(
-    { relationshipId: device.relationshipId, invitationId, token, confirmationCode, expiresAt },
-    201,
-  );
+  try {
+    const invitation = await insertInvitation(env, device.relationshipId, device.id, lifetime);
+    return json({ relationshipId: device.relationshipId, ...invitation }, 201);
+  } catch {
+    return errorResponse("INTERNAL_ERROR", "Invitation could not be created", 500);
+  }
 }
 
 export async function acceptInvitation(env: Env, request: Request): Promise<Response> {
@@ -121,7 +129,6 @@ export async function acceptInvitation(env: Env, request: Request): Promise<Resp
   const body = await readJson<PairingAcceptRequest>(request);
   const token = typeof body?.token === "string" ? body.token : null;
   const confirmationCode = typeof body?.confirmationCode === "string" ? body.confirmationCode : null;
-
   if (!token || !confirmationCode || !/^\d{6}$/.test(confirmationCode)) {
     return errorResponse("INVALID_REQUEST", "Invalid pairing request", 400);
   }
@@ -160,7 +167,8 @@ export async function acceptInvitation(env: Env, request: Request): Promise<Resp
   }
 
   const activeDevice = await env.DB.prepare(
-    `SELECT id FROM devices WHERE relationship_id = ?1 AND revoked_at IS NULL`,
+    `SELECT id FROM devices
+     WHERE relationship_id = ?1 AND participant = 'ME' AND revoked_at IS NULL`,
   )
     .bind(invitation.relationship_id)
     .first<{ id: string }>();
@@ -206,9 +214,7 @@ export async function acceptInvitation(env: Env, request: Request): Promise<Resp
     .bind(deviceId, invitation.relationship_id)
     .first<{ id: string }>();
 
-  if (!createdDevice) {
-    return errorResponse("PAIRING_CONFLICT", "Invitation was already consumed", 409);
-  }
+  if (!createdDevice) return errorResponse("PAIRING_CONFLICT", "Invitation was already consumed", 409);
 
   return json(
     {
