@@ -25,8 +25,16 @@ export class SQLiteRucolaRepository implements RucolaRepository {
     if (!partnerNickname || !ownName) throw new Error('Both names are required.');
 
     await this.db.withTransactionAsync(async () => {
+      // Do not use INSERT OR REPLACE here. SQLite REPLACE deletes the existing
+      // relationship row first, which would cascade-delete its message history.
       await this.db.runAsync(
-        `INSERT OR REPLACE INTO relationships (id, partnerNickname, ownName, partnerColor, togetherSince) VALUES (?, ?, ?, ?, ?)`,
+        `INSERT INTO relationships (id, partnerNickname, ownName, partnerColor, togetherSince)
+         VALUES (?, ?, ?, ?, ?)
+         ON CONFLICT(id) DO UPDATE SET
+           partnerNickname = excluded.partnerNickname,
+           ownName = excluded.ownName,
+           partnerColor = excluded.partnerColor,
+           togetherSince = excluded.togetherSince`,
         RELATIONSHIP_ID, partnerNickname, ownName, input.partnerColor ?? '#8FC56A', input.togetherSince,
       );
       const count = await this.db.getFirstAsync<{ count: number }>('SELECT COUNT(*) AS count FROM messages WHERE relationshipId = ?', RELATIONSHIP_ID);
