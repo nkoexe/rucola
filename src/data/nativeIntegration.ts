@@ -1,7 +1,9 @@
 import * as SQLite from 'expo-sqlite';
+import * as FileSystem from 'expo-file-system/legacy';
 import { SQLiteRucolaRepository } from './SQLiteRucolaRepository';
 import { initializeDatabase } from './database';
 import { runMigrationIntegrationTests } from './migrationIntegration';
+import { deleteOwnedMedia, persistPickedMedia } from './media';
 
 export type NativeIntegrationResult = {
   name: string;
@@ -121,6 +123,46 @@ async function testReset(db: SQLite.SQLiteDatabase): Promise<void> {
   assertEqual((await repository.getMessages()).length, 0, 'Reset should delete all messages');
 }
 
+async function testMediaLifecycle(): Promise<void> {
+  const documentDirectory = FileSystem.documentDirectory;
+  assert(documentDirectory, 'Document storage should be available for native media tests');
+
+  const source = `${documentDirectory}rucola-test-source-${Date.now()}.txt`;
+  const persistedUris: string[] = [];
+  try {
+    await FileSystem.writeAsStringAsync(source, 'native media test');
+    const persisted = await persistPickedMedia({
+      uri: source,
+      fileName: 'test-photo.jpg',
+      mimeType: 'image/jpeg',
+      type: 'image',
+      width: 1,
+      height: 1,
+    });
+    persistedUris.push(persisted);
+
+    assert(persisted.startsWith(`${documentDirectory}media/`), 'Persisted media must live under the app media directory');
+    assert(await FileSystem.getInfoAsync(persisted).then((info) => info.exists), 'Persisted media file should exist');
+
+    await deleteOwnedMedia(persisted);
+    assert(!(await FileSystem.getInfoAsync(persisted)).exists, 'Owned media should be deleted');
+
+    const outside = `${documentDirectory}rucola-test-outside-${Date.now()}.txt`;
+    await FileSystem.writeAsStringAsync(outside, 'must remain');
+    try {
+      await deleteOwnedMedia(outside);
+      assert(await FileSystem.getInfoAsync(outside).then((info) => info.exists), 'Non-media files must not be deleted');
+    } finally {
+      await FileSystem.deleteAsync(outside, { idempotent: true });
+    }
+  } finally {
+    for (const uri of persistedUris) {
+      await FileSystem.deleteAsync(uri, { idempotent: true }).catch(() => undefined);
+    }
+    await FileSystem.deleteAsync(source, { idempotent: true }).catch(() => undefined);
+  }
+}
+
 const coreTests: Array<[string, (db: SQLite.SQLiteDatabase) => Promise<void>]> = [
   ['fresh database', testFreshDatabase],
   ['message lifecycle', testMessageLifecycle],
@@ -143,6 +185,17 @@ export async function runNativeIntegrationTests(): Promise<NativeIntegrationResu
         error: cause instanceof Error ? cause.message : String(cause),
       });
     }
+  }
+
+  try {
+    await testMediaLifecycle();
+    results.push({ name: 'media persistence and cleanup', passed: true });
+  } catch (cause) {
+    results.push({
+      name: 'media persistence and cleanup',
+      passed: false,
+      error: cause instanceof Error ? cause.message : String(cause),
+    });
   }
 
   try {
