@@ -97,9 +97,13 @@ async function testConcurrentMessageOrdering(db: SQLite.SQLiteDatabase): Promise
   assertEqual(ownMessages.length, 20, 'Concurrent sends should persist every message');
   assertEqual(new Set(sent.map((message) => message.id)).size, 20, 'Concurrent sends should generate unique message IDs');
   for (let index = 0; index < ownMessages.length; index += 1) {
-    assertEqual(ownMessages[index].orderIndex, index + 2, 'Concurrent sends should allocate contiguous order indexes');
+    const message = ownMessages[index];
+    assert(message, `Concurrent message at index ${index} should exist`);
+    assertEqual(message.orderIndex, index + 2, 'Concurrent sends should allocate contiguous order indexes');
   }
-  assertEqual((await repository.getActiveMessage('ME'))?.id, ownMessages[ownMessages.length - 1].id, 'Last committed concurrent send should be active');
+  const lastMessage = ownMessages[ownMessages.length - 1];
+  assert(lastMessage, 'Concurrent sends should produce a final message');
+  assertEqual((await repository.getActiveMessage('ME'))?.id, lastMessage.id, 'Last committed concurrent send should be active');
 }
 
 async function testPersistenceAcrossRepositoryInstances(db: SQLite.SQLiteDatabase): Promise<void> {
