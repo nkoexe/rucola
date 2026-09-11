@@ -26,6 +26,13 @@ local.properties
 .env.*
 !.env.example
 
+# Node / Expo
+node_modules/
+.expo/
+.expo-shared/
+dist/
+web-build/
+
 # Generated / local tooling
 .DS_Store
 Thumbs.db
