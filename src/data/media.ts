@@ -44,8 +44,13 @@ export async function persistPickedMedia(asset: ImagePickerAsset): Promise<strin
 
   const extension = extensionForAsset(asset);
   const destination = `${directory}${randomUUID()}.${extension}`;
-  await FileSystem.copyAsync({ from: asset.uri, to: destination });
-  return destination;
+  try {
+    await FileSystem.copyAsync({ from: asset.uri, to: destination });
+    return destination;
+  } catch (cause) {
+    await FileSystem.deleteAsync(destination, { idempotent: true }).catch(() => undefined);
+    throw cause;
+  }
 }
 
 export async function deleteOwnedMedia(uri: string): Promise<void> {
@@ -56,6 +61,8 @@ export async function deleteOwnedMedia(uri: string): Promise<void> {
   if (!relativePath || relativePath.includes('..') || relativePath.includes('/') || relativePath.includes('\\')) return;
 
   try {
+    const info = await FileSystem.getInfoAsync(uri);
+    if (!info.exists || info.isDirectory) return;
     await FileSystem.deleteAsync(uri, { idempotent: true });
   } catch {
     // Database reset must not fail because an already-missing media file could not be removed.
