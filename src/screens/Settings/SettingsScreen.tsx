@@ -2,11 +2,13 @@ import { useState } from 'react';
 import { Alert, Pressable, StyleSheet, Text, View } from 'react-native';
 import type { getRepository } from '../../data/repository';
 import type { Relationship } from '../../domain/models';
+import { DeleteRelationship } from '../../domain/useCases';
 
 type Props = { relationship: Relationship; repositoryPromise: ReturnType<typeof getRepository>; onBack: () => void; onRelationshipDeleted: () => void };
 
 export function SettingsScreen({ relationship, repositoryPromise, onBack, onRelationshipDeleted }: Props) {
   const [deleting, setDeleting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   const clearLocalData = () => {
     Alert.alert('Clear local data?', 'This removes the relationship and all locally stored messages from this device.', [
@@ -18,10 +20,13 @@ export function SettingsScreen({ relationship, repositoryPromise, onBack, onRela
   const confirmClear = async () => {
     if (deleting) return;
     setDeleting(true);
+    setError(null);
     try {
       const repository = await repositoryPromise;
-      await repository.deleteRelationship();
+      await new DeleteRelationship(repository).execute();
       onRelationshipDeleted();
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Could not clear local data.');
     } finally {
       setDeleting(false);
     }
@@ -39,7 +44,8 @@ export function SettingsScreen({ relationship, repositoryPromise, onBack, onRela
       <View style={styles.section}>
         <Text style={styles.label}>local data</Text>
         <Text style={styles.muted}>Messages are currently stored on this device. Cloud sync will be added later.</Text>
-        <Pressable onPress={clearLocalData} disabled={deleting} style={styles.dangerButton}>
+        {error ? <Text style={styles.error}>{error}</Text> : null}
+        <Pressable onPress={clearLocalData} disabled={deleting} style={[styles.dangerButton, deleting && styles.disabled]}>
           <Text style={styles.dangerText}>{deleting ? 'clearing...' : 'Clear local data'}</Text>
         </Pressable>
       </View>
@@ -60,7 +66,9 @@ const styles = StyleSheet.create({
   label: { fontSize: 14, fontWeight: '700', opacity: 0.6, marginBottom: 8 },
   value: { fontSize: 20, fontWeight: '600' },
   muted: { marginTop: 6, opacity: 0.6, lineHeight: 22 },
+  error: { marginTop: 12, color: '#9B2C2C' },
   dangerButton: { alignSelf: 'flex-start', marginTop: 18, borderWidth: 1, borderRadius: 12, paddingHorizontal: 14, paddingVertical: 10 },
   dangerText: { fontWeight: '700' },
+  disabled: { opacity: 0.35 },
   version: { marginTop: 'auto', opacity: 0.45 },
 });
