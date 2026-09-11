@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import * as ImagePicker from 'expo-image-picker';
 import { Alert, KeyboardAvoidingView, PanResponder, Platform, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import type { getRepository } from '../../data/repository';
-import { persistPickedMedia } from '../../data/media';
+import { deleteOwnedMedia, persistPickedMedia } from '../../data/media';
 import type { Message, Relationship } from '../../domain/models';
 import { GetActiveMessage, SendMessage } from '../../domain/useCases';
 import { MessageMedia } from '../../components/MessageMedia';
@@ -81,12 +81,20 @@ export function HomeScreen({ relationship, repositoryPromise, revision, onChange
       if (result.canceled || !result.assets[0]) return;
 
       const mediaReference = await persistPickedMedia(result.assets[0]);
-      const repository = await repositoryPromise;
-      await new SendMessage(repository).execute({
-        type: 'PHOTO_VIDEO',
-        body: draft.trim(),
-        mediaReference,
-      });
+      try {
+        const repository = await repositoryPromise;
+        await new SendMessage(repository).execute({
+          type: 'PHOTO_VIDEO',
+          body: draft.trim(),
+          mediaReference,
+        });
+      } catch (cause) {
+        // The file is owned by this unsent message, so do not leave an orphan
+        // behind when persistence succeeds but the database write fails.
+        await deleteOwnedMedia(mediaReference);
+        throw cause;
+      }
+
       setDraft('');
       setComposerType('TEXT');
       onChanged();
