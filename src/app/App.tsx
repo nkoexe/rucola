@@ -1,22 +1,15 @@
 import { StatusBar } from 'expo-status-bar';
-import { useEffect, useState } from 'react';
-import {
-  KeyboardAvoidingView,
-  Platform,
-  Pressable,
-  SafeAreaView,
-  StyleSheet,
-  Text,
-  TextInput,
-  View,
-} from 'react-native';
+import { useEffect, useState, type ReactNode } from 'react';
+import { KeyboardAvoidingView, Platform, Pressable, SafeAreaView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { getRepository } from '../data/repository';
 import type { Message, Relationship } from '../domain/models';
 import { colors } from '../design/colors';
 import { typography } from '../design/typography';
+import { HistoryScreen } from '../screens/History/HistoryScreen';
 
 const repoPromise = getRepository();
 type SetupStep = 'partner' | 'own' | 'together';
+type AppScreen = 'home' | 'history';
 
 export default function App() {
   const [relationship, setRelationship] = useState<Relationship | null>(null);
@@ -25,17 +18,15 @@ export default function App() {
 
   useEffect(() => {
     let mounted = true;
-    repoPromise
-      .then(async (repository) => {
-        const value = await repository.getRelationship();
-        const message = value ? await repository.getActiveMessage('PARTNER') : null;
-        if (mounted) {
-          setRelationship(value);
-          setPartnerMessage(message);
-          setReady(true);
-        }
-      })
-      .catch(() => mounted && setReady(true));
+    repoPromise.then(async (repository) => {
+      const value = await repository.getRelationship();
+      const message = value ? await repository.getActiveMessage('PARTNER') : null;
+      if (mounted) {
+        setRelationship(value);
+        setPartnerMessage(message);
+        setReady(true);
+      }
+    }).catch(() => mounted && setReady(true));
     return () => { mounted = false; };
   }, []);
 
@@ -58,11 +49,14 @@ function Setup({ onComplete }: { onComplete: (relationship: Relationship) => voi
   const save = async (togetherSince: number | null) => {
     if (!partnerNickname.trim() || !ownName.trim()) return;
     setSaving(true);
-    const repository = await repoPromise;
-    await repository.saveSetup({ partnerNickname: partnerNickname.trim(), ownName: ownName.trim(), togetherSince });
-    const relationship = await repository.getRelationship();
-    if (relationship) onComplete(relationship);
-    setSaving(false);
+    try {
+      const repository = await repoPromise;
+      await repository.saveSetup({ partnerNickname: partnerNickname.trim(), ownName: ownName.trim(), togetherSince });
+      const saved = await repository.getRelationship();
+      if (saved) onComplete(saved);
+    } finally {
+      setSaving(false);
+    }
   };
 
   const continueFromTogether = () => {
@@ -101,24 +95,36 @@ function SetupStepView({ title, placeholder, value, onChangeText, button, disabl
 }
 
 function Home({ relationship, partnerMessage }: { relationship: Relationship; partnerMessage: Message | null }) {
+  const [screen, setScreen] = useState<AppScreen>('home');
   const [draft, setDraft] = useState('');
   const [sending, setSending] = useState(false);
   const [message, setMessage] = useState(partnerMessage);
 
+  useEffect(() => setMessage(partnerMessage), [partnerMessage]);
+
   const send = async () => {
     if (!draft.trim() || sending) return;
     setSending(true);
-    const repository = await repoPromise;
-    await repository.sendMessage({ type: 'TEXT', body: draft.trim() });
-    setDraft('');
-    setSending(false);
-    setMessage(message);
+    try {
+      const repository = await repoPromise;
+      await repository.sendMessage({ type: 'TEXT', body: draft.trim() });
+      setDraft('');
+    } finally {
+      setSending(false);
+    }
   };
+
+  if (screen === 'history') {
+    return <HistoryContainer relationship={relationship} onBack={() => setScreen('home')} />;
+  }
 
   return (
     <SafeAreaView style={styles.safe}>
       <KeyboardAvoidingView style={styles.home} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-        <View style={styles.homeHeader}><Text style={styles.logoSmall}>rucola</Text><Text style={styles.partnerName}>{relationship.partnerNickname}</Text></View>
+        <View style={styles.homeHeader}>
+          <Text style={styles.logoSmall}>rucola</Text>
+          <Pressable onPress={() => setScreen('history')} accessibilityLabel="history"><Text style={styles.partnerName}>{relationship.partnerNickname} ›</Text></Pressable>
+        </View>
         <View style={styles.messageArea}>
           {message ? <><Text style={styles.message}>{message.body}</Text><Text style={styles.messageMeta}>sent with love</Text></> : <Text style={styles.muted}>nothing here yet...</Text>}
         </View>
@@ -136,7 +142,13 @@ function Home({ relationship, partnerMessage }: { relationship: Relationship; pa
   );
 }
 
-function Screen({ children }: { children: React.ReactNode }) {
+function HistoryContainer({ relationship, onBack }: { relationship: Relationship; onBack: () => void }) {
+  const [messages, setMessages] = useState<Message[]>([]);
+  useEffect(() => { void repoPromise.then((repository) => repository.getMessages()).then(setMessages); }, []);
+  return <SafeAreaView style={styles.safe}><HistoryScreen relationship={relationship} messages={messages} onBack={onBack} /><StatusBar style="dark" /></SafeAreaView>;
+}
+
+function Screen({ children }: { children: ReactNode }) {
   return <SafeAreaView style={styles.safe}><View style={styles.screen}>{children}</View><StatusBar style="dark" /></SafeAreaView>;
 }
 
