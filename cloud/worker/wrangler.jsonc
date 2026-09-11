@@ -10,5 +10,15 @@
       "database_id": "00000000-0000-4000-8000-000000000000",
       "preview_database_id": "rucola-local"
     }
+  ],
+  "ratelimits": [
+    {
+      "name": "PAIRING_BOOTSTRAP_LIMITER",
+      "namespace_id": "910001",
+      "simple": {
+        "limit": 10,
+        "period": 60
+      }
+    }
   ]
 }
