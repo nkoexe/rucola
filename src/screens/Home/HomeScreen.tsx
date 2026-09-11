@@ -5,6 +5,9 @@ import type { Message, Relationship } from '../../domain/models';
 import { GetActiveMessage, SendMessage } from '../../domain/useCases';
 
 type RepositoryPromise = ReturnType<typeof getRepository>;
+type ComposerType = 'TEXT' | 'EMOJI';
+
+const QUICK_EMOJIS = ['❤️', '😘', '🥰', '🫶', '💋', '💕', '🥹', '✨'];
 
 type Props = {
   relationship: Relationship;
@@ -19,6 +22,7 @@ type Props = {
 export function HomeScreen({ relationship, repositoryPromise, revision, onChanged, onOpenHistory, onOpenCalendar, onOpenSettings }: Props) {
   const [message, setMessage] = useState<Message | null>(null);
   const [draft, setDraft] = useState('');
+  const [composerType, setComposerType] = useState<ComposerType>('TEXT');
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -43,7 +47,7 @@ export function HomeScreen({ relationship, repositoryPromise, revision, onChange
     setError(null);
     try {
       const repository = await repositoryPromise;
-      await new SendMessage(repository).execute({ type: 'TEXT', body });
+      await new SendMessage(repository).execute({ type: composerType, body });
       setDraft('');
       onChanged();
     } catch (cause) {
@@ -78,13 +82,31 @@ export function HomeScreen({ relationship, repositoryPromise, revision, onChange
 
       <View style={styles.composer}>
         {error ? <Text style={styles.error}>{error}</Text> : null}
-        <TextInput
-          value={draft}
-          onChangeText={(value) => { setError(null); setDraft(value); }}
-          placeholder={`message ${relationship.partnerNickname}...`}
-          multiline
-          style={styles.input}
-        />
+        <View style={styles.typeRow}>
+          <Pressable onPress={() => { setComposerType('TEXT'); setError(null); }} style={[styles.typeButton, composerType === 'TEXT' && styles.typeButtonActive]}>
+            <Text style={composerType === 'TEXT' ? styles.typeTextActive : styles.typeText}>Text</Text>
+          </Pressable>
+          <Pressable onPress={() => { setComposerType('EMOJI'); setError(null); }} style={[styles.typeButton, composerType === 'EMOJI' && styles.typeButtonActive]}>
+            <Text style={composerType === 'EMOJI' ? styles.typeTextActive : styles.typeText}>Emoji</Text>
+          </Pressable>
+        </View>
+        {composerType === 'EMOJI' ? (
+          <View style={styles.emojiRow}>
+            {QUICK_EMOJIS.map((emoji) => (
+              <Pressable key={emoji} onPress={() => setDraft(emoji)} style={styles.emojiButton} accessibilityLabel={`Choose ${emoji}`}>
+                <Text style={styles.emoji}>{emoji}</Text>
+              </Pressable>
+            ))}
+          </View>
+        ) : (
+          <TextInput
+            value={draft}
+            onChangeText={(value) => { setError(null); setDraft(value); }}
+            placeholder={`message ${relationship.partnerNickname}...`}
+            multiline
+            style={styles.input}
+          />
+        )}
         <View style={styles.composerRow}>
           <Pressable style={styles.secondaryButton} onPress={() => setError('Photo / video is not implemented yet.')}><Text>Photo / Video</Text></Pressable>
           <Pressable style={styles.secondaryButton} onPress={() => setError('Drawing is not implemented yet.')}><Text>Draw</Text></Pressable>
@@ -110,7 +132,15 @@ const styles = StyleSheet.create({
   muted: { opacity: 0.55, fontSize: 18 },
   composer: { paddingTop: 12 },
   error: { marginBottom: 8, color: '#9B2C2C' },
+  typeRow: { flexDirection: 'row', gap: 8, marginBottom: 8 },
+  typeButton: { borderWidth: 1, borderRadius: 12, paddingHorizontal: 12, paddingVertical: 7 },
+  typeButtonActive: { backgroundColor: '#1D2A1B' },
+  typeText: { fontWeight: '600' },
+  typeTextActive: { color: '#F3F6E9', fontWeight: '700' },
   input: { minHeight: 54, maxHeight: 120, backgroundColor: '#E4F0D9', borderRadius: 18, paddingHorizontal: 16, paddingVertical: 12, fontSize: 17 },
+  emojiRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, backgroundColor: '#E4F0D9', borderRadius: 18, padding: 10 },
+  emojiButton: { minWidth: 38, minHeight: 38, alignItems: 'center', justifyContent: 'center' },
+  emoji: { fontSize: 26 },
   composerRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 10 },
   secondaryButton: { padding: 10, borderWidth: 1, borderRadius: 12 },
   send: { marginLeft: 'auto', backgroundColor: '#1D2A1B', borderRadius: 16, paddingHorizontal: 20, paddingVertical: 11 },
