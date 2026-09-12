@@ -14,7 +14,7 @@ Treat this as a real product codebase, but prefer simple, understandable solutio
 - Local persistence uses `expo-sqlite`.
 - Local photo/video files use app-owned document storage.
 - The local database is the source of truth in the current prototype.
-- Work on `migration/react-native` until the migration is complete; never implement directly on `main`.
+- `main` is the stable integration branch; do feature/chore work on focused branches created from `main`. Never implement directly on `main`.
 - The owner is intentionally keeping the UI barebones for now. Prioritize complete behavior, correct state, persistence, and architecture over visual polish.
 - Figma/reference assets are for the later UI pass unless a task explicitly requires them.
 
@@ -73,7 +73,7 @@ Photo/video now uses the system library/camera picker, copies the selected asset
 
 ## Current implementation status
 
-The React Native branch currently has:
+The React Native implementation currently has:
 
 - Expo/RN/TypeScript foundation and Android development build setup.
 - Local SQLite schema and repository.
@@ -86,7 +86,7 @@ The React Native branch currently has:
 - Local-data reset from settings, including cleanup of owned media files.
 - Domain use-case boundary used by the app screens.
 - Explicit SQLite v0/v1 → v2 migration handling and integrity validation.
-- Domain/use-case tests executed through Node's built-in test runner and wired into CI.
+- Node domain/use-case tests and native SQLite/repository integration coverage.
 
 The UI is deliberately barebones. Do not spend the next implementation phase on Figma fidelity.
 
@@ -177,7 +177,7 @@ Tests are required for important domain/repository behavior:
 - migration and malformed-data handling;
 - media cleanup and failure recovery.
 
-The current Node test suite covers use-case validation. Real SQLite repository behavior still requires native integration coverage before backend work.
+Current validation includes Node domain/use-case tests and a native SQLite/repository integration runner using disposable databases. Keep the native suite separate from the Node suite; it exercises real Expo SQLite behavior and must not touch the normal `rucola.db`.
 
 Relevant local commands:
 
@@ -193,7 +193,8 @@ If native/build validation cannot be performed by an agent, state that explicitl
 
 ## Git workflow
 
-- Work on `migration/react-native` or a focused feature/chore branch, never `main`.
+- `main` is the stable integration branch.
+- Work on a focused `feature/*`, `fix/*`, `test/*`, `chore/*`, or research branch created from `main`; never implement directly on `main`.
 - Keep commits small and understandable.
 - Do not commit secrets, generated build output, IDE state, or machine-specific configuration.
 - Review the final diff for stale files, duplicate implementations, unused code, and contradictory documentation.
