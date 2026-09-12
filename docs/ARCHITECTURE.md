@@ -49,7 +49,49 @@ expo-sqlite
 
 The current screens use domain use cases for relationship loading, setup, message creation, history, calendar data, and local reset. Domain code does not import React Native or SQLite.
 
-The current application still contains hand-rolled screen state and is scheduled for an Expo Router/application-state cleanup before more presentation complexity is added.
+The current application still contains hand-rolled screen state and is scheduled for an Expo Router/application-state cleanup before more presentation complexity is added. That hand-rolled navigation is transitional and must not be expanded.
+
+### Intended route structure
+
+The application navigation should converge on a small Expo Router tree:
+
+```text
+src/app/
+├── _layout.tsx
+├── index.tsx
+├── setup/
+│   └── index.tsx
+├── home/
+│   └── index.tsx
+├── history/
+│   └── index.tsx
+├── calendar/
+│   └── index.tsx
+├── settings/
+│   └── index.tsx
+└── invite/
+    └── [token].tsx       # future pairing/deep-link route
+```
+
+Route files are navigation boundaries, not places to duplicate feature logic. Existing feature implementations should remain under `src/screens/` where that keeps responsibilities clear.
+
+The root layout should eventually own the application bootstrap/provider boundary. The minimal application state should cover only what is genuinely shared, such as:
+
+- repository readiness;
+- current local relationship;
+- initialization/error state;
+- a small refresh/invalidation mechanism for screen data.
+
+Do not introduce a general-purpose state-management library unless the application demonstrates a real need for one.
+
+### Navigation and lifecycle invariants
+
+- There must be one clear owner for repository initialization.
+- Screens should not independently recreate application bootstrap state.
+- Navigation should not encode domain rules.
+- Route changes should not cause duplicate repository instances or duplicate initialization work.
+- Screen refreshes should be explicit and predictable rather than relying on unrelated route remounts.
+- The architecture must remain suitable for future pairing deep links without introducing a second navigation system.
 
 `SQLiteRucolaRepository` is the local implementation and can later be accompanied by synchronization without forcing the UI to call a network API directly.
 
