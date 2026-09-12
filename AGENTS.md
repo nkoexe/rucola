@@ -6,6 +6,8 @@ Rucola is a private mobile app for exactly two people in a long-distance relatio
 
 Treat this as a real product codebase, but prefer simple, understandable solutions over enterprise ceremony.
 
+The product source of truth is `docs/PRODUCT_SPEC.md`. The implementation plan is `docs/DEVELOPMENT_ROADMAP.md`. Architecture constraints live in `docs/ARCHITECTURE.md`.
+
 ## Current stack and workflow
 
 - Expo + React Native + TypeScript.
@@ -13,14 +15,14 @@ Treat this as a real product codebase, but prefer simple, understandable solutio
 - Use Expo development builds / `expo prebuild`; do not design around Expo Go.
 - Local persistence uses `expo-sqlite`.
 - Local photo/video files use app-owned document storage.
-- The local database is the source of truth in the current prototype.
+- The local database is the source of truth for permanent history.
 - `main` is the stable integration branch; do feature/chore work on focused branches created from `main`. Never implement directly on `main`.
 - The owner is intentionally keeping the UI barebones for now. Prioritize complete behavior, correct state, persistence, and architecture over visual polish.
 - Figma/reference assets are for the later UI pass unless a task explicitly requires them.
 
 ## Before changing code
 
-1. Read `docs/PRODUCT.md` and `docs/ARCHITECTURE.md`.
+1. Read `docs/PRODUCT_SPEC.md`, `docs/ARCHITECTURE.md`, and the relevant section of `docs/DEVELOPMENT_ROADMAP.md`.
 2. Inspect the existing implementation and dependencies before introducing patterns or packages.
 3. Preserve the product invariants below.
 4. Keep changes focused and reviewable. Clean up stale/duplicate code when it is clearly part of the area being changed.
@@ -31,9 +33,9 @@ Treat this as a real product codebase, but prefer simple, understandable solutio
 Use this dependency direction:
 
 ```text
-React Native screens/components
+Expo Router / React Native screens
         ↓
-presentation state/hooks
+application bootstrap + presentation state
         ↓
 domain use cases
         ↓
@@ -51,25 +53,27 @@ Keep synchronization state in the domain/data model so a future backend can be i
 
 ## Product invariants
 
-- One relationship per device/account, exactly two participants.
+- One relationship per device, exactly two participants once paired.
 - At most one active message per participant; the normal lifecycle gives the partner a seeded active message during setup and gives the user an active message when they first send one.
 - Sending a new message moves that participant's previous active message into immutable history.
-- Messages are immutable: no editing, deleting, replies, threads, or reactions in MVP.
+- Messages are immutable: no editing, deleting, replies, threads, or reactions in the initial product.
 - History contains both participants' messages and is permanent local data.
 - The phone is the permanent data store; a future server is only a temporary mailbox.
-- The home screen focuses on the partner's current message.
+- The Home screen focuses on the partner's current message.
+- After three days without a newer partner message, Home transitions to a gentle stale/waiting prompt; the old message remains in History.
 - Do not implement fake `read`/`unread` semantics. Delivery/synchronization is not the same as the user seeing a message.
 - Offline-first is fundamental. UI consumes local repositories/state.
 - Message ordering must survive offline bursts: A, B, C must all be preserved even though C is the current active message.
+- User-facing pairing is exactly five emojis. Technical invitation credentials remain invisible implementation details.
 
 ## Message types
 
 - `TEXT`: content required.
 - `EMOJI`: the emoji itself is the message.
 - `PHOTO_VIDEO`: optional text; media-only is valid. Video is first-class.
-- `DRAWING`: optional text; drawing-only is valid.
+- `DRAWING`: planned, but not part of the initial usable feature set until a real editor exists.
 
-Photo/video now uses the system library/camera picker, copies the selected asset into app-owned document storage, persists that reference with the message, and renders it on home/history/calendar. Drawing remains a real-editor TODO; do not fake it by storing invented paths or placeholder media.
+Photo/video uses the system library/camera picker, copies the selected asset into app-owned document storage, persists that reference with the message, and renders it on home/history/calendar. Drawing remains a real-editor TODO; do not fake it by storing invented paths or placeholder media.
 
 ## Current implementation status
 
@@ -88,7 +92,7 @@ The React Native implementation currently has:
 - Explicit SQLite v0/v1 → v2 migration handling and integrity validation.
 - Node domain/use-case tests and native SQLite/repository integration coverage.
 
-The UI is deliberately barebones. Do not spend the next implementation phase on Figma fidelity.
+The UI is deliberately barebones. Do not spend the current implementation phase on Figma fidelity.
 
 ## Pairing
 
@@ -101,29 +105,33 @@ unpaired
   ↓
 create invitation
   ↓
-share deep link / human-facing code
+show five emojis
   ↓
-partner enters invitation
+partner uses the five-emoji flow
   ↓
-server validates secure token
+server validates secure invitation
   ↓
 paired relationship
 ```
 
-The human-facing code is not a security credential. The real invitation token needs cryptographic entropy, expiry (target 24h), and one-time use. Pairing state should be designed behind an abstraction so the future backend can be added without coupling screens to HTTP.
+The five-emoji sequence is the user-facing mechanism, not a security credential. The real invitation token needs cryptographic entropy, expiry (target 24h), and one-time use. Pairing state should be designed behind an abstraction so the future backend can be added without coupling screens to HTTP.
 
 Until a backend exists, do not claim that two separate devices can pair or exchange messages.
 
 ## Onboarding
 
-Current local prototype onboarding is:
+The intended first-run flow is:
 
-1. `who are they?`
-2. `who are you?`
-3. together-since date or `shh... not yet`
-4. home
+1. Rucola opening/logo;
+2. pair with your person;
+3. partner name;
+4. your name;
+5. together-since date or skip;
+6. Home.
 
-Do not add an avatar/tutorial step unless explicitly requested. Partner avatar support can be added later.
+The conceptual order matters now; detailed visual treatment and transitions belong to the later Figma/UX pass.
+
+Do not add an avatar/tutorial step unless explicitly requested. Partner avatar support is deferred.
 
 ## History and calendar
 
@@ -132,7 +140,7 @@ Do not add an avatar/tutorial step unless explicitly requested. Partner avatar s
 - History includes both participants.
 - Calendar marks days containing historical messages and opens that day's messages.
 - Media messages must remain viewable from both history and calendar.
-- Primary swipe navigation can be added later; a basic navigation control is acceptable while functionality is prioritized.
+- Navigation/interaction order should remain coherent even while visual polish is deferred.
 
 ## Settings / relationship lifecycle
 
@@ -152,7 +160,9 @@ The future server must:
 - support media with the same durability/acknowledgement rule;
 - never require the UI to depend directly on the network.
 
-Push/background synchronization and widgets come later and must respect platform execution limits.
+Backend work should progress alongside local product work after the application structure is stable. The first major product checkpoint is a rough but genuinely online two-person prototype.
+
+Push/background synchronization and the Android widget come later and must respect platform execution limits.
 
 ## UI direction
 
@@ -175,7 +185,9 @@ Tests are required for important domain/repository behavior:
 - persistence;
 - one-active-message-per-participant invariant;
 - migration and malformed-data handling;
-- media cleanup and failure recovery.
+- media cleanup and failure recovery;
+- synchronization ordering and durable acknowledgement once the backend exists;
+- the three-day Home rule once it is represented in testable application/domain logic.
 
 Current validation includes Node domain/use-case tests and a native SQLite/repository integration runner using disposable databases. Keep the native suite separate from the Node suite; it exercises real Expo SQLite behavior and must not touch the normal `rucola.db`.
 
