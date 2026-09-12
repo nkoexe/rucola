@@ -166,27 +166,35 @@ describe("Rucola mailbox push", () => {
 
   it("handles concurrent exact retries idempotently", async () => {
     const { me } = await bootstrapAndAccept();
-    const messageId = crypto.randomUUID();
-    const responses = await Promise.all(
-      Array.from({ length: 10 }, () =>
-        exports.default.fetch(
-          "https://rucola.test/v1/sync/push",
-          pushRequest(me.credential, {
-            messageId,
-            senderSeq: 9,
-            ciphertext: "same",
-          }),
-        ),
-      ),
+    const body: PushBody = {
+      messageId: crypto.randomUUID(),
+      senderSeq: 9,
+      type: "TEXT",
+      ciphertext: "same",
+      encryptionVersion: 1,
+      createdAt: Date.now(),
+    };
+    const request = pushRequest(me.credential, body);
+    const requestBody = request.body as string;
+    const requests = Array.from({ length: 10 }, () =>
+      exports.default.fetch("https://rucola.test/v1/sync/push", {
+        method: "POST",
+        headers: {
+          authorization: `Bearer ${me.credential}`,
+          "content-type": "application/json",
+        },
+        body: requestBody,
+      }),
     );
+    const responses = await Promise.all(requests);
     const bodies = await Promise.all(responses.map(json));
 
     expect(responses.every((response) => response.status === 200)).toBe(true);
-    expect(new Set(bodies.map((body) => JSON.stringify(body))).size).toBe(1);
+    expect(new Set(bodies.map((responseBody) => JSON.stringify(responseBody))).size).toBe(1);
 
     const count = await env.DB
       .prepare("SELECT COUNT(*) AS count FROM mailbox_messages WHERE relationship_id = ?1 AND message_id = ?2")
-      .bind(me.relationshipId, messageId)
+      .bind(me.relationshipId, body.messageId)
       .first<{ count: number }>();
     const relationship = await env.DB
       .prepare("SELECT next_server_seq FROM relationships WHERE id = ?1")
@@ -381,6 +389,7 @@ describe("Rucola mailbox push", () => {
     const otherMediaId = crypto.randomUUID();
     await insertReadyMedia(me.relationshipId, partner.deviceId, otherMediaId);
     const ownership = await push(me.credential, {
+      senderSeq: 2,
       type: "PHOTO_VIDEO",
       mediaUploadId: otherMediaId,
       ciphertext: "other-photo",
