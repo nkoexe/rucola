@@ -55,7 +55,7 @@ async function bootstrapAndAccept(): Promise<{ me: BootstrapBody; partner: Accep
     method: "POST",
     headers: {
       "content-type": "application/json",
-      "cf-connecting-ip": `198.51.100.${bootstrapTestId}`,
+      "cf-connecting-ip": `198.51.100.${((bootstrapTestId - 1) % 254) + 1}`,
     },
     body: JSON.stringify({ expiresInSeconds: 3600 }),
   });
@@ -114,6 +114,18 @@ async function pull(credential: string, query = ""): Promise<Response> {
 describe("Rucola mailbox pull", () => {
   it("rejects unauthenticated pulls", async () => {
     const response = await pull("invalid-credential");
+    expect(response.status).toBe(401);
+    expect((await json(response)).error).toMatchObject({ code: "UNAUTHENTICATED" });
+  });
+
+  it("rejects revoked device credentials", async () => {
+    const { me } = await bootstrapAndAccept();
+    await env.DB
+      .prepare("UPDATE devices SET revoked_at = ?1 WHERE id = ?2")
+      .bind(Date.now(), me.deviceId)
+      .run();
+
+    const response = await pull(me.credential);
     expect(response.status).toBe(401);
     expect((await json(response)).error).toMatchObject({ code: "UNAUTHENTICATED" });
   });
@@ -218,6 +230,41 @@ describe("Rucola mailbox pull", () => {
     expect(secondBody).toEqual(firstBody);
   });
 
+  it("keeps the cursor stable when no eligible messages remain after it", async () => {
+    const { me } = await bootstrapAndAccept();
+    const messageId = crypto.randomUUID();
+    expect((await push(me.credential, {
+      messageId,
+      senderSeq: 1,
+      ciphertext: "expired",
+    })).status).toBe(200);
+
+    await env.DB
+      .prepare("UPDATE mailbox_messages SET expires_at = ?1 WHERE relationship_id = ?2 AND message_id = ?3")
+      .bind(Date.now() - 1, me.relationshipId, messageId)
+      .run();
+
+    const response = await pull(me.credential, "?after=0");
+    expect(response.status).toBe(200);
+    expect(await json(response)).toEqual({
+      messages: [],
+      nextCursor: 0,
+      hasMore: false,
+    });
+  });
+
+  it("allows a cursor beyond the current server sequence", async () => {
+    const { me } = await bootstrapAndAccept();
+    const response = await pull(me.credential, "?after=9007199254740991");
+
+    expect(response.status).toBe(200);
+    expect(await json(response)).toEqual({
+      messages: [],
+      nextCursor: 9007199254740991,
+      hasMore: false,
+    });
+  });
+
   it("does not return acknowledged or expired mailbox rows", async () => {
     const { me } = await bootstrapAndAccept();
     const acknowledgedId = crypto.randomUUID();
@@ -280,6 +327,7 @@ describe("Rucola mailbox pull", () => {
     expect((await pull(me.credential, "?after=-1")).status).toBe(400);
     expect((await pull(me.credential, "?after=not-a-number")).status).toBe(400);
     expect((await pull(me.credential, "?after=9007199254740992")).status).toBe(400);
+    expect((await pull(me.credential, "?after=")).status).toBe(400);
     expect((await pull(me.credential, "?limit=0")).status).toBe(400);
     expect((await pull(me.credential, "?limit=101")).status).toBe(400);
     expect((await pull(me.credential, "?limit=abc")).status).toBe(400);
