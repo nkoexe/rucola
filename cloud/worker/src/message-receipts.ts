@@ -33,8 +33,14 @@ export async function messageCiphertextHash(message: ReceiptMessage): Promise<st
   return sha256Hex(message.ciphertextBytes);
 }
 
-function sameReceiptPayload(row: ReceiptRow, message: ReceiptMessage, ciphertextHash: string): boolean {
-  return row.sender_seq === message.senderSeq
+function sameReceiptPayload(
+  row: ReceiptRow,
+  device: AuthenticatedDevice,
+  message: ReceiptMessage,
+  ciphertextHash: string,
+): boolean {
+  return row.sender_device_id === device.id
+    && row.sender_seq === message.senderSeq
     && row.type === message.type
     && row.ciphertext_hash === ciphertextHash
     && row.encryption_version === message.encryptionVersion
@@ -68,7 +74,7 @@ export async function classifyDurableReceipt(
     .first<ReceiptRow>();
 
   if (existing) {
-    if (sameReceiptPayload(existing, message, ciphertextHash)) return successFromReceipt(message, existing);
+    if (sameReceiptPayload(existing, device, message, ciphertextHash)) return successFromReceipt(message, existing);
     return errorResponse("MESSAGE_ID_CONFLICT", "Message ID is already assigned to different content", 409);
   }
 
@@ -85,36 +91,6 @@ export async function classifyDurableReceipt(
   }
 
   return null;
-}
-
-export function receiptInsert(
-  env: Env,
-  device: AuthenticatedDevice,
-  message: ReceiptMessage,
-  ciphertextHash: string,
-  serverSeq: number,
-  now: number,
-): D1PreparedStatement {
-  return env.DB.prepare(
-    `INSERT INTO message_receipts
-       (relationship_id, message_id, sender_device_id, sender_seq, type,
-        ciphertext_hash, encryption_version, client_created_at, media_upload_id,
-        server_seq, server_received_at, created_at)
-     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)`,
-  ).bind(
-    device.relationshipId,
-    message.messageId,
-    device.id,
-    message.senderSeq,
-    message.type,
-    ciphertextHash,
-    message.encryptionVersion,
-    message.createdAt,
-    message.mediaUploadId,
-    serverSeq,
-    now,
-    now,
-  );
 }
 
 export async function durableReceiptHash(message: ReceiptMessage): Promise<string> {
