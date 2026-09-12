@@ -2,10 +2,11 @@ import { authenticateDevice } from "./auth";
 import { databaseHealthy, checkSchema } from "./db";
 import { errorResponse, json, methodNotAllowed } from "./http";
 import { acceptInvitation, bootstrapPairing, createInvitation } from "./pairing";
+import { pullMessages } from "./sync-pull";
 import { pushMessage } from "./sync";
 import type { Env } from "./types";
 
-const VERSION = "sync-push-1";
+const VERSION = "sync-pull-1";
 
 async function handleHealth(env: Env): Promise<Response> {
   try {
@@ -113,7 +114,7 @@ export default {
     }
     if (url.pathname === "/v1/sync/pull") {
       if (request.method !== "GET") return methodNotAllowed(["GET", "OPTIONS"]);
-      return notImplemented("/v1/sync/pull");
+      return pullMessages(env, request);
     }
     if (url.pathname.startsWith("/v1/sync/ack/")) {
       if (request.method !== "POST") return methodNotAllowed(["POST", "OPTIONS"]);
