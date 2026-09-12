@@ -1,14 +1,38 @@
 # Cloud Sync Hardening
 
-## Phase 3 findings
+This document records security and correctness findings from the cloud synchronization audit. Current protocol behavior belongs in `docs/CLOUD_ARCHITECTURE.md`; this file explains the hardening work and the remaining decisions.
 
-The mailbox is intentionally temporary, but message identity must survive mailbox deletion long enough to make sender retries safe. `mailbox_messages` therefore cannot be the only idempotency source.
+## Current status
 
-### Durable message receipts
+### Complete
 
-Migration `0002_message_receipts.sql` adds `message_receipts` containing only synchronization metadata and a SHA-256 digest of the opaque ciphertext. It does not retain plaintext or a second ciphertext copy.
+- cryptographic pairing token generation and hashed invitation material
+- bounded confirmation-code attempts and lockout
+- device-bound authentication
+- durable message receipts
+- database-enforced message acceptance sequence invariant
+- database-enforced media attachment invariant
+- database-enforced media/message type compatibility
+- concurrent ACK hardening
+- relationship termination guards for pull and ACK
+- expiry/cursor-gap coverage
+- sender-device binding for legacy mailbox retry classification
 
-The receipt preserves:
+### Pending
+
+- sender retry guarantee and receipt retention window
+- final media upload/completion API
+- R2 integration
+- media cleanup policy and scheduled cleanup
+- obsolete `mailbox_messages.acknowledged_at` removal after protocol confirmation
+- production migration/backfill policy for pre-receipt mailbox data
+- final full worker validation after the remaining protocol work
+
+## Durable message receipts
+
+The mailbox is intentionally temporary, but message identity must survive mailbox deletion long enough to make sender retries safe. `message_receipts` therefore stores synchronization metadata plus a SHA-256 digest of opaque ciphertext.
+
+It preserves:
 
 - relationship + message identity
 - sender device + sender sequence
@@ -16,60 +40,56 @@ The receipt preserves:
 - ciphertext digest
 - original server sequence and acceptance timestamp
 
-Push acceptance creates the receipt and mailbox row in the same D1 batch, with the mailbox row as the acceptance source of truth. The receipt remains after mailbox ACK cleanup, so a lost push response can be retried without allocating another server sequence.
+Push acceptance creates the receipt and mailbox row in the same D1 transaction. A retry after mailbox ACK can therefore recover the original server sequence without creating a duplicate message.
 
-### Database acceptance invariants
+Receipt cleanup is intentionally blocked until the sender retry guarantee is explicitly defined.
 
-Migration `0003_message_acceptance_invariants.sql` moves the critical acceptance invariants into SQLite:
+## Database acceptance invariants
 
-- inserting a mailbox row must advance `relationships.next_server_seq` exactly once
-- a media-backed mailbox row must consume the referenced `READY` upload and mark it `ATTACHED`
-- either failure aborts the mailbox insert and rolls back the batch
+Critical acceptance invariants are enforced at the SQLite boundary:
 
-This prevents application-level success from diverging from database state if a later statement unexpectedly affects zero rows.
+- inserting a mailbox row must advance `relationships.next_server_seq` exactly once;
+- a media-backed mailbox row must consume the referenced `READY` upload and mark it `ATTACHED`;
+- `PHOTO_VIDEO` must reference compatible media;
+- other message types must not reference media;
+- failures abort the insertion and roll back the transaction.
 
-### Pull authorization hardening
+This prevents application-level success from diverging from database state if an expected state transition affects zero rows.
 
-Mailbox pull checks relationship state through a `first-primary` D1 session and joins the mailbox query against an ACTIVE relationship. This prevents a request from returning mailbox data after the relationship has become inactive.
+## Pull authorization
 
-### ACK lifecycle hardening
+Mailbox pull checks relationship state through a sequentially consistent D1 session and requires an ACTIVE relationship in the mailbox query. A terminated relationship therefore cannot continue normal mailbox reads.
 
-ACK validation and deletion use the same D1 session, and the destructive DELETE independently requires the relationship to remain `ACTIVE`. This prevents an ACK from deleting mailbox data after relationship termination.
+## ACK lifecycle
 
-Repeated ACKs remain idempotent. Concurrent ACKs are tested to ensure their combined deletion count cannot exceed the acknowledged high-water mark.
+ACK validation and destructive deletion use the same D1 session. The DELETE independently requires an ACTIVE relationship, preventing an ACK from deleting mailbox data after termination.
 
-### Cursor and expiry semantics
+Repeated ACKs are idempotent. Concurrent ACKs are tested so their combined deletion cannot exceed the requested high-water mark.
 
-Expired mailbox rows are intentionally skipped rather than returned as tombstones. Server sequence cursors are therefore high-water marks, not contiguous mailbox-row counts. A client can safely advance from an expired sequence to a later live sequence.
+ACK is the recipient's durability boundary: the client must persist messages locally before acknowledging them. For media messages, the referenced media must also be locally durable.
 
-ACK is a destructive durability boundary: the client must only ACK after all messages through the requested server sequence have been durably persisted locally.
+## Cursor and expiry semantics
 
-### Privacy / retention decision
+Expired mailbox rows are skipped rather than returned as tombstones. Server sequence cursors are therefore high-water marks, not contiguous retained-row counts.
 
-Receipts deliberately contain a digest rather than ciphertext. They are synchronization metadata, not cloud message history.
+A client must tolerate gaps and advance using the highest returned server sequence only after local persistence.
 
-Receipt retention/cleanup is still deliberately unresolved. A production policy must define the maximum sender retry window before implementing cleanup. This decision also needs to be coordinated with `media_uploads`, because durable receipts currently retain their media-upload relationship through a foreign key.
+## Media lifecycle
 
-### Migration note
+The current media lifecycle contract is documented separately in `docs/MEDIA_LIFECYCLE.md`.
 
-`0002_message_receipts.sql` is being introduced before production deployment. Existing pre-migration mailbox rows do not have receipts; the push implementation retains a legacy mailbox conflict check so existing rows remain idempotent while they are still present. A production migration must either run before any real mailbox data exists or define an explicit backfill strategy.
+The important invariant is that mailbox pull and ACK are not media deletion events. Media cleanup must follow the sender retry and recipient durability guarantees and must be safe to retry after crashes.
 
-## Phase 3 status
+## Migration/backfill note
 
-- acceptance invariants: complete
-- concurrent ACK hardening: complete
-- relationship termination guards: complete
-- expiry/cursor-gap coverage: complete
-- durable receipt retention policy: pending
-- obsolete `acknowledged_at` removal: pending protocol decision
-- final full worker validation: pending after the remaining retention/media decisions
+Durable receipts were introduced after the initial mailbox schema. Existing pre-migration mailbox rows do not have receipts. The push path therefore retains a legacy mailbox conflict check while such rows remain.
 
-## Next phase
+Production deployment must either occur before real mailbox data exists or define an explicit backfill strategy.
 
-Before R2 implementation, define the media lifecycle around three independent states:
+## Obsolete state
 
-1. upload object exists in R2
-2. upload metadata is `PENDING` or `READY` in D1
-3. accepted message references the upload and moves it to `ATTACHED`
+`mailbox_messages.acknowledged_at` remains in the schema for now, although the current ACK implementation deletes acknowledged rows immediately. It should be removed only after the protocol and migration history no longer require it.
 
-The media design must make upload completion, message acceptance, mailbox ACK, expiry, and eventual R2 deletion safe under retries and crashes. No media object should be deleted merely because a mailbox row was pulled; deletion must follow the agreed durability boundary.
+## Audit principle
+
+Cloud correctness is defined by the local durability contract, not by whether an HTTP request returned successfully. A request may commit before its response reaches the client, so every mutation must have an idempotent retry path or an explicit one-time/expiry rule.
