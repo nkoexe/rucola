@@ -104,7 +104,7 @@ describe("Rucola mailbox push", () => {
   });
 
   it("attaches only an owned READY media upload", async () => {
-    const { me, partner } = await bootstrapAndAccept(); const mediaId = crypto.randomUUID(); await insertReadyMedia(me.relationshipId, me.deviceId, mediaId); const createdAt = Date.now(); const response = await push(me.credential, { type: "PHOTO_VIDEO", mediaUploadId: mediaId, ciphertext: "photo-meta", createdAt }); expect(response.status).toBe(200);
+    const { me, partner } = await bootstrapAndAccept(); const mediaId = crypto.randomUUID(); await insertReadyMedia(me.relationshipId, me.deviceId, mediaId); const createdAt = Date.now(); const response = await push(me.credential, { type: "PHOTO_VIDEO", mediaUploadId: mediaId, ciphertext: "photo-meta", createdAt }); const responseBody = await json(response); expect(response.status, JSON.stringify(responseBody)).toBe(200);
     const media = await env.DB.prepare("SELECT status FROM media_uploads WHERE id = ?1").bind(mediaId).first<{ status: string }>(); const mailbox = await env.DB.prepare("SELECT media_upload_id FROM mailbox_messages WHERE relationship_id = ?1 AND media_upload_id = ?2").bind(me.relationshipId, mediaId).first<{ media_upload_id: string }>(); expect(media?.status).toBe("ATTACHED"); expect(mailbox?.media_upload_id).toBe(mediaId);
     const retry = await push(me.credential, { type: "PHOTO_VIDEO", mediaUploadId: mediaId, ciphertext: "photo-meta", createdAt }); expect(retry.status).toBe(200); const otherMediaId = crypto.randomUUID(); await insertReadyMedia(me.relationshipId, partner.deviceId, otherMediaId); const ownership = await push(me.credential, { type: "PHOTO_VIDEO", mediaUploadId: otherMediaId, ciphertext: "other-photo" }); expect(ownership.status).toBe(409); expect((await json(ownership)).error).toMatchObject({ code: "MEDIA_CONFLICT" });
   });
@@ -116,6 +116,7 @@ describe("Rucola mailbox push", () => {
 
   it("rolls back a failed server-sequence allocation without consuming state", async () => {
     const { me } = await bootstrapAndAccept(); expect((await push(me.credential, { senderSeq: 1, ciphertext: "existing" })).status).toBe(200); await env.DB.prepare("UPDATE relationships SET next_server_seq = 1 WHERE id = ?1").bind(me.relationshipId).run(); const failed = await push(me.credential, { senderSeq: 2, ciphertext: "should-not-stick" }); expect(failed.status).toBe(500);
-    const count = await env.DB.prepare("SELECT COUNT(*) AS count FROM mailbox_messages WHERE relationship_id = ?1").bind(me.relationshipId).first<{ count: number }>(); const relationship = await env.DB.prepare("SELECT next_server_seq FROM relationships WHERE id = ?1").bind(me.relationshipId).first<{ next_server_seq: number }>(); expect(count?.count).toBe(1); expect(relationship?.next_server_seq).toBe(1);
+    const count = await env.DB.prepare("SELECT COUNT(*) AS count FROM mailbox_messages WHERE relationship_id = ?1").bind(me.relationshipId).first<{ count: number }>(); const relationship = await env.DB.prepare("SELECT next_server_seq FROM relationships WHERE id = ?1").bind(me.relationshipId).first<{ next_server_seq: number }>();
+    expect(count?.count).toBe(1); expect(relationship?.next_server_seq).toBe(1);
   });
 });
