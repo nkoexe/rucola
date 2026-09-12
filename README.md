@@ -29,7 +29,7 @@ The local prototype currently supports:
 - month/date calendar browsing;
 - local reset including owned-media cleanup.
 
-Drawing is still a placeholder. Real two-device pairing, backend synchronization, notifications, widgets, and E2E encryption are not implemented yet.
+Drawing is still unimplemented. Real two-device pairing, backend synchronization, notifications, widgets, and E2E encryption are not implemented yet.
 
 The UI is intentionally barebones while the functional local app is being completed. Detailed Figma implementation comes afterward.
 
@@ -61,7 +61,7 @@ Read these before substantial changes:
 - [`AGENTS.md`](AGENTS.md) — engineering and product constraints
 - [`docs/PRODUCT.md`](docs/PRODUCT.md) — product behavior and MVP scope
 - [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — local-first architecture and sync invariants
-- [`docs/REACT_NATIVE_MIGRATION.md`](docs/REACT_NATIVE_MIGRATION.md) — migration status and development roadmap
+- [`docs/REACT_NATIVE_MIGRATION.md`](docs/REACT_NATIVE_MIGRATION.md) — migration status and next-phase roadmap
 - [`src/data/README.md`](src/data/README.md) — native SQLite integration-test coverage
 
 ## Development
@@ -108,6 +108,6 @@ Figma is the visual reference for the later UI pass.
 
 ## Git workflow
 
-`main` is the stable baseline. Ongoing implementation happens on `migration/react-native` or a focused feature branch and is merged back to `main` at meaningful milestones.
+`main` is the stable integration baseline. Ongoing implementation happens on focused `feature/*`, `fix/*`, `test/*`, `chore/*`, or research branches created from `main`.
 
 Keep commits small and reviewable. Never commit generated secrets, local databases, or machine-specific build artifacts.
