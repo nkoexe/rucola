@@ -3,10 +3,11 @@ import { databaseHealthy, checkSchema } from "./db";
 import { errorResponse, json, methodNotAllowed } from "./http";
 import { acceptInvitation, bootstrapPairing, createInvitation } from "./pairing";
 import { pullMessages } from "./sync-pull";
+import { acknowledgeMessages } from "./sync-ack";
 import { pushMessage } from "./sync";
 import type { Env } from "./types";
 
-const VERSION = "sync-pull-1";
+const VERSION = "sync-ack-1";
 
 async function handleHealth(env: Env): Promise<Response> {
   try {
@@ -55,14 +56,6 @@ function rateLimitedResponse(): Response {
   );
   response.headers.set("retry-after", "60");
   return response;
-}
-
-function notImplemented(route: string): Response {
-  return errorResponse(
-    "NOT_IMPLEMENTED",
-    `${route} is reserved for a later implementation and is intentionally not active yet`,
-    501,
-  );
 }
 
 export default {
@@ -116,9 +109,9 @@ export default {
       if (request.method !== "GET") return methodNotAllowed(["GET", "OPTIONS"]);
       return pullMessages(env, request);
     }
-    if (url.pathname.startsWith("/v1/sync/ack/")) {
+    if (url.pathname === "/v1/sync/ack") {
       if (request.method !== "POST") return methodNotAllowed(["POST", "OPTIONS"]);
-      return notImplemented("/v1/sync/ack");
+      return acknowledgeMessages(env, request);
     }
 
     return errorResponse("NOT_FOUND", "Route not found", 404);
