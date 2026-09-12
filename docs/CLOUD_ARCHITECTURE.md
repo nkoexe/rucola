@@ -2,9 +2,11 @@
 
 ## Purpose
 
-The cloud backend is a temporary synchronization service for exactly one two-person relationship. It is **not** a cloud message archive and must never become the application's permanent source of truth.
+The cloud backend is the production synchronization service for exactly one two-person relationship. It is **not** a cloud message archive and must never become the application's permanent source of truth.
 
 The mobile device owns durable history in local SQLite. The cloud temporarily holds encrypted/opaque message payloads and temporary media until the receiving device has durably persisted them locally.
+
+The initial transport/storage protocol is deliberately independent of the eventual end-to-end encryption design. E2E encryption will be added after the synchronization and media boundaries are stable.
 
 ## Components
 
@@ -126,7 +128,9 @@ The server must:
 - never delete a message merely because it was pulled;
 - allow the recipient to retry pull without losing data.
 
-The mailbox currently has a seven-day message expiry. Expired messages are skipped rather than returned as tombstones.
+The mailbox provides a **14-day retry window** for unacknowledged messages. This is a generous but finite guarantee; the server does not retain mailbox messages indefinitely.
+
+Expired messages are skipped rather than returned as tombstones. Clients must therefore treat the pull cursor as a high-water mark that may contain gaps.
 
 ## Pull protocol
 
@@ -167,7 +171,7 @@ Mailbox deletion cannot be the only source of message identity because a sender 
 
 A matching retry returns the original server sequence instead of allocating another one. A mismatching retry is rejected.
 
-Receipt retention is intentionally **not yet finalized**. Cleanup must not be implemented until the maximum sender retry guarantee has been defined.
+Receipts have a **30-day retention window after acceptance**, providing a finite retry/idempotency guarantee beyond mailbox ACK. This is intentionally not indefinite. Receipt cleanup must be coordinated with media cleanup and must never remove a receipt while the protocol still promises retries for it.
 
 ## Media
 
@@ -180,6 +184,13 @@ PENDING → READY → ATTACHED
 ```
 
 See `docs/MEDIA_LIFECYCLE.md` for the detailed contract.
+
+Initial server-side media limits are:
+
+- images: **20 MB maximum**;
+- videos: **100 MB maximum**.
+
+These are transport/storage limits, not presentation constraints. The client may crop or display media using a 4:3, 1:1, or other UI-specific aspect ratio without changing the stored media object.
 
 The important boundaries are:
 
@@ -195,6 +206,8 @@ Pulling or ACKing a mailbox row is never, by itself, permission to delete the R2
 
 The Worker is designed to operate on opaque encrypted message/media payloads. Server-side synchronization logic may inspect metadata required for routing, authorization, sequencing and lifecycle enforcement, but it must not require plaintext application content.
 
+The current implementation establishes this opaque-payload boundary without committing to a final E2E protocol. Cryptographic protocol selection and implementation belong to a later phase after transport/storage behavior is stable.
+
 ## Failure model
 
 The protocol assumes requests can fail after the server has committed and before the client receives the response.
@@ -208,7 +221,9 @@ Therefore every important operation must be safe to retry:
 - ACK is idempotent;
 - cleanup is eventually consistent and retry-safe.
 
-The system should prefer a recoverable duplicate request over irreversible data loss.
+The retry guarantees are intentionally finite: mailbox delivery is guaranteed for 14 days while unacknowledged, and durable message identity is retained for 30 days. After those boundaries, the system makes no indefinite recovery guarantee.
+
+The system should prefer a recoverable duplicate request over irreversible data loss within the defined retention windows.
 
 ## Current API surface
 
@@ -234,7 +249,8 @@ When extending the cloud backend:
 - keep the mailbox temporary;
 - make durability boundaries explicit;
 - prefer database-enforced invariants for critical state transitions;
-- make retries safe;
+- make retries safe within their documented retention windows;
 - do not store plaintext application content;
 - do not add permanent cloud history without an explicit product decision;
-- do not let R2 cleanup race ahead of the message/receipt durability contract.
+- do not let R2 cleanup race ahead of the message/receipt durability contract;
+- treat the Worker/D1/R2 stack as production infrastructure, including operational hardening, observability, rate limiting, migration safety and recovery planning.
