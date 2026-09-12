@@ -5,124 +5,102 @@ Branch: `cloud/research`
 
 ## Phase 1 — `sync/pull`
 
-**Status: implementation complete; hardening changes applied; local validation confirmed by the developer.**
+**Status: complete and locally validated.**
+
+The pull endpoint is implemented, hardened, and covered by the Worker test suite.
+
+## Phase 2 — `sync/ack`
+
+**Status: implementation complete; local validation pending.**
 
 Implemented:
 
-- `GET /v1/sync/pull` is now a real route instead of `501`.
+- `POST /v1/sync/ack` is now a real route.
 - Device authentication is required.
-- Revoked device credentials are rejected.
-- Relationship ownership is derived from the authenticated device.
-- Only `ACTIVE` relationships can pull.
-- Relationship lookup failures return `503` instead of an unhandled database error.
-- `after` is a non-negative safe-integer server-sequence cursor.
-- `limit` defaults to 50 and is bounded to 1–100.
-- Queries use `server_seq > after`.
-- Results are ordered ascending by `server_seq`.
-- `LIMIT limit + 1` is used to determine `hasMore` without a second count query.
-- Acknowledged rows are excluded.
-- Expired rows are excluded.
-- Repeated pulls remain non-destructive because pull does not mutate acknowledgement state.
-- D1 `first-primary` sessions are used so the read starts from the latest database version and remains sequentially consistent within the query session.
-- Stored ciphertext is normalized back to the existing UTF-8 wire representation used by push.
-- Invalid stored mailbox data is distinguished from a database availability failure.
-- Tests cover authentication, revoked credentials, empty mailboxes, ordering, pagination, retries, cursor stability, very-high cursors, acknowledged/expired filtering, relationship isolation, invalid cursor/limit values, and inactive relationships.
+- Only `ACTIVE` relationships can acknowledge.
+- The relationship and highest known server sequence are read through a D1 `first-primary` session.
+- `throughServerSeq` must be a positive safe integer.
+- Acknowledgements beyond the server's known high-water mark return `ACK_CURSOR_AHEAD`.
+- Acknowledgement is scoped to the authenticated relationship.
+- Mailbox rows through the supplied high-water mark are deleted immediately after the durable ACK request.
+- Repeating an acknowledgement is harmless and returns success with `deleted: 0` when nothing remains.
+- Messages pushed after an earlier acknowledgement have a higher server sequence and are not removed by the earlier ACK.
+- The legacy `/v1/sync/ack/...` route is no longer accepted.
 
-## Important protocol choice
-
-The pull endpoint currently returns all eligible mailbox messages for the authenticated relationship, including messages originally pushed by the same device.
-
-This keeps the server cursor a simple relationship-wide high-water mark. The client must make local message persistence idempotent using the stable `messageId`; a message already present locally becomes a no-op. This is preferable to creating a second cursor model for each sender and keeps the eventual ACK high-water mark contiguous.
-
-The server does **not** consider a pulled message acknowledged. The client must durably persist its local state before sending the future ACK request.
-
-## API
+### ACK protocol
 
 Request:
 
 ```http
-GET /v1/sync/pull?after=0&limit=50
+POST /v1/sync/ack
 Authorization: Bearer <device-credential>
+Content-Type: application/json
+
+{"throughServerSeq":41}
 ```
 
 Response:
 
 ```json
 {
-  "messages": [
-    {
-      "messageId": "...",
-      "senderDeviceId": "...",
-      "senderParticipant": "ME",
-      "senderSeq": 1,
-      "createdAt": 1770000000000,
-      "serverSeq": 1,
-      "receivedAt": 1770000000001,
-      "type": "TEXT",
-      "ciphertext": "...",
-      "encryptionVersion": 1,
-      "mediaUploadId": null
-    }
-  ],
-  "nextCursor": 1,
-  "hasMore": false
+  "acknowledgedThrough": 41,
+  "deleted": 41,
+  "acknowledgedAt": 1770000000000
 }
 ```
 
-## Hardening review
+`throughServerSeq` is a relationship-wide contiguous high-water mark. The client must only send it after all messages through that sequence have been durably persisted locally.
 
-The pull implementation was audited for:
+### Cleanup semantics
 
-- credential revocation;
-- relationship isolation;
-- cursor parsing and safe-integer boundaries;
-- limit boundaries;
-- repeated/unacknowledged pulls;
-- expired and acknowledged rows;
-- cursors beyond the current server sequence;
-- stable cursor behavior when no eligible row remains;
-- pagination ordering;
-- database failure classification;
-- malformed stored ciphertext classification;
-- route/protocol consistency with the planned ACK high-water-mark design.
+The mailbox is a temporary delivery queue. ACK is the explicit durability boundary: once the recipient confirms a contiguous high-water mark, the corresponding server copies may be deleted.
 
-No protocol change was required. The pull cursor remains a relationship-local server-sequence high-water mark, and pull remains strictly non-destructive.
+The server deliberately does not attempt to infer acknowledgement from a pull request. If the client crashes after pull but before ACK, the messages remain available for another pull.
+
+Repeated or lower ACKs are intentionally idempotent. The server does not maintain a second acknowledgement table because the relationship-wide sequence and the client's durable cursor already provide the required high-water-mark semantics.
+
+## Important protocol choice
+
+Pull returns all eligible mailbox messages for the authenticated relationship, including messages originally pushed by the same device. This keeps the cursor model relationship-wide and means local persistence must be idempotent by `messageId`.
+
+The server cursor is a monotonic server sequence, not a timestamp. Pull remains non-destructive; ACK is the destructive operation.
+
+## Hardening and consistency
+
+Both pull and ACK use `withSession("first-primary")` when the latest relationship state matters. Cloudflare documents that `first-primary` starts the session from the latest primary database version and that subsequent queries in the session remain sequentially consistent. citeturn0search0turn0search2
+
+The ACK implementation was deliberately kept relationship-scoped and rejects future cursors instead of silently clamping them. This makes client protocol bugs visible rather than silently deleting an unintended range.
 
 ## Validation
 
-The developer ran the full Worker test suite and typecheck after the Phase 1 implementation:
+Phase 1 was previously validated with:
 
 ```text
 4 test files passed
 44 tests passed
 0 failures
+npm run typecheck passed
 ```
 
-```text
-npm run typecheck
-passed
-```
+Phase 2 adds a dedicated ACK test suite covering:
 
-After the hardening changes in this status update, rerun the same two commands before starting ACK implementation.
+- unauthenticated requests;
+- exact route behavior;
+- malformed and out-of-range cursors;
+- future-sequence rejection;
+- high-water-mark deletion;
+- repeated ACK idempotency;
+- relationship isolation;
+- messages pushed after an earlier ACK;
+- relationship-wide acknowledgement of sender-owned messages.
 
-## Commits
-
-Phase 1 implementation is split into focused commits on `cloud/research`:
-
-- mailbox pull implementation
-- pull route wiring
-- pull protocol tests
-- implementation status document
-- pull error-handling hardening
-- pull edge-case hardening tests
-
-## Next step
-
-Run:
+Run before considering Phase 2 complete:
 
 ```bash
 npm test
 npm run typecheck
 ```
 
-After those pass, begin **Phase 2: `POST /v1/sync/ack` + mailbox cleanup**. The ACK implementation should use the documented contiguous `throughServerSeq` high-water mark and must be tested for monotonic/idempotent behavior, future-sequence rejection, relationship isolation, and safe cleanup.
+## Next step
+
+After the Phase 2 suite is green, perform a second hardening pass focused on **concurrent push/pull/ACK behavior and mailbox lifecycle invariants**. Then proceed to Phase 4 media/R2 work. The React Native cloud adapter should remain blocked until the sync protocol is stable.
