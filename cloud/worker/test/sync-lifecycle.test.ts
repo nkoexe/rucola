@@ -128,4 +128,39 @@ describe("Rucola sync lifecycle hardening", () => {
     expect(response.status).toBe(409);
     expect((await json(response)).error).toMatchObject({ code: "RELATIONSHIP_INACTIVE" });
   });
+
+  it("preserves a message pushed concurrently with an earlier ACK", async () => {
+    const { me } = await bootstrapAndAccept();
+    expect((await push(me.credential, 1)).status).toBe(200);
+
+    const [ackResponse, pushResponse] = await Promise.all([
+      ack(me.credential, 1),
+      push(me.credential, 2),
+    ]);
+
+    expect(ackResponse.status).toBe(200);
+    expect(pushResponse.status).toBe(200);
+
+    const rows = await env.DB.prepare(
+      "SELECT server_seq FROM mailbox_messages WHERE relationship_id = ?1 ORDER BY server_seq",
+    ).bind(me.relationshipId).all<{ server_seq: number }>();
+    expect(rows.results.map((row) => row.server_seq)).toEqual([2]);
+  });
+
+  it("allows pull to advance across an expired cursor gap", async () => {
+    const { me } = await bootstrapAndAccept();
+    expect((await push(me.credential, 1)).status).toBe(200);
+    expect((await push(me.credential, 2)).status).toBe(200);
+
+    await env.DB.prepare(
+      "UPDATE mailbox_messages SET expires_at = ?1 WHERE relationship_id = ?2 AND server_seq = 1",
+    ).bind(Date.now() - 1, me.relationshipId).run();
+
+    const response = await pull(me.credential, 0);
+    expect(response.status).toBe(200);
+    const body = await json(response);
+    expect((body.messages as Array<{ serverSeq: number }>).map((message) => message.serverSeq)).toEqual([2]);
+    expect(body.nextCursor).toBe(2);
+    expect(body.hasMore).toBe(false);
+  });
 });
