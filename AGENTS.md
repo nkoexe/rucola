@@ -49,6 +49,14 @@ sync engine → temporary backend/mailbox
 
 Screens must not depend directly on SQLite or HTTP. Domain code must not depend on React Native. Repository interfaces describe capabilities; the SQLite implementation is replaceable.
 
+### Navigation rule
+
+Use **Expo Router** for application navigation. The current hand-rolled `AppScreen` enum/callback navigation is transitional and must not be expanded with additional screens or navigation branches.
+
+New routes belong under `src/app/` and should be thin routing boundaries that delegate to feature implementations under `src/screens/` where practical. Pairing/deep-link routes should fit the same routing model rather than introducing a second navigation mechanism.
+
+The application bootstrap should have one clear owner for repository initialization, relationship loading, and shared refresh/invalidation state. Do not recreate global application lifecycle state independently inside individual screens.
+
 Keep synchronization state in the domain/data model so a future backend can be introduced without rewriting the UI. Networking is not currently implemented.
 
 ## Product invariants
