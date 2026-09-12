@@ -1,6 +1,6 @@
 import { authenticateDevice } from "./auth";
 import { errorResponse, json } from "./http";
-import type { AuthenticatedDevice, Env, MessageType } from "./types";
+import type { Env, MessageType } from "./types";
 
 const DEFAULT_PULL_LIMIT = 50;
 const MAX_PULL_LIMIT = 100;
@@ -70,23 +70,29 @@ export async function pullMessages(env: Env, request: Request): Promise<Response
   const device = await authenticateDevice(env, request);
   if (!device) return errorResponse("UNAUTHENTICATED", "Valid device credentials are required", 401);
 
-  const after = parseSafeInteger(new URL(request.url).searchParams.get("after"));
-  if (after === null && new URL(request.url).searchParams.has("after")) {
+  const url = new URL(request.url);
+  const after = parseSafeInteger(url.searchParams.get("after"));
+  if (after === null && url.searchParams.has("after")) {
     return errorResponse("INVALID_CURSOR", "after must be a non-negative safe integer", 400);
   }
 
-  const limit = parseLimit(new URL(request.url).searchParams.get("limit"));
+  const limit = parseLimit(url.searchParams.get("limit"));
   if (limit === null) {
     return errorResponse("INVALID_LIMIT", `limit must be an integer between 1 and ${MAX_PULL_LIMIT}`, 400);
   }
 
   const cursor = after ?? 0;
 
-  const relationship = await env.DB.prepare(
-    `SELECT status FROM relationships WHERE id = ?1`,
-  )
-    .bind(device.relationshipId)
-    .first<{ status: "PAIRING" | "ACTIVE" | "ENDED" }>();
+  let relationship: { status: "PAIRING" | "ACTIVE" | "ENDED" } | null;
+  try {
+    relationship = await env.DB.prepare(
+      `SELECT status FROM relationships WHERE id = ?1`,
+    )
+      .bind(device.relationshipId)
+      .first<{ status: "PAIRING" | "ACTIVE" | "ENDED" }>();
+  } catch {
+    return errorResponse("DATABASE_UNAVAILABLE", "Relationship could not be read", 503);
+  }
 
   if (!relationship || relationship.status !== "ACTIVE") {
     return errorResponse("RELATIONSHIP_INACTIVE", "Relationship is not active", 409);
@@ -129,6 +135,6 @@ export async function pullMessages(env: Env, request: Request): Promise<Response
       hasMore,
     });
   } catch {
-    return errorResponse("DATABASE_UNAVAILABLE", "Mailbox contains an invalid message", 500);
+    return errorResponse("INVALID_MAILBOX_DATA", "Mailbox contains invalid stored data", 500);
   }
 }
