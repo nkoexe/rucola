@@ -60,7 +60,7 @@ class MainActivity : ComponentActivity() {
 }
 
 @Composable
-fun RucolaApp(repository: com.rucola.app.data.RucolaRepository) {
+fun RucolaApp(repository: RucolaRepository) {
     val relationship by repository.relationship.collectAsState(null)
     val messages by repository.messages().collectAsState(emptyList())
     val scope = rememberCoroutineScope()
@@ -222,7 +222,11 @@ private fun SetupScaffold(step: Int, total: Int, title: String, subtitle: String
             Text("$step / $total", color = MutedInk, fontSize = 14.sp)
         }
         Spacer(Modifier.height(54.dp))
-        Text("rucola", fontSize = 48.sp, color = Ink, modifier = Modifier.rotate(-4f))
+        Image(
+            painter = painterResource(id = R.drawable.logo),
+            contentDescription = "rucola",
+            modifier = Modifier.size(80.dp).rotate(-4f)
+        )
         Spacer(Modifier.height(42.dp))
         Text(title, fontSize = 27.sp, color = Ink, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
         Spacer(Modifier.height(10.dp))
@@ -303,7 +307,13 @@ private fun PairingScreen(onContinueToSetup: @Composable () -> Unit) {
         return
     }
 
-    Box(Modifier.fillMaxSize().background(RucolaBackground)) {
+    Box(Modifier.fillMaxSize()) {
+        Image(
+            painter = painterResource(id = R.drawable.background),
+            contentDescription = null,
+            modifier = Modifier.fillMaxSize(),
+            contentScale = ContentScale.FillBounds
+        )
         PairingPatternPlaceholder(Modifier.fillMaxSize())
         Box(
             Modifier
@@ -427,6 +437,7 @@ private fun PairingPatternPlaceholder(modifier: Modifier) {
     }
 }
 
+@Preview(showBackground = true)
 @Composable
 fun PairingPreview() {
     MaterialTheme(

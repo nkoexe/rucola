@@ -204,7 +204,7 @@ It should include:
 - local message creation
 - text
 - emoji
-- placeholder photo/video flow
+- photo/video picker and camera flow with durable local media
 - placeholder drawing flow
 - immutable local history
 - replacing the user's active message
@@ -243,7 +243,7 @@ Potential later milestones:
 - secure pairing/deep links
 - push notifications
 - background synchronization
-- real photo/video and drawing support
+- real drawing support
 - widgets
 - calendar/statistics/streaks
 - E2E encryption using an established protocol/library

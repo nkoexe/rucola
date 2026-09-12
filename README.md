@@ -1,41 +1,113 @@
 # Rucola
 
-Rucola is a small, offline-first Android mailbox for two people. The local Room database is the permanent history; synchronization is represented in the domain model but networking is intentionally not implemented yet.
+Rucola is a tiny private mobile mailbox for two people in a long-distance relationship.
 
-## Build and run
+> **One thing waiting for you from the person you love.**
 
-Open the project in Android Studio, or run `gradlew.bat assembleDebug` with Android SDK platform 35 installed. Install `app/build/outputs/apk/debug/app-debug.apk` on a device or emulator.
+It is intentionally **not a chat app**. Each person has one active message; sending a new message moves their previous active message into permanent local history.
 
-Run unit tests with `gradlew.bat testDebugUnitTest`. The release variant is currently unsigned by design; signing can be supplied later through CI secrets without putting credentials in the repository.
+## Current state
 
-The app starts with local setup, then supports a partner message view, text/emoji/photo-video/drawing message placeholders, and horizontal swipe navigation into immutable local history.
+The app is being built with:
 
-A private, offline-first mobile app for two people in a long-distance relationship.
+- Expo + React Native + TypeScript
+- Android development builds / Expo prebuild
+- `expo-sqlite` for local persistence
+- `expo-image-picker` + `expo-file-system` for durable local photo/video messages
+- `expo-video` for local video playback
+- a domain/use-case layer over the repository boundary
 
-> One thing waiting for you from the person you love.
+The local prototype currently supports:
 
-Rucola is intentionally **not a chat app**. Each person has one active message; sending a new one moves the previous message into permanent local history.
+- onboarding with partner name, own name, and optional together-since date;
+- one active message per participant;
+- local text and emoji messages;
+- local photo/video selection and camera capture;
+- durable app-owned media;
+- photo/video messages with optional captions;
+- immutable message history;
+- month/date calendar browsing;
+- local reset including owned-media cleanup.
 
-## Status
+Drawing is still a placeholder. Real two-device pairing, backend synchronization, notifications, widgets, and E2E encryption are not implemented yet.
 
-Early development. The repository is being built incrementally through small, reviewable agent-driven tasks.
+The UI is intentionally barebones while the functional local app is being completed. Detailed Figma implementation comes afterward.
+
+## Architecture
+
+```text
+React Native screens/components
+        ↓
+presentation state/hooks
+        ↓
+domain use cases
+        ↓
+RucolaRepository interface
+        ↓
+SQLite repository
+        ↓
+expo-sqlite + app-owned media
+
+future:
+sync engine → temporary backend/mailbox
+```
+
+Local SQLite is the source of truth for history. A future server is a temporary mailbox, not a cloud archive.
+
+## Documentation
+
+Read these before substantial changes:
+
+- [`AGENTS.md`](AGENTS.md) — engineering and product constraints
+- [`docs/PRODUCT.md`](docs/PRODUCT.md) — product behavior and MVP scope
+- [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — local-first architecture and sync invariants
+- [`docs/REACT_NATIVE_MIGRATION.md`](docs/REACT_NATIVE_MIGRATION.md) — migration status and development roadmap
+- [`src/data/README.md`](src/data/README.md) — native SQLite integration-test coverage
 
 ## Development
 
-The project targets Android first. The concrete Android architecture/toolchain is chosen during the foundation phase; Kotlin + Jetpack Compose + local SQLite/Room is the default direction.
+Install dependencies:
 
-Read these before making substantial changes:
+```bash
+npm ci
+```
 
-- [`AGENTS.md`](AGENTS.md) — instructions and non-negotiable product/engineering constraints for coding agents
-- [`docs/PRODUCT.md`](docs/PRODUCT.md) — product behavior and MVP scope
-- [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — local-first architecture and future synchronization invariants
+Run TypeScript validation:
+
+```bash
+npm run typecheck
+```
+
+Run the domain/use-case test suite:
+
+```bash
+npm run test:domain
+```
+
+Generate/update the native project:
+
+```bash
+npx expo prebuild
+```
+
+Run Android:
+
+```bash
+npm run android
+```
+
+The project uses an Expo development build rather than Expo Go because native capabilities are required.
+
+The native SQLite integration suite is available through the development-only integration test screen and uses disposable databases.
 
 ## Design
 
-The visual direction is documented in the product/agent instructions and based on the Rucola Figma prototype. Rucola should feel pastel, cutesy, playful, handmade and slightly wonky — not like a generic Material app.
+Rucola should feel pastel, cutesy, playful, handmade and slightly wonky rather than like a generic Material app.
 
-Figma: https://www.figma.com/design/UG8Q1GFnD9ajor0f62RRpK/rucola?node-id=0-1&p=f&t=uoSa92jCklllyBSR-0
+Figma is the visual reference for the later UI pass.
 
 ## Git workflow
 
-Work on branches and open pull requests against `main`. Do not develop directly on `main`.
+`main` is the stable baseline. Ongoing implementation happens on `migration/react-native` or a focused feature branch and is merged back to `main` at meaningful milestones.
+
+Keep commits small and reviewable. Never commit generated secrets, local databases, or machine-specific build artifacts.

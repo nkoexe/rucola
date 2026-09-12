@@ -1,91 +1,92 @@
 # Rucola — Architecture Notes
 
-This document captures architectural intent, not a rigid implementation prescription. Agents may choose better concrete technologies when justified, but must preserve the product invariants.
+These notes describe the current React Native implementation and the constraints future work must preserve. They are intentionally lightweight: this is a small app, not a reason to create enterprise infrastructure.
 
 ## 1. High-level model
 
 ```text
-Cloudflare (future)
-  Worker API / pairing / sync
-  D1 metadata + relationship state
-  R2 temporary media
-          ↕
-   ┌───────────────┐
-   │   Phone A     │
-   │ local SQLite  │
-   │ history/media │
-   │ widget/cache  │
-   └───────────────┘
-          ↕
-   ┌───────────────┐
-   │   Phone B     │
-   │ local SQLite  │
-   │ history/media │
-   │ widget/cache  │
-   └───────────────┘
+             future backend
+       pairing / sync / mailbox
+                  ↕
+   ┌──────────────────────────┐
+   │        Phone A           │
+   │ React Native presentation│
+   │ domain use cases         │
+   │ repository               │
+   │ local SQLite + media     │
+   └──────────────────────────┘
+                  ↕
+   ┌──────────────────────────┐
+   │        Phone B           │
+   │ React Native presentation│
+   │ domain use cases         │
+   │ repository               │
+   │ local SQLite + media     │
+   └──────────────────────────┘
 ```
 
-The server is a mailbox, not a database-backed cloud drive. Once a recipient has durably persisted an item, the server should be able to remove its temporary copy.
+The server is a temporary mailbox, not a cloud archive. Once a recipient has durably persisted an item locally and acknowledged it, the server may remove its temporary copy.
 
-## 2. Local application architecture
-
-Preferred conceptual separation:
+## 2. Current local application architecture
 
 ```text
-UI / Compose
-    ↓
-View models / presentation state
-    ↓
-Domain use cases + repository interfaces
-    ↓
-Local persistence implementation
-    ↓
-SQLite / Room
-
-Future:
-Sync engine → sync API implementation
-Media store → local files + future R2 mailbox implementation
+React Native screens/components
+        ↓
+presentation state/hooks
+        ↓
+domain use cases
+        ↓
+RucolaRepository interface
+        ↓
+SQLiteRucolaRepository
+        ↓
+expo-sqlite
 ```
 
-The exact package/module structure is left to the implementation agent. Avoid creating many Gradle modules simply to look architectural.
+The current screens use domain use cases for relationship loading, setup, message creation, history, calendar data, and local reset. Domain code does not import React Native or SQLite.
 
-The UI should depend on domain-facing state/repositories rather than directly querying Room or making HTTP requests.
+`SQLiteRucolaRepository` is the local implementation and can later be accompanied by synchronization without forcing the UI to call a network API directly.
 
 ## 3. Local data is authoritative for history
 
-Every historical message that has been synchronized to a device is permanent local data unless the user explicitly deletes/export-clears it in a future feature.
+Historical messages persisted on a device are permanent application data unless a future explicit export/deletion feature removes them.
 
-Do not design local history as a cache of the server.
+A backend outage must not make existing local history disappear or become inaccessible.
 
-A server outage must not make existing history disappear or become inaccessible.
+## 4. Relationship and message model
 
-## 4. Message state
+The current prototype has one fixed local relationship ID (`the-one`) because there is only one relationship per installation. This is an implementation simplification, not a promise that a server should use that identifier.
 
-Conceptually each participant has:
+Each participant is intended to have exactly one active message once that participant has a message. SQLite enforces that a participant cannot have more than one active slot and that each slot points to a message belonging to the same relationship and participant.
 
-- zero or one active message
-- zero or more immutable historical messages
+Messages contain:
 
-The local model should make it difficult or impossible to accidentally create two active messages for one participant.
+- stable ID;
+- relationship ID;
+- participant;
+- message type;
+- body;
+- creation timestamp;
+- deterministic order index;
+- optional media reference;
+- synchronization state.
 
-A message needs enough stable identity/metadata to support eventual synchronization and ordering. Avoid relying on timestamps alone for identity or ordering.
-
-A useful future-oriented concept is a stable message ID generated on the originating device, plus immutable creation/order metadata. Concrete schema choices are implementation details.
+Active state is **derived**, not stored on the message row. The `active_message_slots` table is the source of truth for which message is active for each participant.
 
 ## 5. Message replacement
 
-When a participant creates a new message locally:
+Creating a message is transactional:
 
-1. Persist the new message.
-2. Move the previous active message for that participant to history.
-3. Make the new message active.
-4. Preserve immutable history.
+1. determine the next relationship-local order index;
+2. persist the new message;
+3. replace the participant's active slot with the new message;
+4. commit the transaction.
 
-The operation should be transactional from the perspective of local persistence.
+The previous message is never deleted, so it becomes immutable history automatically because it is no longer referenced by the participant's active slot.
 
-The same semantics must remain valid when synchronization delivers several messages at once.
+This same semantic must hold when synchronization later delivers several messages while a recipient was offline.
 
-## 6. Offline synchronization
+## 6. Offline synchronization model
 
 Example:
 
@@ -96,122 +97,121 @@ A sends C
 
 Recipient is offline.
 
-Server mailbox eventually contains A, B, C.
+Server temporarily queues A, B, C.
 
-Recipient synchronizes:
-  persist A
-  persist B
-  persist C
-  acknowledge durable persistence
+Recipient persists A, B, C locally in order.
 
 Local result:
   A = history
   B = history
   C = active
 
-Server can then remove A/B/C.
+Only after durable persistence may the recipient acknowledge them.
 ```
 
-The server must not collapse A/B/C into only C because the recipient needs the complete history.
-
-The server must not delete an item merely because delivery was attempted. Acknowledgement must mean that the recipient has durably persisted the item locally.
+The server must not collapse A/B/C to only C because the recipient needs complete history.
 
 There is deliberately no read/seen state in MVP.
 
 ## 7. Sync state vs read state
 
-Keep these concepts separate:
+These concepts remain separate:
 
-- **pending/queued**: item needs synchronization
-- **synchronized/durably persisted**: recipient has confirmed local persistence
-- **seen/read**: user has actually viewed it
+- `PENDING`: local item still needs synchronization;
+- `SYNCED`: synchronization has completed according to the eventual protocol;
+- `FAILED`: synchronization needs retry/recovery;
+- `LOCAL_ONLY`: item exists only locally so far;
+- **seen/read**: not represented in the MVP.
 
-Only the first two are relevant to the initial synchronization architecture. Do not invent `read=true` as a shortcut for synchronization acknowledgement.
+Never use synchronization state as a disguised read receipt.
 
 ## 8. Media lifecycle
 
-Photo/video and drawing data are eventually handled similarly to message data.
+Photo/video messages now use the real device picker/camera path. Selected or captured media is copied into an app-owned document `media/` directory before the message is persisted. Message history stores the durable local URI and can render images or videos from that URI.
 
-The server stores temporary media only while it needs to deliver it. The recipient downloads and durably stores the media locally, then acknowledges persistence. The server can then remove the temporary object.
+Drawing remains a declared message type but is intentionally not implemented yet.
 
-The first local prototype may represent media with placeholders, but the domain model should not make media impossible later.
+If a media message fails to persist after the file has been copied, the newly copied file is removed. Clearing local data removes database rows first and then attempts to remove their app-owned media files; missing or already-unreadable files do not prevent the database reset from completing.
 
-## 9. Future backend
+Media deletion only accepts direct children of the app-owned media directory, preventing a malformed stored URI from escaping that directory through path traversal.
 
-Current preferred direction:
+## 9. Database migrations
 
-- Cloudflare Workers — API, pairing, authentication/authorization, synchronization orchestration
-- D1 — small metadata/relationship state
-- R2 — temporary media mailbox
+SQLite uses `PRAGMA user_version` for schema versioning. The current schema is version 2.
 
-This is a direction, not an excuse to implement backend code before the product's local foundation is sound.
+Fresh databases are created directly at the latest schema. Existing version-0 databases that contain the original tables and version-1 databases both use the legacy schema and are migrated transactionally to version 2.
+
+The migration validates legacy active-message slots before changing the schema. It rejects mismatched slots, missing messages, invalid active flags, duplicate active slots, and values that cannot be represented safely as integers. After migration, `PRAGMA foreign_key_check` is run and the database must report exactly the supported schema version.
+
+A database newer than the application is rejected rather than downgraded. Migration failures are allowed to abort the transaction so the old database is not partially replaced.
 
 ## 10. Pairing/security direction
 
-Fresh installs receive anonymous device identities.
+Fresh installations eventually receive anonymous device identities. There is no normal account-registration UX.
 
-Future pairing should provide:
+Pairing should use:
 
-- secure invitation token with sufficient entropy
-- cute human-readable/visual pairing code as a usability aid
-- shareable deep link
-- invitation expiry (target 24h)
-- immediate invalidation after successful pairing
+- a secure invitation token with real entropy;
+- a short cute human-facing code as a usability aid;
+- a shareable deep link;
+- invitation expiry (target 24 hours);
+- immediate invalidation after successful pairing.
 
-Do not use the cute code itself as an authentication secret.
+The human-facing code is **not** a security credential.
 
-MVP does not include E2E encryption. When added, use an established protocol/library rather than custom cryptography.
+Real two-device pairing must not be simulated as local communication. The UI can be prepared behind a pairing abstraction before the backend exists, but pairing is not considered complete until two installations can actually establish the relationship through a real transport.
 
-## 11. Widgets
+## 11. Future backend
 
-Widgets should read local state/cache.
+The current preferred direction is:
 
-They must not require a network request just to render the current partner message.
+- Cloudflare Workers — API, pairing, synchronization orchestration;
+- D1 — small relationship/metadata state;
+- R2 — temporary media mailbox.
 
-Background synchronization can update the local database/cache and then trigger the widget refresh.
+This remains future work. The local app must continue to function without the backend.
 
-Platform scheduling can delay background work, so the product should not depend on guaranteed instant widget updates.
+## 12. Widgets and notifications
 
-## 12. Notifications
+Widgets should read local state and never require a network request just to render the current partner message.
 
-Push notifications are a future sync feature.
-
-A push should generally indicate that the partner left something rather than carry the full message content. The app then synchronizes the actual item and persists it locally.
+Push notifications should generally prompt synchronization rather than carry message content. Background execution is platform-dependent and must not be treated as guaranteed immediate execution.
 
 ## 13. Unpairing
 
-Unpairing is a future server-backed feature. The intended invariant is:
+Unpairing is different from clearing local data.
+
+The eventual unpair behavior is:
 
 ```text
-relationship ended/unpaired
-        ↓
+relationship ended
+      ↓
 local history remains
-        ↓
+      ↓
 app becomes read-only
 ```
 
-Data export/deletion and recovery are separate future features.
+Export/deletion is a separate future feature. The current Settings `Clear local data` action is an explicit destructive local reset and must not be presented as unpairing.
 
 ## 14. Core invariants for tests
 
 Tests should protect at least:
 
-1. exactly one relationship contains exactly two participants
-2. a participant has at most one active message
-3. creating a new message archives the previous active message
-4. history is immutable
-5. both participants' histories can coexist locally
-6. messages retain deterministic ordering
-7. local persistence survives process/app restarts
-8. synchronization acknowledgement is conceptually distinct from read/seen state
-9. replacing an active message never destroys the previous message
+1. one relationship per local installation;
+2. at most one active message per participant at the database level;
+3. normal relationship lifecycle establishes the partner active message and creates the own active message when the user first sends one;
+4. creating a new message archives the previous active message;
+5. history is not destroyed by replacement;
+6. both participants' messages coexist in local history;
+7. message order is deterministic;
+8. persistence survives process/app restarts;
+9. invalid message input is rejected before persistence;
+10. media-only message types remain valid when their real media implementation is added;
+11. version-1 legacy databases migrate to the current schema without losing data;
+12. malformed legacy data causes migration to fail without a partial migration.
 
-## 15. Technology decision rule
+## 15. Technology rule
 
-Choose boring, stable, well-supported Android technologies unless there is a concrete reason not to.
+Use the current Expo/React Native stack and stable Expo-compatible packages. Do not add dependencies merely to make a small feature look architectural.
 
-Android is primary. Kotlin + Compose + Room/SQLite is the default direction.
-
-Kotlin Multiplatform is permitted if the implementation agent can show a concrete benefit for the eventual iOS target. Do not add it solely because it might be useful someday.
-
-Avoid heavyweight frameworks and abstractions that do not earn their complexity.
+The owner is deliberately postponing detailed visual implementation. Functional behavior, local correctness, and clean boundaries take priority until the feature set is complete.

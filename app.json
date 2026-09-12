@@ -1,0 +1,28 @@
+{
+  "expo": {
+    "name": "Rucola",
+    "slug": "rucola",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "light",
+    "scheme": "rucola",
+    "plugins": [
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Rucola needs access to your photos and videos so you can send something to your person.",
+          "cameraPermission": "Rucola needs camera access so you can capture something to send.",
+          "microphonePermission": false
+        }
+      ],
+      "expo-sqlite",
+      "expo-status-bar"
+    ],
+    "android": {
+      "package": "com.rucola.app"
+    },
+    "ios": {
+      "bundleIdentifier": "com.rucola.app"
+    }
+  }
+}

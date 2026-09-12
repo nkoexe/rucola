@@ -37,21 +37,22 @@ class RoomRucolaRepository(private val dao: RucolaDao) : RucolaRepository {
         }
     }
 
-            override suspend fun sendMessage(type: MessageType, body: String, mediaReference: String?) {
-                dao.replaceActive(
-                    Message(
-                        id = UUID.randomUUID().toString(),
-                        relationshipId = "the-one",
-                        participant = Participant.ME,
-                        type = type,
-                        body = body,
-                        createdAt = System.currentTimeMillis(),
-                        orderIndex = dao.nextOrderIndex("the-one"),
-                        isActive = true,
-                        mediaReference = mediaReference,
-                        syncState = SyncState.PENDING,
-                    ).toEntity(),
-                )
+    override suspend fun sendMessage(type: MessageType, body: String, mediaReference: String?) {
+        validateMessage(type, body, mediaReference)
+        dao.replaceActive(
+            Message(
+                id = UUID.randomUUID().toString(),
+                relationshipId = "the-one",
+                participant = Participant.ME,
+                type = type,
+                body = body,
+                createdAt = System.currentTimeMillis(),
+                orderIndex = dao.nextOrderIndex("the-one"),
+                isActive = true,
+                mediaReference = mediaReference,
+                syncState = SyncState.PENDING,
+            ).toEntity(),
+        )
     }
 }
 

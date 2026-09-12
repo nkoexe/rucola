@@ -4,11 +4,13 @@ enum class Participant { ME, PARTNER }
 enum class MessageType { TEXT, EMOJI, PHOTO_VIDEO, DRAWING }
 enum class SyncState { LOCAL_ONLY, PENDING, SYNCED, FAILED }
 
+const val DefaultPartnerColor = "#9BC973"
+
 data class Relationship(
     val id: String = "the-one",
     val partnerNickname: String,
     val ownName: String = "me",
-    val partnerColor: String = "#8FC56A",
+    val partnerColor: String = DefaultPartnerColor,
     val togetherSince: Long? = null,
 )
 

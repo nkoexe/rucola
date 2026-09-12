@@ -9,6 +9,7 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.*
 import org.junit.Test
+import java.util.Calendar
 
 private class MemoryRepository : RucolaRepository {
     private val relationshipState = MutableStateFlow<Relationship?>(Relationship(id = "the-one", partnerNickname = "Mina"))
@@ -27,4 +28,36 @@ class MessageLifecycleTest {
     }
 
     private suspend fun <T> Flow<T>.firstValue(): T = first()
+}
+
+class MessageRulesTest {
+    @Test fun textAndEmojiMessagesNeedContent() {
+        assertThrows(IllegalArgumentException::class.java) { validateMessage(MessageType.TEXT, " ") }
+        assertThrows(IllegalArgumentException::class.java) { validateMessage(MessageType.EMOJI, "") }
+    }
+
+    @Test fun mediaMessagesCanBeMediaOnlyWhenTheyHaveAReference() {
+        validateMessage(MessageType.PHOTO_VIDEO, "", "local://photo")
+        validateMessage(MessageType.DRAWING, "", "local://drawing")
+    }
+
+    @Test fun mediaPlaceholdersCanUseTextUntilEditorsExist() {
+        validateMessage(MessageType.PHOTO_VIDEO, "[photo_video]")
+        validateMessage(MessageType.DRAWING, "[drawing]")
+    }
+
+    @Test fun historyDateLabelsRepeatOnlyWhenTheCalendarDayChanges() {
+        val morning = Calendar.getInstance().apply {
+            set(2026, Calendar.SEPTEMBER, 11, 9, 0, 0)
+        }.timeInMillis
+        val evening = Calendar.getInstance().apply {
+            set(2026, Calendar.SEPTEMBER, 11, 21, 0, 0)
+        }.timeInMillis
+        val nextDay = Calendar.getInstance().apply {
+            set(2026, Calendar.SEPTEMBER, 12, 0, 5, 0)
+        }.timeInMillis
+
+        assertTrue(sameCalendarDay(morning, evening))
+        assertFalse(sameCalendarDay(evening, nextDay))
+    }
 }
