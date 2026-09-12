@@ -73,13 +73,18 @@ export async function acknowledgeMessages(env: Env, request: Request): Promise<R
   try {
     // Pull is non-destructive. Once the client has durably persisted the
     // contiguous high-water mark, the temporary mailbox copies can be removed.
-    // The delete remains in the same D1 session as the primary validation read,
-    // preserving sequential consistency if read replication is enabled.
+    // Keep the relationship ACTIVE predicate on the destructive statement too:
+    // if the relationship ends between validation and deletion, do not delete
+    // anything after it has become inactive.
     const result = await session
       .prepare(
         `DELETE FROM mailbox_messages
          WHERE relationship_id = ?1
-           AND server_seq <= ?2`,
+           AND server_seq <= ?2
+           AND EXISTS (
+             SELECT 1 FROM relationships
+             WHERE id = ?1 AND status = 'ACTIVE'
+           )`,
       )
       .bind(device.relationshipId, throughServerSeq)
       .run();
