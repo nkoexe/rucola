@@ -5,14 +5,16 @@ Branch: `cloud/research`
 
 ## Phase 1 — `sync/pull`
 
-**Status: implementation complete; runtime validation still pending.**
+**Status: implementation complete; hardening changes applied; local validation confirmed by the developer.**
 
 Implemented:
 
 - `GET /v1/sync/pull` is now a real route instead of `501`.
 - Device authentication is required.
+- Revoked device credentials are rejected.
 - Relationship ownership is derived from the authenticated device.
 - Only `ACTIVE` relationships can pull.
+- Relationship lookup failures return `503` instead of an unhandled database error.
 - `after` is a non-negative safe-integer server-sequence cursor.
 - `limit` defaults to 50 and is bounded to 1–100.
 - Queries use `server_seq > after`.
@@ -21,9 +23,10 @@ Implemented:
 - Acknowledged rows are excluded.
 - Expired rows are excluded.
 - Repeated pulls remain non-destructive because pull does not mutate acknowledgement state.
-- D1 `first-primary` sessions are used so the read starts from the latest database version and remains sequentially consistent within the query session. citeturn0search2turn0search3
+- D1 `first-primary` sessions are used so the read starts from the latest database version and remains sequentially consistent within the query session.
 - Stored ciphertext is normalized back to the existing UTF-8 wire representation used by push.
-- Tests cover authentication, empty mailbox, ordering, pagination, retries, acknowledged/expired filtering, relationship isolation, invalid cursor/limit values, and inactive relationships.
+- Invalid stored mailbox data is distinguished from a database availability failure.
+- Tests cover authentication, revoked credentials, empty mailboxes, ordering, pagination, retries, cursor stability, very-high cursors, acknowledged/expired filtering, relationship isolation, invalid cursor/limit values, and inactive relationships.
 
 ## Important protocol choice
 
@@ -66,26 +69,41 @@ Response:
 }
 ```
 
-## Review notes
+## Hardening review
 
-The implementation deliberately avoids timestamp-based pagination. D1 prepared statements are used with bound parameters, which is the recommended query pattern and avoids interpolating request values into SQL. citeturn0search0
+The pull implementation was audited for:
 
-The existing mailbox index on `(relationship_id, server_seq)` matches the pull query's relationship/cursor/order pattern, so no schema change was required for Phase 1.
+- credential revocation;
+- relationship isolation;
+- cursor parsing and safe-integer boundaries;
+- limit boundaries;
+- repeated/unacknowledged pulls;
+- expired and acknowledged rows;
+- cursors beyond the current server sequence;
+- stable cursor behavior when no eligible row remains;
+- pagination ordering;
+- database failure classification;
+- malformed stored ciphertext classification;
+- route/protocol consistency with the planned ACK high-water-mark design.
 
-Cloudflare D1 documents `LIMIT` and prepared parameter binding through the standard Worker binding API, and D1's current row-size limit is far above the existing Rucola ciphertext limit. citeturn0search0turn0search4
+No protocol change was required. The pull cursor remains a relationship-local server-sequence high-water mark, and pull remains strictly non-destructive.
 
-## Validation limitation
+## Validation
 
-The implementation was committed directly to GitHub because this environment does not have network access to clone the repository and execute its local Wrangler/Vitest toolchain. Therefore, this phase is **code-reviewed but not locally test-executed in this session**.
+The developer ran the full Worker test suite and typecheck after the Phase 1 implementation:
 
-Before treating Phase 1 as fully validated, run from `cloud/worker`:
-
-```bash
-npm test
-npm run typecheck
+```text
+4 test files passed
+44 tests passed
+0 failures
 ```
 
-If either command fails, fix the failure before beginning ACK implementation.
+```text
+npm run typecheck
+passed
+```
+
+After the hardening changes in this status update, rerun the same two commands before starting ACK implementation.
 
 ## Commits
 
@@ -94,8 +112,17 @@ Phase 1 implementation is split into focused commits on `cloud/research`:
 - mailbox pull implementation
 - pull route wiring
 - pull protocol tests
-- this implementation status document
+- implementation status document
+- pull error-handling hardening
+- pull edge-case hardening tests
 
 ## Next step
 
-Run the Worker test suite and typecheck. After those pass, perform a dedicated pull hardening review, then implement **Phase 2: `POST /v1/sync/ack` + mailbox cleanup**.
+Run:
+
+```bash
+npm test
+npm run typecheck
+```
+
+After those pass, begin **Phase 2: `POST /v1/sync/ack` + mailbox cleanup**. The ACK implementation should use the documented contiguous `throughServerSeq` high-water mark and must be tested for monotonic/idempotent behavior, future-sequence rejection, relationship isolation, and safe cleanup.
