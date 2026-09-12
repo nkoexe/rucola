@@ -24,7 +24,7 @@ describe("Rucola cloud worker", () => {
       ok: true,
       database: true,
       service: "rucola-cloud",
-      version: "sync-pull-1",
+      version: "sync-ack-1",
     });
   });
 
@@ -241,7 +241,9 @@ describe("Rucola cloud worker", () => {
     expect(push.status).toBe(401);
     const pull = await exports.default.fetch("https://rucola.test/v1/sync/pull");
     expect(pull.status).toBe(401);
-    const ack = await exports.default.fetch("https://rucola.test/v1/sync/ack/message-test", { method: "POST" });
-    expect(ack.status).toBe(501);
+    const ack = await exports.default.fetch("https://rucola.test/v1/sync/ack", { method: "POST" });
+    expect(ack.status).toBe(401);
+    const legacyAck = await exports.default.fetch("https://rucola.test/v1/sync/ack/message-test", { method: "POST" });
+    expect(legacyAck.status).toBe(404);
   });
 });
