@@ -41,11 +41,13 @@ export async function acknowledgeMessages(env: Env, request: Request): Promise<R
   const device = await authenticateDevice(env, request);
   if (!device) return errorResponse("UNAUTHENTICATED", "Valid device credentials are required", 401);
 
-  const relationship = await env.DB.prepare(
-    `SELECT status, next_server_seq
-     FROM relationships
-     WHERE id = ?1`,
-  )
+  const session = env.DB.withSession("first-primary");
+  const relationship = await session
+    .prepare(
+      `SELECT status, next_server_seq
+       FROM relationships
+       WHERE id = ?1`,
+    )
     .bind(device.relationshipId)
     .first<{ status: "PAIRING" | "ACTIVE" | "ENDED"; next_server_seq: number }>();
 
@@ -69,20 +71,21 @@ export async function acknowledgeMessages(env: Env, request: Request): Promise<R
   const acknowledgedAt = Date.now();
 
   try {
-    // The acknowledgement is intentionally destructive: once the client has
-    // durably persisted the contiguous high-water mark, the temporary mailbox
-    // copies can be removed. The DELETE is scoped to the authenticated
-    // relationship, so a client can never acknowledge another relationship.
-    const result = await env.DB.prepare(
-      `DELETE FROM mailbox_messages
-       WHERE relationship_id = ?1
-         AND server_seq <= ?2`,
-    )
+    // Pull is non-destructive. Once the client has durably persisted the
+    // contiguous high-water mark, the temporary mailbox copies can be removed.
+    // The delete remains in the same D1 session as the primary validation read,
+    // preserving sequential consistency if read replication is enabled.
+    const result = await session
+      .prepare(
+        `DELETE FROM mailbox_messages
+         WHERE relationship_id = ?1
+           AND server_seq <= ?2`,
+      )
       .bind(device.relationshipId, throughServerSeq)
       .run();
 
-    // D1's changes result is only used for observability; repeated ACKs are
-    // deliberately successful even when the rows were already removed.
+    // Repeated ACKs are deliberately successful even when the rows were
+    // already removed, making the operation idempotent.
     const deleted = result.meta.changes ?? 0;
 
     return json({
