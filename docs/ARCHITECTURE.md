@@ -127,7 +127,7 @@ Never use synchronization state as a disguised read receipt.
 
 ## 8. Media lifecycle
 
-Photo/video messages now use the real device picker/camera path. Selected or captured media is copied into an app-owned document `media/` directory before the message is persisted. Message history stores the durable local URI and can render images or videos from that URI.
+Photo/video messages use the real device picker/camera path. Selected or captured media is copied into an app-owned document `media/` directory before the message is persisted. Message history stores the durable local URI and can render images or videos from that URI.
 
 Drawing remains a declared message type but is intentionally not implemented yet.
 
@@ -206,9 +206,10 @@ Tests should protect at least:
 7. message order is deterministic;
 8. persistence survives process/app restarts;
 9. invalid message input is rejected before persistence;
-10. media-only message types remain valid when their real media implementation is added;
-11. version-1 legacy databases migrate to the current schema without losing data;
-12. malformed legacy data causes migration to fail without a partial migration.
+10. photo/video media-only messages remain valid with durable app-owned media;
+11. drawing remains intentionally unimplemented until a real editor exists;
+12. version-1 legacy databases migrate to the current schema without losing data;
+13. malformed legacy data causes migration to fail without a partial migration.
 
 ## 15. Technology rule
 

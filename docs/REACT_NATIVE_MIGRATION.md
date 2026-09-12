@@ -2,7 +2,7 @@
 
 ## Status
 
-The Kotlin/Jetpack Compose prototype has been migrated to **Expo + React Native + TypeScript**. The migration branch is now the stable foundation for the next development phase.
+The Kotlin/Jetpack Compose prototype has been migrated to **Expo + React Native + TypeScript**. The migration foundation was merged into `main` and is now the stable base for ongoing development.
 
 The Kotlin implementation remains a behavioral reference, not a code-conversion target.
 
@@ -27,7 +27,7 @@ The Kotlin implementation remains a behavioral reference, not a code-conversion 
 
 ## Current validation
 
-The current branch has been validated with:
+The merged React Native foundation was validated with:
 
 - `npm run typecheck` — passed.
 - `npm run test:domain` — **7/7 passed**.
@@ -51,7 +51,7 @@ The local prototype currently supports:
 - calendar browsing;
 - local reset with media cleanup.
 
-Drawing is still a placeholder. There is currently no real two-device pairing, backend synchronization, notifications, widgets, or E2E encryption.
+Drawing is still unimplemented. There is currently no real two-device pairing, backend synchronization, notifications, widgets, or E2E encryption.
 
 The UI is intentionally barebones. Figma-driven visual implementation is a later phase, after the functional local app is complete.
 

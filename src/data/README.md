@@ -35,6 +35,6 @@ The native integration suite currently covers:
 
 The suite is exposed through the development-only native integration test screen. It uses disposable test databases and does not modify the normal app database.
 
-The current validated result is **12/12 native integration groups passing** on the React Native migration branch.
+The last validated result is **12/12 native integration groups passing** as part of the React Native migration merge validation.
 
 `npm run test:domain` remains the Node-side domain/use-case suite and does not replace native SQLite integration coverage.
