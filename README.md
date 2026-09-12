@@ -11,7 +11,7 @@ It is intentionally **not a conventional chat app**. Each person has one active 
 Rucola currently has two active development workstreams:
 
 - `migration/react-native` — mobile application and local-first client;
-- `cloud/research` — synchronization backend and cloud protocol.
+- `cloud/research` — production synchronization backend and cloud protocol.
 
 They are intentionally developed in parallel. The mobile application must remain useful without the backend, and the backend must treat local devices as the durable source of truth.
 
@@ -32,7 +32,7 @@ Drawing is still a placeholder. Real two-device synchronization, notifications, 
 
 ## Cloud implementation
 
-The cloud backend uses:
+The production cloud backend uses:
 
 - Cloudflare Worker — API, authentication, pairing and synchronization orchestration;
 - D1 — relationships, devices, invitations, temporary mailbox state, durable message receipts and media metadata;
@@ -40,11 +40,13 @@ The cloud backend uses:
 
 The cloud is a **temporary synchronization mailbox, not a cloud archive**. Local SQLite remains the permanent source of truth.
 
+The current retention contract is finite: unacknowledged mailbox messages are guaranteed for 14 days, while durable message receipts are retained for 30 days after acceptance. Initial media limits are 20 MB for images and 100 MB for videos.
+
 Read these documents before substantial backend changes:
 
 - [`docs/CLOUD_ARCHITECTURE.md`](docs/CLOUD_ARCHITECTURE.md) — current cloud protocol and boundaries;
 - [`docs/MEDIA_LIFECYCLE.md`](docs/MEDIA_LIFECYCLE.md) — cloud media state machine;
-- [`docs/CLOUD_HARDENING.md`](docs/CLOUD_HARDENING.md) — security/correctness audit and remaining decisions.
+- [`docs/CLOUD_HARDENING.md`](docs/CLOUD_HARDENING.md) — security/correctness audit and remaining implementation work.
 
 For general product/client architecture:
 
