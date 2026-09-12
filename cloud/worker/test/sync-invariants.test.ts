@@ -37,7 +37,13 @@ async function bootstrapAndAccept(): Promise<{ me: BootstrapBody }> {
   return { me };
 }
 
-function validMailboxInsert(me: BootstrapBody, messageId: string, serverSeq: number, mediaUploadId: string | null = null) {
+function validMailboxInsert(
+  me: BootstrapBody,
+  messageId: string,
+  serverSeq: number,
+  mediaUploadId: string | null = null,
+  type = "TEXT",
+) {
   const now = Date.now();
   return env.DB.prepare(
     `INSERT INTO mailbox_messages
@@ -51,11 +57,32 @@ function validMailboxInsert(me: BootstrapBody, messageId: string, serverSeq: num
     me.deviceId,
     now,
     serverSeq,
-    "TEXT",
+    type,
     new TextEncoder().encode("invariant-test"),
     mediaUploadId,
     now + 7 * 24 * 60 * 60 * 1000,
   );
+}
+
+async function insertReadyMedia(me: BootstrapBody, mediaType: "PHOTO" | "VIDEO" | "DRAWING") {
+  const mediaId = crypto.randomUUID();
+  const now = Date.now();
+  await env.DB.prepare(
+    `INSERT INTO media_uploads
+       (id, relationship_id, created_by_device_id, object_key, media_type, declared_mime,
+        size_bytes, status, created_at, expires_at, completed_at)
+     VALUES (?1, ?2, ?3, ?4, ?5, ?6, 10, 'READY', ?7, ?8, ?7)`,
+  ).bind(
+    mediaId,
+    me.relationshipId,
+    me.deviceId,
+    `test/${mediaId}`,
+    mediaType,
+    mediaType === "PHOTO" ? "image/jpeg" : mediaType === "VIDEO" ? "video/mp4" : "application/octet-stream",
+    now - 60 * 60 * 1000,
+    now + 60 * 60 * 1000,
+  ).run();
+  return mediaId;
 }
 
 describe("mailbox acceptance invariants", () => {
@@ -119,5 +146,48 @@ describe("mailbox acceptance invariants", () => {
     expect(media?.status).toBe("READY");
     expect(media?.attached_at).toBeNull();
     expect(relationship?.next_server_seq).toBe(1);
+  });
+
+  it("rejects a PHOTO_VIDEO message without media at the database boundary", async () => {
+    const { me } = await bootstrapAndAccept();
+    const messageId = crypto.randomUUID();
+
+    await expect(validMailboxInsert(me, messageId, 1, null, "PHOTO_VIDEO").run())
+      .rejects.toThrow(/requires media upload/i);
+  });
+
+  it("rejects non-media messages that reference an upload", async () => {
+    const { me } = await bootstrapAndAccept();
+    const mediaId = await insertReadyMedia(me, "PHOTO");
+    const messageId = crypto.randomUUID();
+
+    await expect(validMailboxInsert(me, messageId, 1, mediaId, "TEXT").run())
+      .rejects.toThrow(/cannot reference media upload/i);
+  });
+
+  it("rejects PHOTO_VIDEO messages that reference a drawing upload", async () => {
+    const { me } = await bootstrapAndAccept();
+    const mediaId = await insertReadyMedia(me, "DRAWING");
+    const messageId = crypto.randomUUID();
+
+    await expect(validMailboxInsert(me, messageId, 1, mediaId, "PHOTO_VIDEO").run())
+      .rejects.toThrow(/incompatible media upload/i);
+  });
+
+  it("accepts PHOTO_VIDEO messages with a PHOTO or VIDEO upload", async () => {
+    for (const mediaType of ["PHOTO", "VIDEO"] as const) {
+      const { me } = await bootstrapAndAccept();
+      const mediaId = await insertReadyMedia(me, mediaType);
+      const messageId = crypto.randomUUID();
+
+      await expect(validMailboxInsert(me, messageId, 1, mediaId, "PHOTO_VIDEO").run()).resolves.toBeDefined();
+
+      const media = await env.DB
+        .prepare("SELECT status, attached_at FROM media_uploads WHERE id = ?1")
+        .bind(mediaId)
+        .first<{ status: string; attached_at: number | null }>();
+      expect(media?.status).toBe("ATTACHED");
+      expect(media?.attached_at).not.toBeNull();
+    }
   });
 });
