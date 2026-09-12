@@ -9,7 +9,7 @@ const MAX_ENCRYPTION_VERSION = 255;
 const MIN_CREATED_AT = Date.UTC(2020, 0, 1);
 const MAX_FUTURE_CREATED_AT_MS = 7 * 24 * 60 * 60 * 1000;
 const MAILBOX_RETENTION_MS = 7 * 24 * 60 * 60 * 1000;
-const MAX_SERVER_SEQUENCE_ALLOCATION_RETRIES = 4;
+const MAX_SERVER_SEQUENCE_ALLOCATION_RETRIES = 16;
 
 const MESSAGE_TYPES = new Set<MessageType>(["TEXT", "EMOJI", "PHOTO_VIDEO", "DRAWING"]);
 
@@ -302,8 +302,19 @@ async function acceptNewMessage(env: Env, device: AuthenticatedDevice, message: 
 
     await env.DB.batch(statements);
 
-    const accepted = await findExistingMessage(env, device, message.messageId);
-    const relationship = await env.DB.prepare(
+    // Verification must be sequentially consistent with the committed batch.
+    // This matters once D1 read replication is enabled: an ordinary follow-up
+    // read could otherwise observe a replica that predates our write.
+    const session = env.DB.withSession("first-primary");
+    const accepted = await session.prepare(
+      `SELECT message_id, sender_seq, type, ciphertext, encryption_version, client_created_at,
+              media_upload_id, server_seq, server_received_at
+       FROM mailbox_messages
+       WHERE relationship_id = ?1 AND message_id = ?2`,
+    )
+      .bind(device.relationshipId, message.messageId)
+      .first<ExistingMessage>();
+    const relationship = await session.prepare(
       `SELECT next_server_seq FROM relationships WHERE id = ?1 AND status = 'ACTIVE'`,
     )
       .bind(device.relationshipId)
@@ -312,7 +323,7 @@ async function acceptNewMessage(env: Env, device: AuthenticatedDevice, message: 
     if (!accepted || relationship?.next_server_seq !== serverSeq + 1) return "retry";
 
     if (message.mediaUploadId) {
-      const media = await env.DB.prepare(
+      const media = await session.prepare(
         `SELECT status FROM media_uploads
          WHERE id = ?1 AND relationship_id = ?2 AND created_by_device_id = ?3`,
       )
