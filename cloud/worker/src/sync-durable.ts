@@ -33,6 +33,7 @@ interface ValidatedPush extends ReceiptMessage {
 
 interface ExistingMessage {
   message_id: string;
+  sender_device_id: string;
   sender_seq: number;
   type: MessageType;
   ciphertext: string | number[] | Uint8Array | ArrayBuffer;
@@ -125,8 +126,9 @@ function validateRequest(body: PushRequest, now: number): { value: ValidatedPush
   };
 }
 
-function sameMailboxPayload(existing: ExistingMessage, message: ValidatedPush): boolean {
-  return existing.sender_seq === message.senderSeq
+function sameMailboxPayload(existing: ExistingMessage, device: AuthenticatedDevice, message: ValidatedPush): boolean {
+  return existing.sender_device_id === device.id
+    && existing.sender_seq === message.senderSeq
     && existing.type === message.type
     && equalBytes(normalizeCiphertext(existing.ciphertext), message.ciphertextBytes)
     && existing.encryption_version === message.encryptionVersion
@@ -140,13 +142,13 @@ function successResponse(message: ReceiptMessage, serverSeq: number, acceptedAt:
 
 async function classifyLegacyMailbox(env: Env, device: AuthenticatedDevice, message: ValidatedPush): Promise<Response | null> {
   const existing = await env.DB.prepare(
-    `SELECT message_id, sender_seq, type, ciphertext, encryption_version, client_created_at,
+    `SELECT message_id, sender_device_id, sender_seq, type, ciphertext, encryption_version, client_created_at,
             media_upload_id, server_seq, server_received_at
      FROM mailbox_messages
      WHERE relationship_id = ?1 AND message_id = ?2`,
   ).bind(device.relationshipId, message.messageId).first<ExistingMessage>();
   if (existing) {
-    if (sameMailboxPayload(existing, message)) return successResponse(message, existing.server_seq, existing.server_received_at);
+    if (sameMailboxPayload(existing, device, message)) return successResponse(message, existing.server_seq, existing.server_received_at);
     return errorResponse("MESSAGE_ID_CONFLICT", "Message ID is already assigned to different content", 409);
   }
   const senderSequence = await env.DB.prepare(
@@ -225,9 +227,6 @@ async function acceptNewMessage(
       );
     }
 
-    // The receipt is derived from the mailbox row created by this batch. This
-    // prevents an orphan durable receipt when the conditional mailbox insert
-    // inserts zero rows because a relationship/media invariant changed.
     statements.push(
       env.DB.prepare(
         `INSERT INTO message_receipts
@@ -244,33 +243,6 @@ async function acceptNewMessage(
       ).bind(ciphertextHash, now, device.relationshipId, message.messageId, serverSeq),
     );
 
-    if (message.mediaUploadId) {
-      statements.push(
-        env.DB.prepare(
-          `UPDATE media_uploads SET status = 'ATTACHED', attached_at = ?1
-           WHERE id = ?2
-             AND relationship_id = ?3
-             AND created_by_device_id = ?4
-             AND status = 'READY'
-             AND expires_at > ?1
-             AND EXISTS (
-               SELECT 1 FROM mailbox_messages
-               WHERE relationship_id = ?3
-                 AND message_id = ?5
-                 AND server_seq = ?6
-                 AND media_upload_id = ?2
-             )`,
-        ).bind(now, message.mediaUploadId, device.relationshipId, device.id, message.messageId, serverSeq),
-      );
-    }
-
-    statements.push(
-      env.DB.prepare(
-        `UPDATE relationships SET next_server_seq = next_server_seq + 1
-         WHERE id = ?1 AND status = 'ACTIVE' AND next_server_seq = ?2`,
-      ).bind(device.relationshipId, serverSeq),
-    );
-
     await env.DB.batch(statements);
 
     const session = env.DB.withSession("first-primary");
@@ -279,7 +251,7 @@ async function acceptNewMessage(
        WHERE relationship_id = ?1 AND message_id = ?2`,
     ).bind(device.relationshipId, message.messageId).first<{ server_seq: number; server_received_at: number }>();
     const mailbox = await session.prepare(
-      `SELECT message_id, sender_seq, type, ciphertext, encryption_version,
+      `SELECT message_id, sender_device_id, sender_seq, type, ciphertext, encryption_version,
               client_created_at, media_upload_id, server_seq, server_received_at
        FROM mailbox_messages
        WHERE relationship_id = ?1 AND message_id = ?2`,
@@ -289,7 +261,7 @@ async function acceptNewMessage(
     ).bind(device.relationshipId).first<{ next_server_seq: number }>();
 
     if (!receipt || !mailbox || relationship?.next_server_seq !== serverSeq + 1) return "retry";
-    if (!sameMailboxPayload(mailbox, message)) return "retry";
+    if (!sameMailboxPayload(mailbox, device, message)) return "retry";
 
     if (message.mediaUploadId) {
       const media = await session.prepare(
