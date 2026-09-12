@@ -2,6 +2,8 @@
 
 These notes describe the current React Native implementation and the constraints future work must preserve. They are intentionally lightweight: this is a small app, not a reason to create enterprise infrastructure.
 
+The product-level source of truth is `docs/PRODUCT_SPEC.md`; the phased implementation plan is `docs/DEVELOPMENT_ROADMAP.md`.
+
 ## 1. High-level model
 
 ```text
@@ -27,12 +29,14 @@ These notes describe the current React Native implementation and the constraints
 
 The server is a temporary mailbox, not a cloud archive. Once a recipient has durably persisted an item locally and acknowledged it, the server may remove its temporary copy.
 
+Backend development should progress alongside application development once the application structure is stable. The goal is an early rough but genuinely online two-device prototype, not a fully polished local app followed by a late networking project.
+
 ## 2. Current local application architecture
 
 ```text
-React Native screens/components
+Expo Router / React Native screens
         ↓
-presentation state/hooks
+application bootstrap + presentation state
         ↓
 domain use cases
         ↓
@@ -44,6 +48,8 @@ expo-sqlite
 ```
 
 The current screens use domain use cases for relationship loading, setup, message creation, history, calendar data, and local reset. Domain code does not import React Native or SQLite.
+
+The current application still contains hand-rolled screen state and is scheduled for an Expo Router/application-state cleanup before more presentation complexity is added.
 
 `SQLiteRucolaRepository` is the local implementation and can later be accompanied by synchronization without forcing the UI to call a network API directly.
 
@@ -86,7 +92,19 @@ The previous message is never deleted, so it becomes immutable history automatic
 
 This same semantic must hold when synchronization later delivers several messages while a recipient was offline.
 
-## 6. Offline synchronization model
+The Home screen should present the latest partner message as the central relationship state. Home is not a conventional chat transcript.
+
+## 6. Three-day Home state
+
+The Home presentation has an explicit product rule in addition to active-message state:
+
+- a recent partner message is shown normally;
+- after three days without a newer partner message, Home should transition to a gentle stale/waiting prompt encouraging the user to send something;
+- the old message remains in immutable History.
+
+The exact copy and visual treatment belong to the product/UX layer. The time-based rule must not be implemented only as arbitrary screen decoration.
+
+## 7. Offline synchronization model
 
 Example:
 
@@ -113,7 +131,7 @@ The server must not collapse A/B/C to only C because the recipient needs complet
 
 There is deliberately no read/seen state in MVP.
 
-## 7. Sync state vs read state
+## 8. Sync state vs read state
 
 These concepts remain separate:
 
@@ -125,7 +143,7 @@ These concepts remain separate:
 
 Never use synchronization state as a disguised read receipt.
 
-## 8. Media lifecycle
+## 9. Media lifecycle
 
 Photo/video messages use the real device picker/camera path. Selected or captured media is copied into an app-owned document `media/` directory before the message is persisted. Message history stores the durable local URI and can render images or videos from that URI.
 
@@ -135,7 +153,7 @@ If a media message fails to persist after the file has been copied, the newly co
 
 Media deletion only accepts direct children of the app-owned media directory, preventing a malformed stored URI from escaping that directory through path traversal.
 
-## 9. Database migrations
+## 10. Database migrations
 
 SQLite uses `PRAGMA user_version` for schema versioning. The current schema is version 2.
 
@@ -145,23 +163,24 @@ The migration validates legacy active-message slots before changing the schema. 
 
 A database newer than the application is rejected rather than downgraded. Migration failures are allowed to abort the transaction so the old database is not partially replaced.
 
-## 10. Pairing/security direction
+## 11. Pairing/security direction
 
-Fresh installations eventually receive anonymous device identities. There is no normal account-registration UX.
+Fresh installations eventually receive anonymous device identities. There is no normal account-registration or login UX.
 
-Pairing should use:
+The **user-facing pairing mechanism is exactly five emojis**. Technical pairing credentials must remain implementation details.
+
+Behind the five-emoji experience, the eventual protocol should use:
 
 - a secure invitation token with real entropy;
-- a short cute human-facing code as a usability aid;
-- a shareable deep link;
-- invitation expiry (target 24 hours);
-- immediate invalidation after successful pairing.
+- invitation expiry, currently targeted at 24 hours;
+- immediate invalidation after successful pairing;
+- a real network/deep-link transport where appropriate.
 
-The human-facing code is **not** a security credential.
+The five-emoji sequence is a usability mechanism, not the security credential itself.
 
 Real two-device pairing must not be simulated as local communication. The UI can be prepared behind a pairing abstraction before the backend exists, but pairing is not considered complete until two installations can actually establish the relationship through a real transport.
 
-## 11. Future backend
+## 12. Future backend
 
 The current preferred direction is:
 
@@ -169,15 +188,19 @@ The current preferred direction is:
 - D1 — small relationship/metadata state;
 - R2 — temporary media mailbox.
 
-This remains future work. The local app must continue to function without the backend.
+The backend is a temporary transport/mailbox layer. Local devices remain authoritative for permanent message history.
 
-## 12. Widgets and notifications
+The backend contract should be designed and implemented in parallel with the local product once Phase 1 application structure is stable.
+
+## 13. Widgets and notifications
+
+The long-term Android Home widget is an extension of the same Home state, not a separate message model.
 
 Widgets should read local state and never require a network request just to render the current partner message.
 
-Push notifications should generally prompt synchronization rather than carry message content. Background execution is platform-dependent and must not be treated as guaranteed immediate execution.
+Push notifications are complementary. They should generally prompt synchronization/re-entry rather than become the primary message-reading experience or carry sensitive message content.
 
-## 13. Unpairing
+## 14. Unpairing
 
 Unpairing is different from clearing local data.
 
@@ -193,26 +216,32 @@ app becomes read-only
 
 Export/deletion is a separate future feature. The current Settings `Clear local data` action is an explicit destructive local reset and must not be presented as unpairing.
 
-## 14. Core invariants for tests
+## 15. Core invariants for tests
 
 Tests should protect at least:
 
 1. one relationship per local installation;
-2. at most one active message per participant at the database level;
-3. normal relationship lifecycle establishes the partner active message and creates the own active message when the user first sends one;
-4. creating a new message archives the previous active message;
-5. history is not destroyed by replacement;
-6. both participants' messages coexist in local history;
-7. message order is deterministic;
-8. persistence survives process/app restarts;
-9. invalid message input is rejected before persistence;
-10. photo/video media-only messages remain valid with durable app-owned media;
-11. drawing remains intentionally unimplemented until a real editor exists;
-12. version-1 legacy databases migrate to the current schema without losing data;
-13. malformed legacy data causes migration to fail without a partial migration.
+2. exactly two participants once paired;
+3. at most one active message per participant at the database level;
+4. normal relationship lifecycle establishes the partner active message and creates the own active message when the user first sends one;
+5. creating a new message archives the previous active message;
+6. history is not destroyed by replacement;
+7. both participants' messages coexist in local history;
+8. message order is deterministic;
+9. persistence survives process/app restarts;
+10. invalid message input is rejected before persistence;
+11. photo/video media-only messages remain valid with durable app-owned media;
+12. drawing remains intentionally unimplemented until a real editor exists;
+13. version-1 legacy databases migrate to the current schema without losing data;
+14. malformed legacy data causes migration to fail without a partial migration;
+15. synchronization preserves bursts while a recipient is offline;
+16. synchronization acknowledgment occurs only after durable local persistence;
+17. the three-day stale Home state does not delete or alter history.
 
-## 15. Technology rule
+## 16. Technology rule
 
 Use the current Expo/React Native stack and stable Expo-compatible packages. Do not add dependencies merely to make a small feature look architectural.
 
-The owner is deliberately postponing detailed visual implementation. Functional behavior, local correctness, and clean boundaries take priority until the feature set is complete.
+The owner is deliberately postponing detailed visual implementation. Functional behavior, local correctness, coherent navigation/interaction order, and clean boundaries take priority until the feature set is complete.
+
+The product is Android-first. Do not introduce platform abstractions merely for theoretical iOS support unless they simplify the current architecture without compromising Android delivery.
