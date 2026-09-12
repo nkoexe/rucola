@@ -83,6 +83,8 @@ describe("mailbox acceptance invariants", () => {
     const mediaId = crypto.randomUUID();
     const messageId = crypto.randomUUID();
     const now = Date.now();
+    const createdAt = now - 60 * 60 * 1000;
+    const expiredAt = now - 1;
 
     await env.DB.prepare(
       `INSERT INTO media_uploads
@@ -94,8 +96,8 @@ describe("mailbox acceptance invariants", () => {
       me.relationshipId,
       me.deviceId,
       `test/${mediaId}`,
-      now,
-      now - 1,
+      createdAt,
+      expiredAt,
     ).run();
 
     await expect(validMailboxInsert(me, messageId, 1, mediaId).run()).rejects.toThrow(/media invariant/i);
