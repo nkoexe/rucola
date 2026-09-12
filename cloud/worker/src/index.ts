@@ -4,10 +4,10 @@ import { errorResponse, json, methodNotAllowed } from "./http";
 import { acceptInvitation, bootstrapPairing, createInvitation } from "./pairing";
 import { pullMessages } from "./sync-pull";
 import { acknowledgeMessages } from "./sync-ack";
-import { pushMessage } from "./sync";
+import { pushMessageDurable } from "./sync-durable";
 import type { Env } from "./types";
 
-const VERSION = "sync-ack-1";
+const VERSION = "sync-hardening-1";
 
 async function handleHealth(env: Env): Promise<Response> {
   try {
@@ -65,10 +65,7 @@ export default {
     if (request.method === "OPTIONS") {
       return new Response(null, {
         status: 204,
-        headers: {
-          "cache-control": "no-store",
-          allow: "GET,POST,OPTIONS",
-        },
+        headers: { "cache-control": "no-store", allow: "GET,POST,OPTIONS" },
       });
     }
 
@@ -84,26 +81,22 @@ export default {
       if (request.method !== "GET") return methodNotAllowed(["GET", "OPTIONS"]);
       return handleAuthProbe(env, request);
     }
-
     if (url.pathname === "/v1/pairing/bootstrap") {
       if (request.method !== "POST") return methodNotAllowed(["POST", "OPTIONS"]);
       if (!(await allowPairingBootstrap(env, request))) return rateLimitedResponse();
       return bootstrapPairing(env, request);
     }
-
     if (url.pathname === "/v1/pairing/create") {
       if (request.method !== "POST") return methodNotAllowed(["POST", "OPTIONS"]);
       return handleCreateInvitation(env, request);
     }
-
     if (url.pathname === "/v1/pairing/accept") {
       if (request.method !== "POST") return methodNotAllowed(["POST", "OPTIONS"]);
       return acceptInvitation(env, request);
     }
-
     if (url.pathname === "/v1/sync/push") {
       if (request.method !== "POST") return methodNotAllowed(["POST", "OPTIONS"]);
-      return pushMessage(env, request);
+      return pushMessageDurable(env, request);
     }
     if (url.pathname === "/v1/sync/pull") {
       if (request.method !== "GET") return methodNotAllowed(["GET", "OPTIONS"]);
