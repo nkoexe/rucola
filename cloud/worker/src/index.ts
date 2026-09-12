@@ -47,6 +47,15 @@ async function allowPairingBootstrap(env: Env, request: Request): Promise<boolea
   return result.success;
 }
 
+function rateLimitedResponse(): Response {
+  const response = json(
+    { error: { code: "PAIRING_RATE_LIMITED", message: "Too many pairing bootstrap attempts" } },
+    429,
+  );
+  response.headers.set("retry-after", "60");
+  return response;
+}
+
 function notImplemented(route: string): Response {
   return errorResponse(
     "NOT_IMPLEMENTED",
@@ -84,18 +93,7 @@ export default {
 
     if (url.pathname === "/v1/pairing/bootstrap") {
       if (request.method !== "POST") return methodNotAllowed(["POST", "OPTIONS"]);
-      if (!(await allowPairingBootstrap(env, request))) {
-        return new Response(JSON.stringify({ error: { code: "PAIRING_RATE_LIMITED", message: "Too many pairing bootstrap attempts" } }), {
-          status: 429,
-          headers: {
-            "content-type": "application/json; charset=utf-8",
-            "cache-control": "no-store",
-            "x-content-type-options": "nosniff",
-            "referrer-policy": "no-referrer",
-            "retry-after": "60",
-          },
-        });
-      }
+      if (!(await allowPairingBootstrap(env, request))) return rateLimitedResponse();
       return bootstrapPairing(env, request);
     }
 
