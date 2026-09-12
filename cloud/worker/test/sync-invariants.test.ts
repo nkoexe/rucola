@@ -127,7 +127,7 @@ describe("mailbox acceptance invariants", () => {
       expiredAt,
     ).run();
 
-    await expect(validMailboxInsert(me, messageId, 1, mediaId).run()).rejects.toThrow(/media invariant/i);
+    await expect(validMailboxInsert(me, messageId, 1, mediaId, "PHOTO_VIDEO").run()).rejects.toThrow(/media invariant/i);
 
     const mailbox = await env.DB
       .prepare("SELECT COUNT(*) AS count FROM mailbox_messages WHERE relationship_id = ?1 AND message_id = ?2")
