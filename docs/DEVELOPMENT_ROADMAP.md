@@ -15,7 +15,9 @@ Current foundation status:
 - SQLite migrations: complete
 - native integration suite: complete
 - Android CI build pipeline: complete
+- documentation/source-of-truth cleanup: complete
 - final navigation architecture: not complete
+- application bootstrap/state ownership: not complete
 - final Home UX: not complete
 - backend: not started
 - real two-device pairing: not started
@@ -42,6 +44,14 @@ Goal: make the current local app clean enough that new product functionality doe
 - review `Message.isActive` as a domain projection of active-slot state;
 - preserve current repository/domain boundaries;
 - avoid introducing Redux, Zustand, React Query, MobX, or an event bus unless a demonstrated requirement appears.
+
+### Specific cleanup targets
+
+- Calendar currently lacks the same revision/invalidation path used by other message-dependent screens.
+- History filtering should eventually be represented by an explicit domain/application concept rather than duplicated screen predicates.
+- The Home-only development test runner should be removed; native integration tests belong in the dedicated developer/test surface.
+- The three-day stale Home rule needs a testable application/domain representation rather than remaining purely a UI condition.
+- Keep the `Message.isActive` projection only if it remains useful at the application boundary; do not duplicate active-state truth in persistence.
 
 ### Review requirements
 
