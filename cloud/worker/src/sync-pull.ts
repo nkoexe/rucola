@@ -36,17 +36,11 @@ function parseLimit(value: string | null): number | null {
   return parsed;
 }
 
-function normalizeCiphertext(
-  value: string | number[] | Uint8Array | ArrayBuffer,
-): string {
+function normalizeCiphertext(value: string | number[] | Uint8Array | ArrayBuffer): string {
   if (typeof value === "string") return value;
   if (Array.isArray(value)) return new TextDecoder().decode(Uint8Array.from(value));
-  if (ArrayBuffer.isView(value)) {
-    return new TextDecoder().decode(new Uint8Array(value.buffer, value.byteOffset, value.byteLength));
-  }
-  if (Object.prototype.toString.call(value) === "[object ArrayBuffer]") {
-    return new TextDecoder().decode(new Uint8Array(value as ArrayBuffer));
-  }
+  if (ArrayBuffer.isView(value)) return new TextDecoder().decode(new Uint8Array(value.buffer, value.byteOffset, value.byteLength));
+  if (Object.prototype.toString.call(value) === "[object ArrayBuffer]") return new TextDecoder().decode(new Uint8Array(value as ArrayBuffer));
   throw new TypeError("Invalid ciphertext stored in mailbox");
 }
 
@@ -72,69 +66,44 @@ export async function pullMessages(env: Env, request: Request): Promise<Response
 
   const url = new URL(request.url);
   const after = parseSafeInteger(url.searchParams.get("after"));
-  if (after === null && url.searchParams.has("after")) {
-    return errorResponse("INVALID_CURSOR", "after must be a non-negative safe integer", 400);
-  }
-
+  if (after === null && url.searchParams.has("after")) return errorResponse("INVALID_CURSOR", "after must be a non-negative safe integer", 400);
   const limit = parseLimit(url.searchParams.get("limit"));
-  if (limit === null) {
-    return errorResponse("INVALID_LIMIT", `limit must be an integer between 1 and ${MAX_PULL_LIMIT}`, 400);
-  }
-
+  if (limit === null) return errorResponse("INVALID_LIMIT", `limit must be an integer between 1 and ${MAX_PULL_LIMIT}`, 400);
   const cursor = after ?? 0;
-
-  let relationship: { status: "PAIRING" | "ACTIVE" | "ENDED" } | null;
-  try {
-    relationship = await env.DB.prepare(
-      `SELECT status FROM relationships WHERE id = ?1`,
-    )
-      .bind(device.relationshipId)
-      .first<{ status: "PAIRING" | "ACTIVE" | "ENDED" }>();
-  } catch {
-    return errorResponse("DATABASE_UNAVAILABLE", "Relationship could not be read", 503);
-  }
-
-  if (!relationship || relationship.status !== "ACTIVE") {
-    return errorResponse("RELATIONSHIP_INACTIVE", "Relationship is not active", 409);
-  }
-
   const now = Date.now();
   const session = env.DB.withSession("first-primary");
-  let rows: MailboxRow[];
 
   try {
+    const relationship = await session.prepare(
+      `SELECT status FROM relationships WHERE id = ?1`,
+    ).bind(device.relationshipId).first<{ status: "PAIRING" | "ACTIVE" | "ENDED" }>();
+    if (!relationship || relationship.status !== "ACTIVE") {
+      return errorResponse("RELATIONSHIP_INACTIVE", "Relationship is not active", 409);
+    }
+
     const result = await session.prepare(
-      `SELECT message_id, sender_device_id, sender_participant, sender_seq,
-              client_created_at, server_seq, server_received_at, type, ciphertext,
-              encryption_version, media_upload_id
-       FROM mailbox_messages
-       WHERE relationship_id = ?1
-         AND server_seq > ?2
-         AND acknowledged_at IS NULL
-         AND expires_at > ?3
-       ORDER BY server_seq ASC
+      `SELECT m.message_id, m.sender_device_id, m.sender_participant, m.sender_seq,
+              m.client_created_at, m.server_seq, m.server_received_at, m.type, m.ciphertext,
+              m.encryption_version, m.media_upload_id
+       FROM mailbox_messages AS m
+       JOIN relationships AS r ON r.id = m.relationship_id AND r.status = 'ACTIVE'
+       WHERE m.relationship_id = ?1
+         AND m.server_seq > ?2
+         AND m.acknowledged_at IS NULL
+         AND m.expires_at > ?3
+       ORDER BY m.server_seq ASC
        LIMIT ?4`,
-    )
-      .bind(device.relationshipId, cursor, now, limit + 1)
-      .all<MailboxRow>();
+    ).bind(device.relationshipId, cursor, now, limit + 1).all<MailboxRow>();
 
-    rows = result.results;
-  } catch {
+    let rows = result.results;
+    const hasMore = rows.length > limit;
+    if (hasMore) rows = rows.slice(0, limit);
+    const nextCursor = rows.length > 0 ? rows[rows.length - 1]!.server_seq : cursor;
+    return json({ messages: rows.map(mapMessage), nextCursor, hasMore });
+  } catch (error) {
+    if (error instanceof TypeError && error.message === "Invalid ciphertext stored in mailbox") {
+      return errorResponse("INVALID_MAILBOX_DATA", "Mailbox contains invalid stored data", 500);
+    }
     return errorResponse("DATABASE_UNAVAILABLE", "Mailbox could not be read", 503);
-  }
-
-  const hasMore = rows.length > limit;
-  if (hasMore) rows = rows.slice(0, limit);
-
-  const nextCursor = rows.length > 0 ? rows[rows.length - 1]!.server_seq : cursor;
-
-  try {
-    return json({
-      messages: rows.map(mapMessage),
-      nextCursor,
-      hasMore,
-    });
-  } catch {
-    return errorResponse("INVALID_MAILBOX_DATA", "Mailbox contains invalid stored data", 500);
   }
 }
