@@ -46,3 +46,4 @@ local.properties
 *.p12
 *.pem
 *.key
+node_modules
