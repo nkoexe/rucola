@@ -1,6 +1,6 @@
 # Cloud Sync Hardening
 
-This document records security and correctness findings from the cloud synchronization audit. Current protocol behavior belongs in `docs/CLOUD_ARCHITECTURE.md`; this file explains the hardening work and the remaining decisions.
+This document records security, correctness and operational hardening for the production cloud synchronization backend. Current protocol behavior belongs in `docs/CLOUD_ARCHITECTURE.md`; this file tracks hardening status and remaining implementation work.
 
 ## Current status
 
@@ -18,31 +18,56 @@ This document records security and correctness findings from the cloud synchroni
 - expiry/cursor-gap coverage
 - sender-device binding for legacy mailbox retry classification
 
-### Pending
+### Locked decisions
 
-- sender retry guarantee and receipt retention window
-- final media upload/completion API
-- R2 integration
-- media cleanup policy and scheduled cleanup
-- obsolete `mailbox_messages.acknowledged_at` removal after protocol confirmation
-- production migration/backfill policy for pre-receipt mailbox data
-- final full worker validation after the remaining protocol work
+#### Finite retry guarantee
+
+The production cloud deliberately has finite retention:
+
+- unacknowledged mailbox messages: **14-day delivery/retry window**;
+- durable message receipts: **30 days after acceptance**;
+- no indefinite message-idempotency guarantee.
+
+Cleanup must not remove state before the corresponding guarantee expires.
+
+#### Media limits
+
+Initial production transport limits are:
+
+- images: **20 MB**;
+- videos: **100 MB**.
+
+Cropping, rounded corners, 4:3/1:1 framing and other presentation behavior are client UI concerns.
+
+#### E2E encryption timing
+
+The backend currently operates on opaque payloads and deliberately does not finalize the cryptographic protocol. Synchronization, media and retry semantics are stabilized first; the final E2E layer is added afterward.
+
+#### Production posture
+
+`cloud/research` is the implementation branch for the actual production backend. Hardening therefore includes operational concerns rather than only prototype correctness: abuse/rate limiting, observability, migration safety, secret handling, cleanup/recovery and bounded resource usage.
+
+## Remaining implementation / hardening
+
+- final media upload/completion API;
+- R2 integration;
+- scheduled media cleanup;
+- production rate limits beyond pairing bootstrap;
+- operational metrics and structured error visibility;
+- migration/backfill policy for pre-receipt mailbox data;
+- obsolete `mailbox_messages.acknowledged_at` removal after protocol confirmation;
+- legacy `sync.ts` removal once the durable path is fully validated;
+- final full worker validation after media/R2 implementation.
 
 ## Durable message receipts
 
-The mailbox is intentionally temporary, but message identity must survive mailbox deletion long enough to make sender retries safe. `message_receipts` therefore stores synchronization metadata plus a SHA-256 digest of opaque ciphertext.
+The mailbox is intentionally temporary, but message identity must survive mailbox deletion long enough to make sender retries safe. `message_receipts` stores synchronization metadata plus a SHA-256 digest of opaque ciphertext.
 
-It preserves:
-
-- relationship + message identity
-- sender device + sender sequence
-- immutable message metadata
-- ciphertext digest
-- original server sequence and acceptance timestamp
+It preserves relationship/message identity, sender device/sequence, immutable message metadata, ciphertext digest, and the original server sequence and acceptance timestamp.
 
 Push acceptance creates the receipt and mailbox row in the same D1 transaction. A retry after mailbox ACK can therefore recover the original server sequence without creating a duplicate message.
 
-Receipt cleanup is intentionally blocked until the sender retry guarantee is explicitly defined.
+Receipt cleanup must respect the 30-day retention guarantee and coordinate with media cleanup.
 
 ## Database acceptance invariants
 
@@ -56,17 +81,13 @@ Critical acceptance invariants are enforced at the SQLite boundary:
 
 This prevents application-level success from diverging from database state if an expected state transition affects zero rows.
 
-## Pull authorization
+## Pull and ACK
 
-Mailbox pull checks relationship state through a sequentially consistent D1 session and requires an ACTIVE relationship in the mailbox query. A terminated relationship therefore cannot continue normal mailbox reads.
+Pull is non-destructive and authenticated. It uses a relationship-wide high-water cursor, so expired messages may create gaps.
 
-## ACK lifecycle
+ACK is the recipient's durability boundary. A client must persist messages locally before acknowledging them. For media messages, the referenced media must also be locally durable.
 
-ACK validation and destructive deletion use the same D1 session. The DELETE independently requires an ACTIVE relationship, preventing an ACK from deleting mailbox data after termination.
-
-Repeated ACKs are idempotent. Concurrent ACKs are tested so their combined deletion cannot exceed the requested high-water mark.
-
-ACK is the recipient's durability boundary: the client must persist messages locally before acknowledging them. For media messages, the referenced media must also be locally durable.
+ACK validation and destructive deletion use the same D1 session, and the destructive statement independently requires an ACTIVE relationship. Repeated ACKs are idempotent and concurrent ACKs are tested.
 
 ## Cursor and expiry semantics
 
@@ -78,7 +99,7 @@ A client must tolerate gaps and advance using the highest returned server sequen
 
 The current media lifecycle contract is documented separately in `docs/MEDIA_LIFECYCLE.md`.
 
-The important invariant is that mailbox pull and ACK are not media deletion events. Media cleanup must follow the sender retry and recipient durability guarantees and must be safe to retry after crashes.
+The important invariant is that mailbox pull and ACK are not media deletion events. Media cleanup must follow the sender retry and recipient durability guarantees and be safe to retry after crashes.
 
 ## Migration/backfill note
 
