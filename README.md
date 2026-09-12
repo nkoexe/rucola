@@ -6,9 +6,9 @@ Rucola is a tiny private mobile mailbox for two people in a long-distance relati
 
 It is intentionally **not a chat app**. Each person has one active message; sending a new message moves their previous active message into permanent local history.
 
-## Current implementation
+## Current state
 
-The active development branch is `migration/react-native` and uses:
+The app is being built with:
 
 - Expo + React Native + TypeScript
 - Android development builds / Expo prebuild
@@ -17,22 +17,21 @@ The active development branch is `migration/react-native` and uses:
 - `expo-video` for local video playback
 - a domain/use-case layer over the repository boundary
 
-The current prototype supports:
+The local prototype currently supports:
 
-- local onboarding with partner name, own name, and optional together-since date;
-- partner active-message home screen;
-- local text messages;
-- local emoji messages;
+- onboarding with partner name, own name, and optional together-since date;
+- one active message per participant;
+- local text and emoji messages;
 - local photo/video selection and camera capture;
-- durable local media references;
+- durable app-owned media;
 - photo/video messages with optional captions;
 - immutable message history;
 - month/date calendar browsing;
-- local-data reset including owned media cleanup.
+- local reset including owned-media cleanup.
 
 Drawing is still a placeholder. Real two-device pairing, backend synchronization, notifications, widgets, and E2E encryption are not implemented yet.
 
-The UI is intentionally barebones during this phase. Detailed Figma implementation will happen after the functional feature set is stable.
+The UI is intentionally barebones while the functional local app is being completed. Detailed Figma implementation comes afterward.
 
 ## Architecture
 
@@ -47,7 +46,7 @@ RucolaRepository interface
         ↓
 SQLite repository
         ↓
-expo-sqlite
+expo-sqlite + app-owned media
 
 future:
 sync engine → temporary backend/mailbox
@@ -55,12 +54,15 @@ sync engine → temporary backend/mailbox
 
 Local SQLite is the source of truth for history. A future server is a temporary mailbox, not a cloud archive.
 
+## Documentation
+
 Read these before substantial changes:
 
-- [`AGENTS.md`](AGENTS.md) — engineering/product constraints
+- [`AGENTS.md`](AGENTS.md) — engineering and product constraints
 - [`docs/PRODUCT.md`](docs/PRODUCT.md) — product behavior and MVP scope
 - [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — local-first architecture and sync invariants
-- [`docs/REACT_NATIVE_MIGRATION.md`](docs/REACT_NATIVE_MIGRATION.md) — migration status and next phases
+- [`docs/REACT_NATIVE_MIGRATION.md`](docs/REACT_NATIVE_MIGRATION.md) — migration status and development roadmap
+- [`src/data/README.md`](src/data/README.md) — native SQLite integration-test coverage
 
 ## Development
 
@@ -94,7 +96,9 @@ Run Android:
 npm run android
 ```
 
-The project is intended to use an Expo development build rather than Expo Go because future features require native capabilities.
+The project uses an Expo development build rather than Expo Go because native capabilities are required.
+
+The native SQLite integration suite is available through the development-only integration test screen and uses disposable databases.
 
 ## Design
 
@@ -104,4 +108,6 @@ Figma is the visual reference for the later UI pass.
 
 ## Git workflow
 
-Develop on `migration/react-native` or a focused feature branch. Keep commits small and reviewable and never develop directly on `main`.
+`main` is the stable baseline. Ongoing implementation happens on `migration/react-native` or a focused feature branch and is merged back to `main` at meaningful milestones.
+
+Keep commits small and reviewable. Never commit generated secrets, local databases, or machine-specific build artifacts.
