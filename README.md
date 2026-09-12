@@ -29,40 +29,22 @@ The local prototype currently supports:
 - month/date calendar browsing;
 - local reset including owned-media cleanup.
 
-Drawing is still unimplemented. Real two-device pairing, backend synchronization, notifications, widgets, and E2E encryption are not implemented yet.
+Drawing is still unimplemented. Real five-emoji two-device pairing, backend synchronization, notifications, widgets, and E2E encryption are not implemented yet.
 
 The UI is intentionally barebones while the functional local app is being completed. Detailed Figma implementation comes afterward.
 
-## Architecture
-
-```text
-React Native screens/components
-        ↓
-presentation state/hooks
-        ↓
-domain use cases
-        ↓
-RucolaRepository interface
-        ↓
-SQLite repository
-        ↓
-expo-sqlite + app-owned media
-
-future:
-sync engine → temporary backend/mailbox
-```
-
-Local SQLite is the source of truth for history. A future server is a temporary mailbox, not a cloud archive.
-
 ## Documentation
 
-Read these before substantial changes:
+Use these documents as the current sources of truth:
 
-- [`AGENTS.md`](AGENTS.md) — engineering and product constraints
-- [`docs/PRODUCT.md`](docs/PRODUCT.md) — product behavior and MVP scope
-- [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — local-first architecture and sync invariants
-- [`docs/REACT_NATIVE_MIGRATION.md`](docs/REACT_NATIVE_MIGRATION.md) — migration status and next-phase roadmap
+- [`AGENTS.md`](AGENTS.md) — engineering constraints and development workflow
+- [`docs/PRODUCT_SPEC.md`](docs/PRODUCT_SPEC.md) — product behavior, scope, and UX direction
+- [`docs/DEVELOPMENT_ROADMAP.md`](docs/DEVELOPMENT_ROADMAP.md) — phased implementation plan and milestones
+- [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — application architecture and persistence/synchronization invariants
+- [`docs/REACT_NATIVE_MIGRATION.md`](docs/REACT_NATIVE_MIGRATION.md) — historical migration record
 - [`src/data/README.md`](src/data/README.md) — native SQLite integration-test coverage
+
+`docs/PRODUCT_SPEC.md` replaces the older `docs/PRODUCT.md`; the latter is intentionally no longer maintained.
 
 ## Development
 
