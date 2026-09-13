@@ -2,7 +2,7 @@ import { authenticateDevice } from "./auth";
 import { databaseHealthy, checkSchema } from "./db";
 import { errorResponse, json, methodNotAllowed } from "./http";
 import { acceptInvitation, bootstrapPairing, createInvitation } from "./pairing";
-import { createMediaReservation } from "./media";
+import { createMediaReservation, uploadMedia } from "./media";
 import { pullMessages } from "./sync-pull";
 import { acknowledgeMessages } from "./sync-ack";
 import { pushMessageDurable } from "./sync-durable";
@@ -98,6 +98,11 @@ export default {
     if (url.pathname === "/v1/media/create") {
       if (request.method !== "POST") return methodNotAllowed(["POST", "OPTIONS"]);
       return createMediaReservation(env, request);
+    }
+    const mediaUploadMatch = url.pathname.match(/^\/v1\/media\/([^/]+)$/);
+    if (mediaUploadMatch) {
+      if (request.method !== "PUT") return methodNotAllowed(["PUT", "OPTIONS"]);
+      return uploadMedia(env, request, mediaUploadMatch[1]);
     }
     if (url.pathname === "/v1/sync/push") {
       if (request.method !== "POST") return methodNotAllowed(["POST", "OPTIONS"]);
