@@ -53,7 +53,7 @@ A `PHOTO_VIDEO` message must reference an upload whose media type is `PHOTO` or 
 
 Pulling a mailbox message never changes media state and never deletes the R2 object.
 
-The receiver must durably persist both the encrypted message and its referenced media before ACKing through that server sequence. ACK deletes mailbox rows only; it does not itself delete media.
+The receiver must durably persist both the encrypted message and its referenced media before ACKing through that server sequence. ACK deletes mailbox rows and marks their durable receipts acknowledged; it does not itself delete media.
 
 This separation is intentional: mailbox deletion is not proof that the receiver has durable media unless the receiver follows the protocol's durability boundary.
 
@@ -64,12 +64,13 @@ A durable message receipt survives mailbox deletion and preserves the original `
 The production retry contract is finite:
 
 - unacknowledged mailbox messages have a **14-day delivery/retry window**;
-- durable message receipts are retained for **30 days after acceptance**;
+- acknowledged durable receipts are retained for **30 days after acceptance**;
+- an unacknowledged receipt records the delivery expiry and becomes a retry-expired tombstone rather than silently creating a second acceptance;
 - there is no indefinite retry or idempotency guarantee.
 
 Media cleanup must account for both windows. A still-retriable accepted message must not lose the state needed to fulfill its documented guarantee.
 
-Because receipts currently reference `media_uploads` with `ON DELETE RESTRICT`, media metadata cannot be deleted while a retained receipt references it. Any cleanup implementation must account for this dependency.
+Because receipts reference `media_uploads` with `ON DELETE RESTRICT`, media metadata cannot be deleted while a retained receipt references it. Any cleanup implementation must account for this dependency.
 
 ## Cleanup
 
@@ -80,7 +81,7 @@ Safe cleanup candidates include:
 - expired `PENDING` uploads that were never completed;
 - `ABANDONED` uploads after their retention window;
 - expired `READY` uploads that were never attached;
-- `ATTACHED` uploads only after the message retry/receipt retention contract allows removal.
+- `ATTACHED` uploads only after the associated receipt retention period expires.
 
 Cleanup must be:
 
@@ -107,7 +108,7 @@ The final end-to-end encryption protocol is intentionally deferred until the tra
 3. Add upload lifecycle tests for retries, ownership, expiry, size/type limits and state transitions.
 4. Implement R2-backed upload completion.
 5. Integrate attachment with durable message acceptance.
-6. Implement scheduled cleanup only after the retention contract is covered by tests.
+6. Implement scheduled receipt/media cleanup only after the retention contract is covered by tests.
 7. Add operational metrics/logging and failure recovery.
 8. Connect the React Native sync engine.
 9. Add the final E2E encryption layer after the transport/storage contract is stable.
