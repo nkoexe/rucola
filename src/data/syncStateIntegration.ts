@@ -34,7 +34,39 @@ export async function runSyncStateIntegrationTests(db: SQLite.SQLiteDatabase): P
   assertEqual((await repository.getMessages()).find((message) => message.id === first.id)?.syncState, 'FAILED', 'Failed message state must persist');
   await store.markSynced(second.id);
   assertEqual((await repository.getMessages()).find((message) => message.id === second.id)?.syncState, 'SYNCED', 'Synced message state must persist');
-  assertEqual(await store.getPullCursor(), 0, 'Initial pull cursor should remain zero before advancement');
+
+  await assertRejects(
+    () => store.commitInbound([
+      { id: 'remote-1', type: 'TEXT', body: 'hello', createdAt: 1_000, serverSeq: 1 },
+      { id: 'remote-2', type: 'TEXT', body: '', createdAt: 1_001, serverSeq: 2 },
+    ], 2),
+    'Invalid inbound batches must fail before changing local state',
+  );
+  assertEqual(await store.getPullCursor(), 0, 'Failed inbound transaction must not advance the cursor');
+  assertEqual((await repository.getMessages()).some((message) => message.id === 'remote-1'), false, 'Failed inbound transaction must not partially insert messages');
+
+  await store.commitInbound([
+    { id: 'remote-1', type: 'TEXT', body: 'hello', createdAt: 1_000, serverSeq: 1 },
+    { id: 'remote-2', type: 'EMOJI', body: '♡', createdAt: 1_001, serverSeq: 2 },
+  ], 2, 2_000);
+  assertEqual(await store.getPullCursor(), 2, 'Successful inbound transaction must advance the cursor');
+  const inbound = await repository.getMessages();
+  assertEqual(inbound.find((message) => message.id === 'remote-1')?.syncState, 'SYNCED', 'Inbound messages must be marked synced');
+  assertEqual(inbound.find((message) => message.id === 'remote-2')?.isActive, true, 'Newest inbound partner message must become active');
+
+  await store.commitInbound([
+    { id: 'remote-1', type: 'TEXT', body: 'hello', createdAt: 1_000, serverSeq: 1 },
+    { id: 'remote-2', type: 'EMOJI', body: '♡', createdAt: 1_001, serverSeq: 2 },
+  ], 2, 3_000);
+  assertEqual((await repository.getMessages()).filter((message) => message.id.startsWith('remote-')).length, 2, 'Replaying an already committed inbound batch must be idempotent');
+
+  await assertRejects(
+    () => store.commitInbound([{ id: 'remote-1', type: 'TEXT', body: 'tampered', createdAt: 1_000, serverSeq: 1 }], 2),
+    'Inbound message identity conflicts must be rejected',
+  );
+  assertEqual((await repository.getMessages()).find((message) => message.id === 'remote-1')?.body, 'hello', 'Conflicting inbound data must not overwrite local data');
+
+  assertEqual(await store.getPullCursor(), 2, 'Pull cursor should remain unchanged after rejected inbound data');
   await store.advancePullCursor(41);
   assertEqual(await store.getPullCursor(), 41, 'Pull cursor should advance durably');
   await store.advancePullCursor(41);
