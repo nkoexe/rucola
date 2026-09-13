@@ -100,6 +100,34 @@ export async function pullMessages(env: Env, request: Request): Promise<Response
     const hasMore = rows.length > limit;
     if (hasMore) rows = rows.slice(0, limit);
     const nextCursor = rows.length > 0 ? rows[rows.length - 1]!.server_seq : cursor;
+
+    if (rows.length > 0) {
+      const deliveredAt = Date.now();
+      const delivery = await env.DB.prepare(
+        `UPDATE message_receipts
+         SET delivered_to_device_id = ?1,
+             delivered_at = ?2
+         WHERE relationship_id = ?3
+           AND server_seq > ?4
+           AND server_seq <= ?5
+           AND sender_device_id != ?1
+           AND acknowledged_at IS NULL
+           AND EXISTS (
+             SELECT 1 FROM mailbox_messages AS m
+             WHERE m.relationship_id = message_receipts.relationship_id
+               AND m.message_id = message_receipts.message_id
+               AND m.server_seq = message_receipts.server_seq
+               AND m.sender_device_id = message_receipts.sender_device_id
+               AND m.acknowledged_at IS NULL
+               AND m.expires_at > ?2
+           )`,
+      ).bind(device.id, deliveredAt, device.relationshipId, cursor, nextCursor).run();
+
+      if ((delivery.meta.changes ?? 0) !== rows.length) {
+        return errorResponse("DATABASE_UNAVAILABLE", "Mailbox delivery state could not be recorded", 503);
+      }
+    }
+
     return json({ messages: rows.map(mapMessage), nextCursor, hasMore });
   } catch (error) {
     if (error instanceof TypeError && error.message === "Invalid ciphertext stored in mailbox") {
