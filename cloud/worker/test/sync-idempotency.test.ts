@@ -82,11 +82,12 @@ describe("durable message idempotency", () => {
       .bind(me.relationshipId, message.messageId)
       .first<{ count: number }>();
     const receipt = await env.DB
-      .prepare("SELECT server_seq FROM message_receipts WHERE relationship_id = ?1 AND message_id = ?2")
+      .prepare("SELECT server_seq, acknowledged_at FROM message_receipts WHERE relationship_id = ?1 AND message_id = ?2")
       .bind(me.relationshipId, message.messageId)
-      .first<{ server_seq: number }>();
+      .first<{ server_seq: number; acknowledged_at: number | null }>();
     expect(mailbox?.count).toBe(0);
     expect(receipt?.server_seq).toBe(firstBody.serverSeq);
+    expect(receipt?.acknowledged_at).not.toBeNull();
 
     const retry = await exports.default.fetch(
       "https://rucola.test/v1/sync/push",
