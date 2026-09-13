@@ -42,17 +42,29 @@ export async function runSyncStateIntegrationTests(db: SQLite.SQLiteDatabase): P
     ], 2),
     'Invalid inbound batches must fail before changing local state',
   );
-  assertEqual(await store.getPullCursor(), 0, 'Failed inbound transaction must not advance the cursor');
-  assertEqual((await repository.getMessages()).some((message) => message.id === 'remote-1'), false, 'Failed inbound transaction must not partially insert messages');
+  assertEqual(await store.getPullCursor(), 0, 'Failed inbound validation must not advance the cursor');
+  assertEqual((await repository.getMessages()).some((message) => message.id === 'remote-1'), false, 'Failed inbound validation must not insert messages');
 
   await store.commitInbound([
     { id: 'remote-1', type: 'TEXT', body: 'hello', createdAt: 1_000, serverSeq: 1 },
     { id: 'remote-2', type: 'EMOJI', body: '♡', createdAt: 1_001, serverSeq: 2 },
   ], 2, 2_000);
   assertEqual(await store.getPullCursor(), 2, 'Successful inbound transaction must advance the cursor');
-  const inbound = await repository.getMessages();
+  let inbound = await repository.getMessages();
   assertEqual(inbound.find((message) => message.id === 'remote-1')?.syncState, 'SYNCED', 'Inbound messages must be marked synced');
   assertEqual(inbound.find((message) => message.id === 'remote-2')?.isActive, true, 'Newest inbound partner message must become active');
+
+  await assertRejects(
+    () => store.commitInbound([
+      { id: 'remote-3', type: 'TEXT', body: 'must roll back', createdAt: 1_002, serverSeq: 3 },
+      { id: 'remote-1', type: 'TEXT', body: 'tampered', createdAt: 1_000, serverSeq: 4 },
+    ], 4),
+    'A conflict after a new inbound insert must roll back the whole transaction',
+  );
+  inbound = await repository.getMessages();
+  assertEqual(inbound.some((message) => message.id === 'remote-3'), false, 'Rolled-back inbound transaction must remove earlier inserts');
+  assertEqual(inbound.find((message) => message.id === 'remote-1')?.body, 'hello', 'Rolled-back conflict must preserve existing data');
+  assertEqual(await store.getPullCursor(), 2, 'Rolled-back inbound transaction must preserve the old cursor');
 
   await store.commitInbound([
     { id: 'remote-1', type: 'TEXT', body: 'hello', createdAt: 1_000, serverSeq: 1 },
