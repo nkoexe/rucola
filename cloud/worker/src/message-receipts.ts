@@ -22,6 +22,9 @@ interface ReceiptRow {
   media_upload_id: string | null;
   server_seq: number;
   server_received_at: number;
+  delivery_expires_at: number | null;
+  retention_expires_at: number | null;
+  acknowledged_at: number | null;
 }
 
 async function sha256Hex(bytes: Uint8Array): Promise<string> {
@@ -61,12 +64,14 @@ export async function classifyDurableReceipt(
   env: Env,
   device: AuthenticatedDevice,
   message: ReceiptMessage,
+  now = Date.now(),
 ): Promise<Response | null> {
   const ciphertextHash = await messageCiphertextHash(message);
   const existing = await env.DB.prepare(
     `SELECT message_id, sender_device_id, sender_seq, type, ciphertext_hash,
             encryption_version, client_created_at, media_upload_id,
-            server_seq, server_received_at
+            server_seq, server_received_at, delivery_expires_at,
+            retention_expires_at, acknowledged_at
      FROM message_receipts
      WHERE relationship_id = ?1 AND message_id = ?2`,
   )
@@ -74,8 +79,19 @@ export async function classifyDurableReceipt(
     .first<ReceiptRow>();
 
   if (existing) {
-    if (sameReceiptPayload(existing, device, message, ciphertextHash)) return successFromReceipt(message, existing);
-    return errorResponse("MESSAGE_ID_CONFLICT", "Message ID is already assigned to different content", 409);
+    if (!sameReceiptPayload(existing, device, message, ciphertextHash)) {
+      return errorResponse("MESSAGE_ID_CONFLICT", "Message ID is already assigned to different content", 409);
+    }
+
+    // An acknowledged receipt is the durable retry/idempotency record. An
+    // unacknowledged receipt only guarantees delivery while its mailbox
+    // delivery window remains open. After that window, never resurrect the
+    // message as a new mailbox entry under the same message identity.
+    if (existing.acknowledged_at === null && existing.delivery_expires_at !== null && now >= existing.delivery_expires_at) {
+      return errorResponse("MESSAGE_RETRY_EXPIRED", "Message delivery retry window has expired", 409);
+    }
+
+    return successFromReceipt(message, existing);
   }
 
   const senderSequence = await env.DB.prepare(
