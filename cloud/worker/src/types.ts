@@ -1,6 +1,5 @@
 export interface Env {
   DB: D1Database;
-  MEDIA: R2Bucket;
   PAIRING_BOOTSTRAP_LIMITER: RateLimit;
 }
 
