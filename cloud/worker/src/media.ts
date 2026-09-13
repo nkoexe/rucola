@@ -135,6 +135,26 @@ function maxBytes(type: ReservationType): number {
   return type === "PHOTO" ? MAX_PHOTO_BYTES : MAX_VIDEO_BYTES;
 }
 
+function checksumBytes(hex: string): ArrayBuffer {
+  const bytes = new Uint8Array(hex.length / 2);
+  for (let index = 0; index < bytes.length; index += 1) {
+    bytes[index] = Number.parseInt(hex.slice(index * 2, index * 2 + 2), 16);
+  }
+  return bytes.buffer;
+}
+
+function checksumHex(value: ArrayBuffer | ArrayBufferView): string {
+  const bytes = value instanceof ArrayBuffer
+    ? new Uint8Array(value)
+    : new Uint8Array(value.buffer, value.byteOffset, value.byteLength);
+  return Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+
+function sameSha256(object: R2Object, expected: string): boolean {
+  const actual = object.checksums?.sha256;
+  return actual ? checksumHex(actual).toLowerCase() === expected : false;
+}
+
 async function getOwnedUpload(
   env: Env,
   device: AuthenticatedDevice,
@@ -154,12 +174,6 @@ async function getOwnedUpload(
 
 function removeObjectBestEffort(env: Env, objectKey: string): Promise<void> {
   return env.MEDIA_BUCKET.delete(objectKey).catch(() => undefined);
-}
-
-function sameSha256(object: R2Object, expected: string): boolean {
-  const actual = object.checksums?.sha256;
-  if (!actual) return false;
-  return Array.from(new Uint8Array(actual), (byte) => byte.toString(16).padStart(2, "0")).join("") === expected;
 }
 
 export async function createMediaReservation(env: Env, request: Request): Promise<Response> {
@@ -296,7 +310,7 @@ export async function uploadMedia(env: Env, request: Request, uploadId: string):
     stored = await env.MEDIA_BUCKET.put(upload.object_key, boundedStream, {
       httpMetadata: { contentType: upload.declared_mime },
       customMetadata: { uploadId: upload.id },
-      ...(upload.checksum === null ? {} : { sha256: upload.checksum }),
+      ...(upload.checksum === null ? {} : { sha256: checksumBytes(upload.checksum) }),
     });
   } catch {
     return errorResponse("MEDIA_UPLOAD_FAILED", "Media upload could not be stored", 502);
