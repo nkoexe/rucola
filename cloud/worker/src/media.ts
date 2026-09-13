@@ -1,6 +1,6 @@
 import { authenticateDevice } from "./auth";
 import { errorResponse, json } from "./http";
-import type { Env } from "./types";
+import type { AuthenticatedDevice, Env } from "./types";
 
 const MAX_JSON_BODY_BYTES = 16 * 1024;
 const MAX_PHOTO_BYTES = 20 * 1024 * 1024;
@@ -30,6 +30,18 @@ interface CreateMediaRequest {
   mime?: unknown;
   size?: unknown;
   checksum?: unknown;
+}
+
+interface MediaUploadRow {
+  id: string;
+  relationship_id: string;
+  created_by_device_id: string;
+  object_key: string;
+  media_type: ReservationType;
+  declared_mime: string;
+  size_bytes: number;
+  status: "PENDING" | "READY" | "ATTACHED" | "ABANDONED";
+  expires_at: number;
 }
 
 function utf8ByteLength(value: string): number {
@@ -79,8 +91,7 @@ function parseSize(value: unknown): number | null {
 }
 
 function parseChecksum(value: unknown): string | null | undefined {
-  if (value === undefined) return null;
-  if (value === null) return null;
+  if (value === undefined || value === null) return null;
   if (typeof value !== "string" || !/^[0-9a-fA-F]{64}$/.test(value)) return undefined;
   return value.toLowerCase();
 }
@@ -91,6 +102,23 @@ function mimeAllowed(type: ReservationType, mime: string): boolean {
 
 function maxBytes(type: ReservationType): number {
   return type === "PHOTO" ? MAX_PHOTO_BYTES : MAX_VIDEO_BYTES;
+}
+
+async function getOwnedPendingUpload(
+  env: Env,
+  device: AuthenticatedDevice,
+  uploadId: string,
+): Promise<MediaUploadRow | null> {
+  return env.DB.prepare(
+    `SELECT id, relationship_id, created_by_device_id, object_key,
+            media_type, declared_mime, size_bytes, status, expires_at
+     FROM media_uploads
+     JOIN relationships ON relationships.id = media_uploads.relationship_id
+     WHERE media_uploads.id = ?1
+       AND media_uploads.relationship_id = ?2
+       AND media_uploads.created_by_device_id = ?3
+       AND relationships.status = 'ACTIVE'`,
+  ).bind(uploadId, device.relationshipId, device.id).first<MediaUploadRow>();
 }
 
 export async function createMediaReservation(env: Env, request: Request): Promise<Response> {
@@ -171,4 +199,71 @@ export async function createMediaReservation(env: Env, request: Request): Promis
     status: "PENDING",
     expiresAt,
   }, 201);
+}
+
+export async function uploadMedia(env: Env, request: Request, uploadId: string): Promise<Response> {
+  const device = await authenticateDevice(env, request);
+  if (!device) return errorResponse("UNAUTHENTICATED", "Valid device credentials are required", 401);
+
+  if (!/^[0-9a-f-]{36}$/i.test(uploadId)) {
+    return errorResponse("INVALID_UPLOAD_ID", "Invalid media upload ID", 400);
+  }
+
+  const contentType = request.headers.get("content-type")?.split(";", 1)[0]?.trim().toLowerCase();
+  if (!contentType) return errorResponse("INVALID_CONTENT_TYPE", "Content-Type is required", 400);
+
+  const upload = await getOwnedPendingUpload(env, device, uploadId);
+  if (!upload) return errorResponse("MEDIA_NOT_FOUND", "Media upload was not found", 404);
+
+  const now = Date.now();
+  if (upload.status !== "PENDING") {
+    return errorResponse("MEDIA_NOT_PENDING", "Media upload is no longer pending", 409);
+  }
+  if (now >= upload.expires_at) {
+    return errorResponse("MEDIA_EXPIRED", "Media upload has expired", 409);
+  }
+  if (contentType !== upload.declared_mime) {
+    return errorResponse("CONTENT_TYPE_MISMATCH", "Content-Type does not match the reservation", 400);
+  }
+
+  const contentLengthHeader = request.headers.get("content-length");
+  if (contentLengthHeader === null) {
+    return errorResponse("CONTENT_LENGTH_REQUIRED", "Content-Length is required", 411);
+  }
+  const contentLength = Number(contentLengthHeader);
+  if (!Number.isSafeInteger(contentLength) || contentLength !== upload.size_bytes) {
+    return errorResponse("MEDIA_SIZE_MISMATCH", "Content-Length does not match the reservation", 400);
+  }
+  if (!request.body) return errorResponse("INVALID_REQUEST", "Media request body required", 400);
+
+  let bytesSeen = 0;
+  const boundedStream = request.body.pipeThrough(
+    new TransformStream<Uint8Array, Uint8Array>({
+      transform(chunk, controller) {
+        bytesSeen += chunk.byteLength;
+        if (bytesSeen > upload.size_bytes) {
+          controller.error(new Error("media body exceeds reservation"));
+          return;
+        }
+        controller.enqueue(chunk);
+      },
+    }),
+  );
+
+  try {
+    await env.MEDIA_BUCKET.put(upload.object_key, boundedStream, {
+      httpMetadata: { contentType: upload.declared_mime },
+    });
+  } catch {
+    return errorResponse("MEDIA_UPLOAD_FAILED", "Media upload could not be stored", 502);
+  }
+
+  if (bytesSeen !== upload.size_bytes) {
+    return errorResponse("MEDIA_SIZE_MISMATCH", "Uploaded media size does not match the reservation", 400);
+  }
+
+  return json({
+    uploadId: upload.id,
+    status: "UPLOADED",
+  });
 }
