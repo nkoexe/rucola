@@ -2,66 +2,40 @@ import { env } from "cloudflare:workers";
 import { describe, expect, it } from "vitest";
 import { runCleanup } from "../src/cleanup";
 import { exports } from "cloudflare:workers";
-
 interface PairingBody { relationshipId: string; deviceId: string; credential: string; }
 async function json(response: Response): Promise<Record<string, unknown>> { return (await response.json()) as Record<string, unknown>; }
 let testId = 1200;
 async function bootstrapAndAccept(): Promise<{ me: PairingBody; partner: PairingBody }> {
-  testId += 1;
-  const bootstrapResponse = await exports.default.fetch("https://rucola.test/v1/pairing/bootstrap", { method: "POST", headers: { "content-type": "application/json", "cf-connecting-ip": `198.51.100.${((testId - 1) % 254) + 1}` }, body: JSON.stringify({ expiresInSeconds: 3600 }) });
-  expect(bootstrapResponse.status).toBe(201);
-  const me = (await json(bootstrapResponse)) as unknown as PairingBody & { token: string; confirmationCode: string };
+  testId += 1; const bootstrapResponse = await exports.default.fetch("https://rucola.test/v1/pairing/bootstrap", { method: "POST", headers: { "content-type": "application/json", "cf-connecting-ip": `198.51.100.${((testId - 1) % 254) + 1}` }, body: JSON.stringify({ expiresInSeconds: 3600 }) });
+  expect(bootstrapResponse.status).toBe(201); const me = (await json(bootstrapResponse)) as unknown as PairingBody & { token: string; confirmationCode: string };
   const acceptResponse = await exports.default.fetch("https://rucola.test/v1/pairing/accept", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ token: me.token, confirmationCode: me.confirmationCode }) });
-  expect(acceptResponse.status).toBe(201);
-  return { me, partner: (await json(acceptResponse)) as unknown as PairingBody };
+  expect(acceptResponse.status).toBe(201); return { me, partner: (await json(acceptResponse)) as unknown as PairingBody };
 }
-async function createMedia(credential: string): Promise<string> {
-  const response = await exports.default.fetch("https://rucola.test/v1/media/create", { method: "POST", headers: { authorization: `Bearer ${credential}`, "content-type": "application/json" }, body: JSON.stringify({ type: "PHOTO", mime: "image/png", size: 4 }) });
-  expect(response.status).toBe(201); return (await json(response)).uploadId as string;
-}
-async function uploadAndComplete(credential: string, uploadId: string): Promise<void> {
-  const uploadResponse = await exports.default.fetch(`https://rucola.test/v1/media/${uploadId}`, { method: "PUT", headers: { authorization: `Bearer ${credential}`, "content-type": "image/png", "content-length": "4" }, body: new Uint8Array([1, 2, 3, 4]) });
-  expect(uploadResponse.status).toBe(200);
-  const completeResponse = await exports.default.fetch(`https://rucola.test/v1/media/${uploadId}/complete`, { method: "POST", headers: { authorization: `Bearer ${credential}` } });
-  expect(completeResponse.status).toBe(200);
-}
+async function createMedia(credential: string): Promise<string> { const response = await exports.default.fetch("https://rucola.test/v1/media/create", { method: "POST", headers: { authorization: `Bearer ${credential}`, "content-type": "application/json" }, body: JSON.stringify({ type: "PHOTO", mime: "image/png", size: 4 }) }); expect(response.status).toBe(201); return (await json(response)).uploadId as string; }
+async function uploadAndComplete(credential: string, uploadId: string): Promise<void> { const uploadResponse = await exports.default.fetch(`https://rucola.test/v1/media/${uploadId}`, { method: "PUT", headers: { authorization: `Bearer ${credential}`, "content-type": "image/png", "content-length": "4" }, body: new Uint8Array([1, 2, 3, 4]) }); expect(uploadResponse.status).toBe(200); const completeResponse = await exports.default.fetch(`https://rucola.test/v1/media/${uploadId}/complete`, { method: "POST", headers: { authorization: `Bearer ${credential}` } }); expect(completeResponse.status).toBe(200); }
 
 describe("cleanup lifecycle", () => {
   it("removes an expired pending upload and its object", async () => {
-    const { me } = await bootstrapAndAccept(); const uploadId = await createMedia(me.credential);
-    const row = await env.DB.prepare("SELECT object_key, created_at FROM media_uploads WHERE id = ?").bind(uploadId).first<{ object_key: string; created_at: number }>();
-    expect(row).not.toBeNull(); await env.MEDIA_BUCKET.put(row!.object_key, new Uint8Array([1, 2, 3, 4]));
-    const expiredAt = row!.created_at + 1; await env.DB.prepare("UPDATE media_uploads SET expires_at = ? WHERE id = ?").bind(expiredAt, uploadId).run();
-    const result = await runCleanup(env);
+    const { me } = await bootstrapAndAccept(); const uploadId = await createMedia(me.credential); const row = await env.DB.prepare("SELECT object_key FROM media_uploads WHERE id = ?").bind(uploadId).first<{ object_key: string }>(); expect(row).not.toBeNull(); await env.MEDIA_BUCKET.put(row!.object_key, new Uint8Array([1, 2, 3, 4]));
+    const now = Date.now(); await env.DB.prepare("UPDATE media_uploads SET created_at = ?, expires_at = ? WHERE id = ?").bind(now - 1000, now - 1, uploadId).run(); const result = await runCleanup(env);
     expect(result.mediaObjectsDeleted).toBe(1); expect(await env.DB.prepare("SELECT id FROM media_uploads WHERE id = ?").bind(uploadId).first()).toBeNull(); expect(await env.MEDIA_BUCKET.head(row!.object_key)).toBeNull();
   });
-
   it("removes an expired pending upload even when its object is already missing", async () => {
-    const { me } = await bootstrapAndAccept(); const uploadId = await createMedia(me.credential);
-    const row = await env.DB.prepare("SELECT created_at FROM media_uploads WHERE id = ?").bind(uploadId).first<{ created_at: number }>();
-    expect(row).not.toBeNull(); const expiredAt = row!.created_at + 1;
-    await env.DB.prepare("UPDATE media_uploads SET expires_at = ? WHERE id = ?").bind(expiredAt, uploadId).run();
-    const result = await runCleanup(env);
+    const { me } = await bootstrapAndAccept(); const uploadId = await createMedia(me.credential); const now = Date.now(); await env.DB.prepare("UPDATE media_uploads SET created_at = ?, expires_at = ? WHERE id = ?").bind(now - 1000, now - 1, uploadId).run(); const result = await runCleanup(env);
     expect(result.mediaObjectsDeleted).toBe(1); expect(await env.DB.prepare("SELECT id FROM media_uploads WHERE id = ?").bind(uploadId).first()).toBeNull();
   });
-
   it("extends ready media into the cleanup lifecycle and removes it after ready expiry", async () => {
-    const { me } = await bootstrapAndAccept(); const uploadId = await createMedia(me.credential); await uploadAndComplete(me.credential, uploadId);
-    const row = await env.DB.prepare("SELECT object_key, created_at FROM media_uploads WHERE id = ?").bind(uploadId).first<{ object_key: string; created_at: number }>();
-    expect(row).not.toBeNull(); const expiredAt = row!.created_at + 1; await env.DB.prepare("UPDATE media_uploads SET expires_at = ? WHERE id = ?").bind(expiredAt, uploadId).run();
-    const result = await runCleanup(env); expect(result.mediaObjectsDeleted).toBe(1); expect(await env.DB.prepare("SELECT id FROM media_uploads WHERE id = ?").bind(uploadId).first()).toBeNull(); expect(await env.MEDIA_BUCKET.head(row!.object_key)).toBeNull();
+    const { me } = await bootstrapAndAccept(); const uploadId = await createMedia(me.credential); await uploadAndComplete(me.credential, uploadId); const row = await env.DB.prepare("SELECT object_key FROM media_uploads WHERE id = ?").bind(uploadId).first<{ object_key: string }>(); expect(row).not.toBeNull();
+    const now = Date.now(); await env.DB.prepare("UPDATE media_uploads SET created_at = ?, expires_at = ? WHERE id = ?").bind(now - 1000, now - 1, uploadId).run(); const result = await runCleanup(env);
+    expect(result.mediaObjectsDeleted).toBe(1); expect(await env.DB.prepare("SELECT id FROM media_uploads WHERE id = ?").bind(uploadId).first()).toBeNull(); expect(await env.MEDIA_BUCKET.head(row!.object_key)).toBeNull();
   });
-
   it("keeps attached media while its durable receipt is retained", async () => {
-    const { me } = await bootstrapAndAccept(); const uploadId = await createMedia(me.credential); await uploadAndComplete(me.credential, uploadId); const now = Date.now();
-    await env.DB.prepare("UPDATE media_uploads SET status = 'ATTACHED', attached_at = ? WHERE id = ?").bind(now, uploadId).run();
+    const { me } = await bootstrapAndAccept(); const uploadId = await createMedia(me.credential); await uploadAndComplete(me.credential, uploadId); const now = Date.now(); await env.DB.prepare("UPDATE media_uploads SET status = 'ATTACHED', attached_at = ? WHERE id = ?").bind(now, uploadId).run();
     await env.DB.prepare(`INSERT INTO message_receipts (relationship_id, message_id, sender_device_id, sender_seq, type, ciphertext_hash, encryption_version, client_created_at, media_upload_id, server_seq, server_received_at, created_at, delivery_expires_at, retention_expires_at, acknowledged_at) VALUES (?, ?, ?, 1, 'PHOTO_VIDEO', ?, 1, ?, ?, 1, ?, ?, ?, ?, ?)`).bind(me.relationshipId, `cleanup-${testId}`, me.deviceId, "0".repeat(64), now, uploadId, now, now, now + 1000, now + 100000, now).run();
     const result = await runCleanup(env, now + 2000); expect(result.expiredReceipts).toBe(0); expect(await env.DB.prepare("SELECT status FROM media_uploads WHERE id = ?").bind(uploadId).first<{ status: string }>()).toEqual({ status: "ATTACHED" }); expect(await env.DB.prepare("SELECT message_id FROM message_receipts WHERE media_upload_id = ?").bind(uploadId).first()).not.toBeNull();
   });
-
   it("releases attached media after receipt retention expires", async () => {
-    const { me } = await bootstrapAndAccept(); const uploadId = await createMedia(me.credential); await uploadAndComplete(me.credential, uploadId); const row = await env.DB.prepare("SELECT object_key FROM media_uploads WHERE id = ?").bind(uploadId).first<{ object_key: string }>(); expect(row).not.toBeNull(); const now = Date.now();
-    await env.DB.prepare("UPDATE media_uploads SET status = 'ATTACHED', attached_at = ? WHERE id = ?").bind(now, uploadId).run(); const messageId = `cleanup-retained-${testId}`;
+    const { me } = await bootstrapAndAccept(); const uploadId = await createMedia(me.credential); await uploadAndComplete(me.credential, uploadId); const row = await env.DB.prepare("SELECT object_key FROM media_uploads WHERE id = ?").bind(uploadId).first<{ object_key: string }>(); expect(row).not.toBeNull(); const now = Date.now(); await env.DB.prepare("UPDATE media_uploads SET status = 'ATTACHED', attached_at = ? WHERE id = ?").bind(now, uploadId).run(); const messageId = `cleanup-retained-${testId}`;
     await env.DB.prepare(`INSERT INTO message_receipts (relationship_id, message_id, sender_device_id, sender_seq, type, ciphertext_hash, encryption_version, client_created_at, media_upload_id, server_seq, server_received_at, created_at, delivery_expires_at, retention_expires_at, acknowledged_at) VALUES (?, ?, ?, 1, 'PHOTO_VIDEO', ?, 1, ?, ?, 1, ?, ?, ?, ?, ?)`).bind(me.relationshipId, messageId, me.deviceId, "0".repeat(64), now, uploadId, now, now, now - 1000, now, now).run();
     const result = await runCleanup(env, now); expect(result.expiredReceipts).toBe(1); expect(result.mediaObjectsDeleted).toBe(1); expect(await env.DB.prepare("SELECT message_id FROM message_receipts WHERE message_id = ?").bind(messageId).first()).toBeNull(); expect(await env.DB.prepare("SELECT id FROM media_uploads WHERE id = ?").bind(uploadId).first()).toBeNull(); expect(await env.MEDIA_BUCKET.head(row!.object_key)).toBeNull();
   });
