@@ -10,6 +10,7 @@ This document records security, correctness and operational hardening for the pr
 - bounded confirmation-code attempts and lockout
 - device-bound authentication
 - durable message receipts
+- explicit receipt delivery/ACK state
 - database-enforced message acceptance sequence invariant
 - database-enforced media attachment invariant
 - database-enforced media/message type compatibility
@@ -25,8 +26,10 @@ This document records security, correctness and operational hardening for the pr
 The production cloud deliberately has finite retention:
 
 - unacknowledged mailbox messages: **14-day delivery/retry window**;
-- durable message receipts: **30 days after acceptance**;
+- acknowledged durable message receipts: **30 days after acceptance**;
 - no indefinite message-idempotency guarantee.
+
+An unacknowledged receipt records the mailbox delivery expiry and becomes a retry-expired tombstone after that point. It must not silently resurrect an expired mailbox message as a new acceptance.
 
 Cleanup must not remove state before the corresponding guarantee expires.
 
@@ -51,7 +54,7 @@ The backend currently operates on opaque payloads and deliberately does not fina
 
 - final media upload/completion API;
 - R2 integration;
-- scheduled media cleanup;
+- scheduled receipt/media cleanup;
 - production rate limits beyond pairing bootstrap;
 - operational metrics and structured error visibility;
 - migration/backfill policy for pre-receipt mailbox data;
@@ -63,11 +66,15 @@ The backend currently operates on opaque payloads and deliberately does not fina
 
 The mailbox is intentionally temporary, but message identity must survive mailbox deletion long enough to make sender retries safe. `message_receipts` stores synchronization metadata plus a SHA-256 digest of opaque ciphertext.
 
-It preserves relationship/message identity, sender device/sequence, immutable message metadata, ciphertext digest, and the original server sequence and acceptance timestamp.
+It preserves relationship/message identity, sender device/sequence, immutable message metadata, ciphertext digest, the original server sequence and acceptance timestamp, plus:
 
-Push acceptance creates the receipt and mailbox row in the same D1 transaction. A retry after mailbox ACK can therefore recover the original server sequence without creating a duplicate message.
+- `delivery_expires_at` — the end of the 14-day mailbox delivery guarantee;
+- `acknowledged_at` — set atomically with mailbox deletion when the recipient crosses the durability boundary;
+- `retention_expires_at` — the end of the 30-day post-acceptance receipt retention period.
 
-Receipt cleanup must respect the 30-day retention guarantee and coordinate with media cleanup.
+Push acceptance creates the receipt and mailbox row in the same D1 transaction. A retry while delivery is still possible returns the original server sequence. A retry after an unacknowledged delivery window has expired returns `MESSAGE_RETRY_EXPIRED` rather than creating a second acceptance. A retry after ACK returns the original server sequence from the acknowledged receipt.
+
+Receipt cleanup must respect both delivery and retention semantics and coordinate with media cleanup.
 
 ## Database acceptance invariants
 
@@ -87,7 +94,7 @@ Pull is non-destructive and authenticated. It uses a relationship-wide high-wate
 
 ACK is the recipient's durability boundary. A client must persist messages locally before acknowledging them. For media messages, the referenced media must also be locally durable.
 
-ACK validation and destructive deletion use the same D1 session, and the destructive statement independently requires an ACTIVE relationship. Repeated ACKs are idempotent and concurrent ACKs are tested.
+Receipt acknowledgement and mailbox deletion are committed in the same D1 batch. This means a lost ACK response cannot lose the idempotency record, while a failed ACK cannot leave the receipt marked acknowledged without the mailbox deletion completing. Repeated ACKs remain idempotent and concurrent ACKs are tested.
 
 ## Cursor and expiry semantics
 
@@ -105,7 +112,7 @@ The important invariant is that mailbox pull and ACK are not media deletion even
 
 Durable receipts were introduced after the initial mailbox schema. Existing pre-migration mailbox rows do not have receipts. The push path therefore retains a legacy mailbox conflict check while such rows remain.
 
-Production deployment must either occur before real mailbox data exists or define an explicit backfill strategy.
+Migration `0005_receipt_delivery_state.sql` backfills delivery and retention timestamps for existing receipts. Production deployment must either occur before real mailbox data exists or define an explicit backfill strategy for any older mailbox rows.
 
 ## Obsolete state
 
