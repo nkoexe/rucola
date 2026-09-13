@@ -10,25 +10,8 @@ export interface LocalSyncState {
   pullCursor: number;
   updatedAt: number;
 }
-
-export interface PendingSyncMessage {
-  messageId: string;
-  senderSeq: number;
-  attempts: number;
-  lastError: string | null;
-  nextAttemptAt: number;
-  createdAt: number;
-}
-
-export interface InboundSyncMessage {
-  id: string;
-  type: MessageType;
-  body: string;
-  createdAt: number;
-  serverSeq: number;
-  mediaReference?: string | null;
-}
-
+export interface PendingSyncMessage { messageId: string; senderSeq: number; attempts: number; lastError: string | null; nextAttemptAt: number; createdAt: number; }
+export interface InboundSyncMessage { id: string; type: MessageType; body: string; createdAt: number; serverSeq: number; mediaReference?: string | null; }
 type SQLiteWriteContext = Pick<SQLiteDatabase, 'getFirstAsync' | 'getAllAsync' | 'runAsync'>;
 
 const DEFAULT_NEXT_SENDER_SEQ = 1;
@@ -38,20 +21,9 @@ const MAX_RETRY_DELAY_MS = 60 * 60 * 1_000;
 const BLOCKED_RETRY_AT = Number.MAX_SAFE_INTEGER;
 const MESSAGE_TYPES = new Set<MessageType>(['TEXT', 'EMOJI', 'PHOTO_VIDEO', 'DRAWING']);
 
-function mapState(row: { relationshipId: string; deviceId: string | null; participant: Participant | null; nextSenderSeq: number; pullCursor: number; updatedAt: number }): LocalSyncState {
-  return { ...row };
-}
-
-function retryDelay(attempts: number): number {
-  const exponent = Math.max(0, Math.min(attempts - 1, 10));
-  return Math.min(DEFAULT_RETRY_DELAY_MS * 2 ** exponent, MAX_RETRY_DELAY_MS);
-}
-
-function normalizeError(cause: unknown): string {
-  if (cause instanceof Error && cause.message.trim()) return cause.message.trim().slice(0, 500);
-  return String(cause).trim().slice(0, 500) || 'Unknown sync error';
-}
-
+function mapState(row: LocalSyncState): LocalSyncState { return { ...row }; }
+function retryDelay(attempts: number): number { const exponent = Math.max(0, Math.min(attempts - 1, 10)); return Math.min(DEFAULT_RETRY_DELAY_MS * 2 ** exponent, MAX_RETRY_DELAY_MS); }
+function normalizeError(cause: unknown): string { if (cause instanceof Error && cause.message.trim()) return cause.message.trim().slice(0, 500); return String(cause).trim().slice(0, 500) || 'Unknown sync error'; }
 function validateInboundMessage(message: InboundSyncMessage): void {
   const id = message.id.trim();
   if (!id) throw new Error('Inbound message ID is required.');
@@ -66,84 +38,50 @@ export class SQLiteSyncStateStore {
   constructor(private readonly db: SQLiteDatabase) {}
 
   async getState(): Promise<LocalSyncState> {
-    const row = await this.db.getFirstAsync<LocalSyncState>(
-      `SELECT relationshipId, deviceId, participant, nextSenderSeq, pullCursor, updatedAt FROM sync_state WHERE relationshipId = ?`,
-      RELATIONSHIP_ID,
-    );
+    const row = await this.db.getFirstAsync<LocalSyncState>('SELECT relationshipId, deviceId, participant, nextSenderSeq, pullCursor, updatedAt FROM sync_state WHERE relationshipId = ?', RELATIONSHIP_ID);
     if (row) return mapState(row);
     const now = Date.now();
-    await this.db.runAsync(
-      `INSERT INTO sync_state (relationshipId, deviceId, participant, nextSenderSeq, pullCursor, updatedAt) VALUES (?, NULL, NULL, ?, ?, ?)`,
-      RELATIONSHIP_ID, DEFAULT_NEXT_SENDER_SEQ, DEFAULT_PULL_CURSOR, now,
-    );
+    await this.db.runAsync('INSERT INTO sync_state (relationshipId, deviceId, participant, nextSenderSeq, pullCursor, updatedAt) VALUES (?, NULL, NULL, ?, ?, ?)', RELATIONSHIP_ID, DEFAULT_NEXT_SENDER_SEQ, DEFAULT_PULL_CURSOR, now);
     return { relationshipId: RELATIONSHIP_ID, deviceId: null, participant: null, nextSenderSeq: DEFAULT_NEXT_SENDER_SEQ, pullCursor: DEFAULT_PULL_CURSOR, updatedAt: now };
   }
 
   async setDevice(deviceId: string, participant: Participant): Promise<void> {
     const normalizedDeviceId = deviceId.trim();
     if (!normalizedDeviceId) throw new Error('A cloud device ID is required.');
-
     await this.withWrite(async (tx) => {
-      const existing = await tx.getFirstAsync<{ deviceId: string | null }>(
-        `SELECT deviceId FROM sync_state WHERE relationshipId = ?`, RELATIONSHIP_ID,
-      );
-      if (existing?.deviceId && existing.deviceId !== normalizedDeviceId) {
-        throw new Error('Cloud device identity changed; explicit device replacement is required.');
-      }
+      const existing = await tx.getFirstAsync<{ deviceId: string | null }>('SELECT deviceId FROM sync_state WHERE relationshipId = ?', RELATIONSHIP_ID);
+      if (existing?.deviceId && existing.deviceId !== normalizedDeviceId) throw new Error('Cloud device identity changed; explicit device replacement is required.');
       const now = Date.now();
-      await tx.runAsync(
-        `INSERT INTO sync_state (relationshipId, deviceId, participant, nextSenderSeq, pullCursor, updatedAt)
-         VALUES (?, ?, ?, ?, ?, ?)
-         ON CONFLICT(relationshipId) DO UPDATE SET deviceId = excluded.deviceId, participant = excluded.participant, updatedAt = excluded.updatedAt`,
-        RELATIONSHIP_ID, normalizedDeviceId, participant, DEFAULT_NEXT_SENDER_SEQ, DEFAULT_PULL_CURSOR, now,
-      );
+      await tx.runAsync(`INSERT INTO sync_state (relationshipId, deviceId, participant, nextSenderSeq, pullCursor, updatedAt) VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT(relationshipId) DO UPDATE SET deviceId = excluded.deviceId, participant = excluded.participant, updatedAt = excluded.updatedAt`, RELATIONSHIP_ID, normalizedDeviceId, participant, DEFAULT_NEXT_SENDER_SEQ, DEFAULT_PULL_CURSOR, now);
     });
   }
 
-  /** Rebinds a relationship to a genuinely new cloud device only after the caller has handled old-device state explicitly. */
   async replaceDevice(deviceId: string, participant: Participant): Promise<void> {
     const normalizedDeviceId = deviceId.trim();
     if (!normalizedDeviceId) throw new Error('A cloud device ID is required.');
-
     await this.withWrite(async (tx) => {
-      const pending = await tx.getFirstAsync<{ count: number }>(
-        `SELECT COUNT(*) AS count FROM sync_outbox WHERE relationshipId = ?`, RELATIONSHIP_ID,
-      );
+      const pending = await tx.getFirstAsync<{ count: number }>('SELECT COUNT(*) AS count FROM sync_outbox WHERE relationshipId = ?', RELATIONSHIP_ID);
       if ((pending?.count ?? 0) > 0) throw new Error('Cannot replace a cloud device while messages are pending synchronization.');
       const now = Date.now();
       await tx.runAsync('DELETE FROM sync_state WHERE relationshipId = ?', RELATIONSHIP_ID);
-      await tx.runAsync(
-        `INSERT INTO sync_state (relationshipId, deviceId, participant, nextSenderSeq, pullCursor, updatedAt) VALUES (?, ?, ?, ?, ?, ?)`,
-        RELATIONSHIP_ID, normalizedDeviceId, participant, DEFAULT_NEXT_SENDER_SEQ, DEFAULT_PULL_CURSOR, now,
-      );
+      await tx.runAsync('INSERT INTO sync_state (relationshipId, deviceId, participant, nextSenderSeq, pullCursor, updatedAt) VALUES (?, ?, ?, ?, ?, ?)', RELATIONSHIP_ID, normalizedDeviceId, participant, DEFAULT_NEXT_SENDER_SEQ, DEFAULT_PULL_CURSOR, now);
     });
   }
 
-  /** Repairs the crash window between creating a local ME message and reserving its outbox sequence. */
   async reconcileOutbox(now = Date.now()): Promise<number> {
     let repaired = 0;
     await this.withWrite(async (tx) => {
-      const messages = await tx.getAllAsync<{ id: string }>(
-        `SELECT id FROM messages
-         WHERE relationshipId = ? AND participant = 'ME' AND syncState IN ('LOCAL_ONLY', 'PENDING')
-           AND NOT EXISTS (SELECT 1 FROM sync_outbox WHERE relationshipId = messages.relationshipId AND messageId = messages.id)
-         ORDER BY orderIndex ASC, createdAt ASC, id ASC`,
-        RELATIONSHIP_ID,
-      );
+      const messages = await tx.getAllAsync<{ id: string }>(`SELECT id FROM messages WHERE relationshipId = ? AND participant = 'ME' AND syncState IN ('LOCAL_ONLY', 'PENDING') AND NOT EXISTS (SELECT 1 FROM sync_outbox WHERE relationshipId = messages.relationshipId AND messageId = messages.id) ORDER BY orderIndex ASC, createdAt ASC, id ASC`, RELATIONSHIP_ID);
+      if (messages.length === 0) return;
+      let state = await tx.getFirstAsync<{ nextSenderSeq: number }>('SELECT nextSenderSeq FROM sync_state WHERE relationshipId = ?', RELATIONSHIP_ID);
+      let nextSenderSeq = state?.nextSenderSeq ?? DEFAULT_NEXT_SENDER_SEQ;
+      if (!Number.isSafeInteger(nextSenderSeq) || nextSenderSeq < 1) throw new Error('Local sync sender sequence is invalid.');
       for (const message of messages) {
-        const state = await tx.getFirstAsync<{ nextSenderSeq: number }>(`SELECT nextSenderSeq FROM sync_state WHERE relationshipId = ?`, RELATIONSHIP_ID);
-        const senderSeq = state?.nextSenderSeq ?? DEFAULT_NEXT_SENDER_SEQ;
-        if (!Number.isSafeInteger(senderSeq) || senderSeq < 1) throw new Error('Local sync sender sequence is invalid.');
-        await tx.runAsync(
-          `INSERT INTO sync_outbox (relationshipId, messageId, senderSeq, attempts, lastError, nextAttemptAt, createdAt) VALUES (?, ?, ?, 0, NULL, ?, ?)`,
-          RELATIONSHIP_ID, message.id, senderSeq, now, now,
-        );
-        await tx.runAsync(
-          `UPDATE sync_state SET nextSenderSeq = ?, updatedAt = ? WHERE relationshipId = ?`,
-          senderSeq + 1, now, RELATIONSHIP_ID,
-        );
+        await tx.runAsync('INSERT INTO sync_outbox (relationshipId, messageId, senderSeq, attempts, lastError, nextAttemptAt, createdAt) VALUES (?, ?, ?, 0, NULL, ?, ?)', RELATIONSHIP_ID, message.id, nextSenderSeq, now, now);
+        nextSenderSeq += 1;
         repaired += 1;
       }
+      await tx.runAsync(`INSERT INTO sync_state (relationshipId, deviceId, participant, nextSenderSeq, pullCursor, updatedAt) VALUES (?, NULL, NULL, ?, ?, ?) ON CONFLICT(relationshipId) DO UPDATE SET nextSenderSeq = excluded.nextSenderSeq, updatedAt = excluded.updatedAt`, RELATIONSHIP_ID, nextSenderSeq, DEFAULT_PULL_CURSOR, now);
     });
     return repaired;
   }
@@ -153,15 +91,15 @@ export class SQLiteSyncStateStore {
     if (!normalizedMessageId) throw new Error('A message ID is required.');
     let senderSeq = 0;
     await this.withWrite(async (tx) => {
-      const message = await tx.getFirstAsync<{ id: string; relationshipId: string; participant: Participant }>(`SELECT id, relationshipId, participant FROM messages WHERE id = ?`, normalizedMessageId);
+      const message = await tx.getFirstAsync<{ id: string; relationshipId: string; participant: Participant }>('SELECT id, relationshipId, participant FROM messages WHERE id = ?', normalizedMessageId);
       if (!message || message.relationshipId !== RELATIONSHIP_ID || message.participant !== 'ME') throw new Error('Only an existing local message can enter the sync outbox.');
-      const existing = await tx.getFirstAsync<{ senderSeq: number }>(`SELECT senderSeq FROM sync_outbox WHERE relationshipId = ? AND messageId = ?`, RELATIONSHIP_ID, normalizedMessageId);
+      const existing = await tx.getFirstAsync<{ senderSeq: number }>('SELECT senderSeq FROM sync_outbox WHERE relationshipId = ? AND messageId = ?', RELATIONSHIP_ID, normalizedMessageId);
       if (existing) { senderSeq = existing.senderSeq; return; }
-      const state = await tx.getFirstAsync<{ nextSenderSeq: number }>(`SELECT nextSenderSeq FROM sync_state WHERE relationshipId = ?`, RELATIONSHIP_ID);
+      const state = await tx.getFirstAsync<{ nextSenderSeq: number }>('SELECT nextSenderSeq FROM sync_state WHERE relationshipId = ?', RELATIONSHIP_ID);
       const nextSenderSeq = state?.nextSenderSeq ?? DEFAULT_NEXT_SENDER_SEQ;
       if (!Number.isSafeInteger(nextSenderSeq) || nextSenderSeq < 1) throw new Error('Local sync sender sequence is invalid.');
       senderSeq = nextSenderSeq;
-      await tx.runAsync(`INSERT INTO sync_outbox (relationshipId, messageId, senderSeq, attempts, lastError, nextAttemptAt, createdAt) VALUES (?, ?, ?, 0, NULL, ?, ?)`, RELATIONSHIP_ID, normalizedMessageId, senderSeq, now, now);
+      await tx.runAsync('INSERT INTO sync_outbox (relationshipId, messageId, senderSeq, attempts, lastError, nextAttemptAt, createdAt) VALUES (?, ?, ?, 0, NULL, ?, ?)', RELATIONSHIP_ID, normalizedMessageId, senderSeq, now, now);
       await tx.runAsync(`INSERT INTO sync_state (relationshipId, deviceId, participant, nextSenderSeq, pullCursor, updatedAt) VALUES (?, NULL, NULL, ?, ?, ?) ON CONFLICT(relationshipId) DO UPDATE SET nextSenderSeq = excluded.nextSenderSeq, updatedAt = excluded.updatedAt`, RELATIONSHIP_ID, senderSeq + 1, DEFAULT_PULL_CURSOR, now);
     });
     return senderSeq;
@@ -169,18 +107,18 @@ export class SQLiteSyncStateStore {
 
   async getDueOutbox(now = Date.now(), limit = 20): Promise<PendingSyncMessage[]> {
     if (!Number.isSafeInteger(limit) || limit < 1 || limit > 100) throw new Error('Sync outbox limit must be between 1 and 100.');
-    return this.db.getAllAsync<PendingSyncMessage>(`SELECT messageId, senderSeq, attempts, lastError, nextAttemptAt, createdAt FROM sync_outbox WHERE relationshipId = ? AND nextAttemptAt <= ? ORDER BY senderSeq ASC LIMIT ?`, RELATIONSHIP_ID, now, limit);
+    return this.db.getAllAsync<PendingSyncMessage>('SELECT messageId, senderSeq, attempts, lastError, nextAttemptAt, createdAt FROM sync_outbox WHERE relationshipId = ? AND nextAttemptAt <= ? ORDER BY senderSeq ASC LIMIT ?', RELATIONSHIP_ID, now, limit);
   }
 
   async markAttemptFailed(messageId: string, cause: unknown, now = Date.now()): Promise<void> {
     const normalizedMessageId = messageId.trim();
     if (!normalizedMessageId) throw new Error('A message ID is required.');
     await this.withWrite(async (tx) => {
-      const existing = await tx.getFirstAsync<{ attempts: number }>(`SELECT attempts FROM sync_outbox WHERE relationshipId = ? AND messageId = ?`, RELATIONSHIP_ID, normalizedMessageId);
+      const existing = await tx.getFirstAsync<{ attempts: number }>('SELECT attempts FROM sync_outbox WHERE relationshipId = ? AND messageId = ?', RELATIONSHIP_ID, normalizedMessageId);
       if (!existing) return;
       const attempts = existing.attempts + 1;
-      await tx.runAsync(`UPDATE sync_outbox SET attempts = ?, lastError = ?, nextAttemptAt = ? WHERE relationshipId = ? AND messageId = ?`, attempts, normalizeError(cause), now + retryDelay(attempts), RELATIONSHIP_ID, normalizedMessageId);
-      await tx.runAsync(`UPDATE messages SET syncState = ? WHERE id = ? AND relationshipId = ?`, 'FAILED' satisfies SyncState, normalizedMessageId, RELATIONSHIP_ID);
+      await tx.runAsync('UPDATE sync_outbox SET attempts = ?, lastError = ?, nextAttemptAt = ? WHERE relationshipId = ? AND messageId = ?', attempts, normalizeError(cause), now + retryDelay(attempts), RELATIONSHIP_ID, normalizedMessageId);
+      await tx.runAsync('UPDATE messages SET syncState = ? WHERE id = ? AND relationshipId = ?', 'FAILED' satisfies SyncState, normalizedMessageId, RELATIONSHIP_ID);
     });
   }
 
@@ -188,8 +126,8 @@ export class SQLiteSyncStateStore {
     const normalizedMessageId = messageId.trim();
     if (!normalizedMessageId) throw new Error('A message ID is required.');
     await this.withWrite(async (tx) => {
-      await tx.runAsync(`UPDATE sync_outbox SET lastError = ?, nextAttemptAt = ? WHERE relationshipId = ? AND messageId = ?`, normalizeError(cause), BLOCKED_RETRY_AT, RELATIONSHIP_ID, normalizedMessageId);
-      await tx.runAsync(`UPDATE messages SET syncState = ? WHERE id = ? AND relationshipId = ?`, 'FAILED' satisfies SyncState, normalizedMessageId, RELATIONSHIP_ID);
+      await tx.runAsync('UPDATE sync_outbox SET lastError = ?, nextAttemptAt = ? WHERE relationshipId = ? AND messageId = ?', normalizeError(cause), BLOCKED_RETRY_AT, RELATIONSHIP_ID, normalizedMessageId);
+      await tx.runAsync('UPDATE messages SET syncState = ? WHERE id = ? AND relationshipId = ?', 'FAILED' satisfies SyncState, normalizedMessageId, RELATIONSHIP_ID);
     });
   }
 
@@ -197,20 +135,17 @@ export class SQLiteSyncStateStore {
     const normalizedMessageId = messageId.trim();
     if (!normalizedMessageId) throw new Error('A message ID is required.');
     await this.withWrite(async (tx) => {
-      await tx.runAsync(`DELETE FROM sync_outbox WHERE relationshipId = ? AND messageId = ?`, RELATIONSHIP_ID, normalizedMessageId);
-      await tx.runAsync(`UPDATE messages SET syncState = ? WHERE id = ? AND relationshipId = ?`, 'SYNCED' satisfies SyncState, normalizedMessageId, RELATIONSHIP_ID);
+      await tx.runAsync('DELETE FROM sync_outbox WHERE relationshipId = ? AND messageId = ?', RELATIONSHIP_ID, normalizedMessageId);
+      await tx.runAsync('UPDATE messages SET syncState = ? WHERE id = ? AND relationshipId = ?', 'SYNCED' satisfies SyncState, normalizedMessageId, RELATIONSHIP_ID);
     });
   }
 
-  async getPullCursor(): Promise<number> {
-    const state = await this.getState();
-    return state.pullCursor;
-  }
+  async getPullCursor(): Promise<number> { return (await this.getState()).pullCursor; }
 
   async advancePullCursor(cursor: number, now = Date.now()): Promise<void> {
     if (!Number.isSafeInteger(cursor) || cursor < 0) throw new Error('Pull cursor must be a non-negative safe integer.');
     await this.withWrite(async (tx) => {
-      const state = await tx.getFirstAsync<{ pullCursor: number }>(`SELECT pullCursor FROM sync_state WHERE relationshipId = ?`, RELATIONSHIP_ID);
+      const state = await tx.getFirstAsync<{ pullCursor: number }>('SELECT pullCursor FROM sync_state WHERE relationshipId = ?', RELATIONSHIP_ID);
       const current = state?.pullCursor ?? DEFAULT_PULL_CURSOR;
       if (cursor < current) throw new Error('Pull cursor cannot move backwards.');
       await tx.runAsync(`INSERT INTO sync_state (relationshipId, deviceId, participant, nextSenderSeq, pullCursor, updatedAt) VALUES (?, NULL, NULL, ?, ?, ?) ON CONFLICT(relationshipId) DO UPDATE SET pullCursor = excluded.pullCursor, updatedAt = excluded.updatedAt`, RELATIONSHIP_ID, DEFAULT_NEXT_SENDER_SEQ, cursor, now);
@@ -223,7 +158,6 @@ export class SQLiteSyncStateStore {
     const orderedMessages = [...messages].sort((a, b) => a.serverSeq - b.serverSeq);
     const maxServerSeq = orderedMessages.at(-1)?.serverSeq ?? 0;
     if (maxServerSeq > nextCursor) throw new Error('Inbound pull cursor cannot precede the newest inbound message.');
-
     await this.withWrite(async (tx) => {
       const relationship = await tx.getFirstAsync<{ id: string }>('SELECT id FROM relationships WHERE id = ?', RELATIONSHIP_ID);
       if (!relationship) throw new Error('Cannot persist inbound messages before setup is complete.');
@@ -232,10 +166,9 @@ export class SQLiteSyncStateStore {
       if (nextCursor < currentCursor) throw new Error('Pull cursor cannot move backwards.');
       let nextOrderIndex = (await tx.getFirstAsync<{ nextOrderIndex: number }>('SELECT COALESCE(MAX(orderIndex), 0) + 1 AS nextOrderIndex FROM messages WHERE relationshipId = ?', RELATIONSHIP_ID))?.nextOrderIndex ?? 1;
       let latestPartnerMessageId: string | null = null;
-
       for (const inbound of orderedMessages) {
         const normalizedId = inbound.id.trim();
-        const existing = await tx.getFirstAsync<{ id: string; relationshipId: string; participant: Participant; type: MessageType; body: string; createdAt: number; mediaReference: string | null; syncState: SyncState }>(`SELECT id, relationshipId, participant, type, body, createdAt, mediaReference, syncState FROM messages WHERE id = ?`, normalizedId);
+        const existing = await tx.getFirstAsync<{ id: string; relationshipId: string; participant: Participant; type: MessageType; body: string; createdAt: number; mediaReference: string | null; syncState: SyncState }>('SELECT id, relationshipId, participant, type, body, createdAt, mediaReference, syncState FROM messages WHERE id = ?', normalizedId);
         if (existing) {
           if (existing.relationshipId !== RELATIONSHIP_ID || existing.participant !== 'PARTNER' || existing.type !== inbound.type || existing.body !== inbound.body || existing.createdAt !== inbound.createdAt || existing.mediaReference !== (inbound.mediaReference?.trim() || null)) throw new Error(`Inbound message ${normalizedId} conflicts with local data.`);
           latestPartnerMessageId = normalizedId;
@@ -245,23 +178,11 @@ export class SQLiteSyncStateStore {
         latestPartnerMessageId = normalizedId;
         nextOrderIndex += 1;
       }
-
-      if (latestPartnerMessageId) {
-        await tx.runAsync(`INSERT INTO active_message_slots (relationshipId, participant, messageId) VALUES (?, 'PARTNER', ?) ON CONFLICT(relationshipId, participant) DO UPDATE SET messageId = excluded.messageId`, RELATIONSHIP_ID, latestPartnerMessageId);
-      }
-
+      if (latestPartnerMessageId) await tx.runAsync(`INSERT INTO active_message_slots (relationshipId, participant, messageId) VALUES (?, 'PARTNER', ?) ON CONFLICT(relationshipId, participant) DO UPDATE SET messageId = excluded.messageId`, RELATIONSHIP_ID, latestPartnerMessageId);
       await tx.runAsync(`INSERT INTO sync_state (relationshipId, deviceId, participant, nextSenderSeq, pullCursor, updatedAt) VALUES (?, NULL, NULL, ?, ?, ?) ON CONFLICT(relationshipId) DO UPDATE SET pullCursor = excluded.pullCursor, updatedAt = excluded.updatedAt`, RELATIONSHIP_ID, DEFAULT_NEXT_SENDER_SEQ, nextCursor, now);
     });
   }
 
-  async clear(): Promise<void> {
-    await this.withWrite(async (tx) => {
-      await tx.runAsync('DELETE FROM sync_outbox WHERE relationshipId = ?', RELATIONSHIP_ID);
-      await tx.runAsync('DELETE FROM sync_state WHERE relationshipId = ?', RELATIONSHIP_ID);
-    });
-  }
-
-  private async withWrite(action: (tx: SQLiteWriteContext) => Promise<void>): Promise<void> {
-    await this.db.withExclusiveTransactionAsync(action);
-  }
+  async clear(): Promise<void> { await this.withWrite(async (tx) => { await tx.runAsync('DELETE FROM sync_outbox WHERE relationshipId = ?', RELATIONSHIP_ID); await tx.runAsync('DELETE FROM sync_state WHERE relationshipId = ?', RELATIONSHIP_ID); }); }
+  private async withWrite(action: (tx: SQLiteWriteContext) => Promise<void>): Promise<void> { await this.db.withExclusiveTransactionAsync(action); }
 }
