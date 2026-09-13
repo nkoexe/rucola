@@ -35,6 +35,7 @@ const DEFAULT_NEXT_SENDER_SEQ = 1;
 const DEFAULT_PULL_CURSOR = 0;
 const DEFAULT_RETRY_DELAY_MS = 5_000;
 const MAX_RETRY_DELAY_MS = 60 * 60 * 1_000;
+const MESSAGE_TYPES = new Set<MessageType>(['TEXT', 'EMOJI', 'PHOTO_VIDEO', 'DRAWING']);
 
 function mapState(row: {
   relationshipId: string;
@@ -60,13 +61,13 @@ function normalizeError(cause: unknown): string {
 function validateInboundMessage(message: InboundSyncMessage): void {
   const id = message.id.trim();
   if (!id) throw new Error('Inbound message ID is required.');
+  if (!MESSAGE_TYPES.has(message.type)) throw new Error('Inbound message type is invalid.');
   if (!Number.isSafeInteger(message.serverSeq) || message.serverSeq < 1) {
     throw new Error('Inbound server sequence is invalid.');
   }
   if (!Number.isSafeInteger(message.createdAt) || message.createdAt < 0) {
     throw new Error('Inbound message timestamp is invalid.');
   }
-  if (!message.type) throw new Error('Inbound message type is required.');
   if ((message.type === 'TEXT' || message.type === 'EMOJI') && !message.body.trim()) {
     throw new Error('Inbound text messages require content.');
   }
