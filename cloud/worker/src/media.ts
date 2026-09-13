@@ -7,6 +7,7 @@ const MAX_PHOTO_BYTES = 20 * 1024 * 1024;
 const MAX_VIDEO_BYTES = 100 * 1024 * 1024;
 const MIN_MEDIA_BYTES = 1;
 const PENDING_RETENTION_MS = 24 * 60 * 60 * 1000;
+const READY_RETENTION_MS = 14 * 24 * 60 * 60 * 1000;
 const MAX_MIME_BYTES = 128;
 
 const PHOTO_MIME_TYPES = new Set([
@@ -184,9 +185,7 @@ export async function createMediaReservation(env: Env, request: Request): Promis
   if (!body) return errorResponse("INVALID_REQUEST", "JSON request body required", 400);
 
   const type = parseType(body.type);
-  if (!type) {
-    return errorResponse("INVALID_MEDIA_TYPE", "Media type must be PHOTO or VIDEO", 400);
-  }
+  if (!type) return errorResponse("INVALID_MEDIA_TYPE", "Media type must be PHOTO or VIDEO", 400);
 
   const mime = parseMime(body.mime);
   if (!mime || !mimeAllowed(type, mime)) {
@@ -194,9 +193,7 @@ export async function createMediaReservation(env: Env, request: Request): Promis
   }
 
   const size = parseSize(body.size);
-  if (size === null) {
-    return errorResponse("INVALID_MEDIA_SIZE", "Media size must be a positive safe integer", 400);
-  }
+  if (size === null) return errorResponse("INVALID_MEDIA_SIZE", "Media size must be a positive safe integer", 400);
   if (size > maxBytes(type)) {
     return errorResponse(
       "MEDIA_TOO_LARGE",
@@ -206,9 +203,7 @@ export async function createMediaReservation(env: Env, request: Request): Promis
   }
 
   const checksum = parseChecksum(body.checksum);
-  if (checksum === undefined) {
-    return errorResponse("INVALID_CHECKSUM", "Checksum must be a SHA-256 hexadecimal string", 400);
-  }
+  if (checksum === undefined) return errorResponse("INVALID_CHECKSUM", "Checksum must be a SHA-256 hexadecimal string", 400);
 
   const now = Date.now();
   const uploadId = crypto.randomUUID();
@@ -225,44 +220,20 @@ export async function createMediaReservation(env: Env, request: Request): Promis
        SELECT ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, 'PENDING', ?9, ?10, NULL, NULL
        FROM relationships
        WHERE id = ?2 AND status = 'ACTIVE'`,
-    ).bind(
-      uploadId,
-      device.relationshipId,
-      device.id,
-      objectKey,
-      type,
-      mime,
-      size,
-      checksum,
-      now,
-      expiresAt,
-    ).run();
+    ).bind(uploadId, device.relationshipId, device.id, objectKey, type, mime, size, checksum, now, expiresAt).run();
 
-    if (result.meta.changes !== 1) {
-      return errorResponse("RELATIONSHIP_INACTIVE", "Relationship is not active", 409);
-    }
+    if (result.meta.changes !== 1) return errorResponse("RELATIONSHIP_INACTIVE", "Relationship is not active", 409);
   } catch {
     return errorResponse("DATABASE_UNAVAILABLE", "Media reservation could not be created", 503);
   }
 
-  return json({
-    uploadId,
-    mediaType: type,
-    mime,
-    size,
-    checksum,
-    status: "PENDING",
-    expiresAt,
-  }, 201);
+  return json({ uploadId, mediaType: type, mime, size, checksum, status: "PENDING", expiresAt }, 201);
 }
 
 export async function uploadMedia(env: Env, request: Request, uploadId: string): Promise<Response> {
   const device = await authenticateDevice(env, request);
   if (!device) return errorResponse("UNAUTHENTICATED", "Valid device credentials are required", 401);
-
-  if (!/^[0-9a-f-]{36}$/i.test(uploadId)) {
-    return errorResponse("INVALID_UPLOAD_ID", "Invalid media upload ID", 400);
-  }
+  if (!/^[0-9a-f-]{36}$/i.test(uploadId)) return errorResponse("INVALID_UPLOAD_ID", "Invalid media upload ID", 400);
 
   const contentType = request.headers.get("content-type")?.split(";", 1)[0]?.trim().toLowerCase();
   if (!contentType) return errorResponse("INVALID_CONTENT_TYPE", "Content-Type is required", 400);
@@ -271,20 +242,12 @@ export async function uploadMedia(env: Env, request: Request, uploadId: string):
   if (!upload) return errorResponse("MEDIA_NOT_FOUND", "Media upload was not found", 404);
 
   const now = Date.now();
-  if (upload.status !== "PENDING") {
-    return errorResponse("MEDIA_NOT_PENDING", "Media upload is no longer pending", 409);
-  }
-  if (now >= upload.expires_at) {
-    return errorResponse("MEDIA_EXPIRED", "Media upload has expired", 409);
-  }
-  if (contentType !== upload.declared_mime) {
-    return errorResponse("CONTENT_TYPE_MISMATCH", "Content-Type does not match the reservation", 400);
-  }
+  if (upload.status !== "PENDING") return errorResponse("MEDIA_NOT_PENDING", "Media upload is no longer pending", 409);
+  if (now >= upload.expires_at) return errorResponse("MEDIA_EXPIRED", "Media upload has expired", 409);
+  if (contentType !== upload.declared_mime) return errorResponse("CONTENT_TYPE_MISMATCH", "Content-Type does not match the reservation", 400);
 
   const contentLengthHeader = request.headers.get("content-length");
-  if (contentLengthHeader === null) {
-    return errorResponse("CONTENT_LENGTH_REQUIRED", "Content-Length is required", 411);
-  }
+  if (contentLengthHeader === null) return errorResponse("CONTENT_LENGTH_REQUIRED", "Content-Length is required", 411);
   const contentLength = Number(contentLengthHeader);
   if (!Number.isSafeInteger(contentLength) || contentLength !== upload.size_bytes) {
     return errorResponse("MEDIA_SIZE_MISMATCH", "Content-Length does not match the reservation", 400);
@@ -320,44 +283,33 @@ export async function uploadMedia(env: Env, request: Request, uploadId: string):
     await removeObjectBestEffort(env, upload.object_key);
     return errorResponse("MEDIA_STORAGE_MISMATCH", "Stored media does not match the reservation", 502);
   }
-
   if (upload.checksum !== null && !sameSha256(stored, upload.checksum)) {
     await removeObjectBestEffort(env, upload.object_key);
     return errorResponse("MEDIA_CHECKSUM_MISMATCH", "Stored media checksum does not match the reservation", 400);
   }
-
   if (bytesSeen !== upload.size_bytes) {
     await removeObjectBestEffort(env, upload.object_key);
     return errorResponse("MEDIA_SIZE_MISMATCH", "Uploaded media size does not match the reservation", 400);
   }
 
-  return json({
-    uploadId: upload.id,
-    status: "UPLOADED",
-  });
+  return json({ uploadId: upload.id, status: "UPLOADED" });
 }
 
 export async function completeMedia(env: Env, request: Request, uploadId: string): Promise<Response> {
   const device = await authenticateDevice(env, request);
   if (!device) return errorResponse("UNAUTHENTICATED", "Valid device credentials are required", 401);
-
-  if (!/^[0-9a-f-]{36}$/i.test(uploadId)) {
-    return errorResponse("INVALID_UPLOAD_ID", "Invalid media upload ID", 400);
-  }
+  if (!/^[0-9a-f-]{36}$/i.test(uploadId)) return errorResponse("INVALID_UPLOAD_ID", "Invalid media upload ID", 400);
 
   const upload = await getOwnedUpload(env, device, uploadId);
   if (!upload) return errorResponse("MEDIA_NOT_FOUND", "Media upload was not found", 404);
 
   const now = Date.now();
-  if (now >= upload.expires_at) {
-    return errorResponse("MEDIA_EXPIRED", "Media upload has expired", 409);
+  if (upload.status === "READY") {
+    if (now >= upload.expires_at) return errorResponse("MEDIA_EXPIRED", "Media upload has expired", 409);
+    return json({ uploadId: upload.id, status: "READY" });
   }
-  if (upload.status !== "PENDING") {
-    if (upload.status === "READY") {
-      return json({ uploadId: upload.id, status: "READY" });
-    }
-    return errorResponse("MEDIA_NOT_PENDING", "Media upload is no longer pending", 409);
-  }
+  if (now >= upload.expires_at) return errorResponse("MEDIA_EXPIRED", "Media upload has expired", 409);
+  if (upload.status !== "PENDING") return errorResponse("MEDIA_NOT_PENDING", "Media upload is no longer pending", 409);
 
   let object: R2Object | null;
   try {
@@ -365,10 +317,7 @@ export async function completeMedia(env: Env, request: Request, uploadId: string
   } catch {
     return errorResponse("MEDIA_STORAGE_UNAVAILABLE", "Media storage could not be checked", 502);
   }
-
-  if (!object) {
-    return errorResponse("MEDIA_NOT_UPLOADED", "Media object has not been uploaded", 409);
-  }
+  if (!object) return errorResponse("MEDIA_NOT_UPLOADED", "Media object has not been uploaded", 409);
 
   if (
     object.size !== upload.size_bytes ||
@@ -380,24 +329,23 @@ export async function completeMedia(env: Env, request: Request, uploadId: string
     return errorResponse("MEDIA_STORAGE_MISMATCH", "Stored media does not match the reservation", 409);
   }
 
+  const readyExpiresAt = now + READY_RETENTION_MS;
   try {
     const result = await env.DB.prepare(
       `UPDATE media_uploads
-       SET status = 'READY', completed_at = ?1
-       WHERE id = ?2
-         AND relationship_id = ?3
-         AND created_by_device_id = ?4
+       SET status = 'READY', completed_at = ?1, expires_at = ?2
+       WHERE id = ?3
+         AND relationship_id = ?4
+         AND created_by_device_id = ?5
          AND status = 'PENDING'
          AND expires_at > ?1`,
-    ).bind(now, upload.id, device.relationshipId, device.id).run();
+    ).bind(now, readyExpiresAt, upload.id, device.relationshipId, device.id).run();
 
     if (result.meta.changes !== 1) {
       const current = await getOwnedUpload(env, device, upload.id);
       if (current?.status === "READY") return json({ uploadId: current.id, status: "READY" });
       if (!current) return errorResponse("MEDIA_NOT_FOUND", "Media upload was not found", 404);
-      if (Date.now() >= current.expires_at) {
-        return errorResponse("MEDIA_EXPIRED", "Media upload has expired", 409);
-      }
+      if (Date.now() >= current.expires_at) return errorResponse("MEDIA_EXPIRED", "Media upload has expired", 409);
       return errorResponse("MEDIA_NOT_PENDING", "Media upload is no longer pending", 409);
     }
   } catch {
