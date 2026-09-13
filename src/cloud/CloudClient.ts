@@ -1,18 +1,4 @@
-import type {
-  AuthProbeResponse,
-  CloudAckResponse,
-  CloudPullResponse,
-  CloudPushMessage,
-  CloudPushResponse,
-  CompleteMediaResponse,
-  CreateMediaReservationRequest,
-  CreateMediaReservationResponse,
-  MediaUploadResponse,
-  PairingAcceptResponse,
-  PairingBootstrapRequest,
-  PairingBootstrapResponse,
-  PairingCreateResponse,
-} from './protocol';
+import type { AuthProbeResponse, CloudAckResponse, CloudPullResponse, CloudPushMessage, CloudPushResponse, CompleteMediaResponse, CreateMediaReservationRequest, CreateMediaReservationResponse, MediaUploadResponse, PairingAcceptResponse, PairingBootstrapRequest, PairingBootstrapResponse, PairingCreateResponse } from './protocol';
 
 export type CloudFetch = typeof fetch;
 export interface CloudClientOptions { baseUrl: string; credential?: string | null; fetchImpl?: CloudFetch; requestTimeoutMs?: number; uploadTimeoutMs?: number; }
@@ -73,6 +59,6 @@ export class CloudClient {
   async completeMedia(uploadId: string): Promise<CompleteMediaResponse> { return this.request<CompleteMediaResponse>({ method: 'POST', path: `/v1/media/${encodeURIComponent(uploadId)}/complete`, authenticated: true }); }
   private authorizationHeader(): string { if (!this.credential) throw new CloudClientError({ code: 'CLIENT_UNAUTHENTICATED', message: 'A cloud device credential is required for this operation.', status: 0 }); return `Bearer ${this.credential}`; }
   private async fetchWithTimeout(url: string, init: RequestInit, timeoutMs: number): Promise<Response> { const controller = new AbortController(); const timer = setTimeout(() => controller.abort(), timeoutMs); try { return await this.fetchImpl(url, { ...init, signal: controller.signal }); } catch (cause) { if (controller.signal.aborted) throw new CloudClientError({ code: 'CLIENT_TIMEOUT', message: `Cloud request timed out after ${timeoutMs} ms.`, status: 0 }); throw cause; } finally { clearTimeout(timer); } }
-  private async request<T>(options: RequestOptions): Promise<T> { const headers: Record<string, string> = { Accept: 'application/json' }; if (options.body !== undefined) headers['Content-Type'] = 'application/json'; if (options.authenticated) headers.Authorization = this.authorizationHeader(); const response = await this.fetchWithTimeout(`${this.baseUrl}${options.path}`, { method: options.method, headers, body: options.body === undefined ? undefined : JSON.stringify(options.body) }, options.timeoutMs ?? this.requestTimeoutMs); return this.parseSuccessfulResponse<T>(response, options.path.split('?')[0]); }
+  private async request<T>(options: RequestOptions): Promise<T> { const headers: Record<string, string> = { Accept: 'application/json' }; if (options.body !== undefined) headers['Content-Type'] = 'application/json'; if (options.authenticated) headers.Authorization = this.authorizationHeader(); const response = await this.fetchWithTimeout(`${this.baseUrl}${options.path}`, { method: options.method, headers, body: options.body === undefined ? undefined : JSON.stringify(options.body) }, options.timeoutMs ?? this.requestTimeoutMs); return this.parseSuccessfulResponse<T>(response, options.path.split('?')[0] ?? options.path); }
   private async parseSuccessfulResponse<T>(response: Response, path: string): Promise<T> { const body = await parseResponseBody(response); if (!response.ok) throw parseError(response.status, body); if (body === null) throw new CloudClientError({ code: 'INVALID_RESPONSE', message: 'Cloud returned a non-JSON success response.', status: response.status }); assertResponseShape(path, body); return body as T; }
 }
