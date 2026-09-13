@@ -56,6 +56,12 @@ async function push(credential: string, senderSeq: number, messageId = crypto.ra
   });
 }
 
+async function pull(credential: string, query = ""): Promise<Response> {
+  return exports.default.fetch(`https://rucola.test/v1/sync/pull${query}`, {
+    headers: { authorization: `Bearer ${credential}` },
+  });
+}
+
 async function ack(credential: string, throughServerSeq: unknown): Promise<Response> {
   return exports.default.fetch("https://rucola.test/v1/sync/ack", {
     method: "POST",
@@ -83,10 +89,10 @@ describe("Rucola mailbox acknowledgement", () => {
   });
 
   it("rejects an acknowledgement beyond the server's known sequence", async () => {
-    const { me } = await bootstrapAndAccept();
+    const { me, partner } = await bootstrapAndAccept();
     expect((await push(me.credential, 1)).status).toBe(200);
 
-    const response = await ack(me.credential, 2);
+    const response = await ack(partner.credential, 2);
     expect(response.status).toBe(409);
     expect((await json(response)).error).toMatchObject({ code: "ACK_CURSOR_AHEAD" });
 
@@ -96,31 +102,55 @@ describe("Rucola mailbox acknowledgement", () => {
     expect(remaining?.count).toBe(1);
   });
 
-  it("deletes mailbox messages through the acknowledged high-water mark", async () => {
-    const { me } = await bootstrapAndAccept();
+  it("deletes only partner-originated mailbox messages through the acknowledged high-water mark", async () => {
+    const { me, partner } = await bootstrapAndAccept();
     expect((await push(me.credential, 1)).status).toBe(200);
     expect((await push(me.credential, 2)).status).toBe(200);
     expect((await push(me.credential, 3)).status).toBe(200);
 
-    const response = await ack(me.credential, 2);
+    const pullResponse = await pull(partner.credential);
+    expect(pullResponse.status).toBe(200);
+    const response = await ack(partner.credential, 2);
     expect(response.status).toBe(200);
     await expect(response.json()).resolves.toMatchObject({ acknowledgedThrough: 2, deleted: 2 });
 
     const rows = await env.DB.prepare(
-      `SELECT server_seq FROM mailbox_messages
+      `SELECT server_seq, sender_device_id FROM mailbox_messages
        WHERE relationship_id = ?1 ORDER BY server_seq`,
-    ).bind(me.relationshipId).all<{ server_seq: number }>();
+    ).bind(me.relationshipId).all<{ server_seq: number; sender_device_id: string }>();
     expect(rows.results.map((row) => row.server_seq)).toEqual([3]);
+    expect(rows.results[0]?.sender_device_id).toBe(me.deviceId);
   });
 
-  it("is idempotent when the same acknowledgement is repeated", async () => {
-    const { me } = await bootstrapAndAccept();
+  it("does not acknowledge or delete the sender's own outbound copy", async () => {
+    const { me, partner } = await bootstrapAndAccept();
     expect((await push(me.credential, 1)).status).toBe(200);
 
-    const first = await ack(me.credential, 1);
-    const second = await ack(me.credential, 1);
+    const response = await ack(me.credential, 1);
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({ acknowledgedThrough: 1, deleted: 0 });
+
+    const row = await env.DB.prepare(
+      `SELECT acknowledged_at FROM mailbox_messages
+       WHERE relationship_id = ?1 AND server_seq = 1`,
+    ).bind(me.relationshipId).first<{ acknowledged_at: number | null }>();
+    expect(row).not.toBeNull();
+    expect(row?.acknowledged_at).toBeNull();
+
+    const partnerPull = await pull(partner.credential);
+    expect(partnerPull.status).toBe(200);
+    expect((await json(partnerPull)).messages).toHaveLength(1);
+  });
+
+  it("is idempotent when the partner repeats an acknowledgement", async () => {
+    const { me, partner } = await bootstrapAndAccept();
+    expect((await push(me.credential, 1)).status).toBe(200);
+
+    const first = await ack(partner.credential, 1);
+    const second = await ack(partner.credential, 1);
     expect(first.status).toBe(200);
     expect(second.status).toBe(200);
+    await expect(first.json()).resolves.toMatchObject({ acknowledgedThrough: 1, deleted: 1 });
     await expect(second.json()).resolves.toMatchObject({ acknowledgedThrough: 1, deleted: 0 });
   });
 
@@ -138,10 +168,10 @@ describe("Rucola mailbox acknowledgement", () => {
     expect(remaining?.count).toBe(1);
   });
 
-  it("does not remove a message pushed after an earlier acknowledgement", async () => {
-    const { me } = await bootstrapAndAccept();
+  it("does not remove a later partner message after an earlier acknowledgement", async () => {
+    const { me, partner } = await bootstrapAndAccept();
     expect((await push(me.credential, 1)).status).toBe(200);
-    expect((await ack(me.credential, 1)).status).toBe(200);
+    expect((await ack(partner.credential, 1)).status).toBe(200);
     expect((await push(me.credential, 2)).status).toBe(200);
 
     const rows = await env.DB.prepare(
@@ -150,16 +180,21 @@ describe("Rucola mailbox acknowledgement", () => {
     expect(rows.results.map((row) => row.server_seq)).toEqual([2]);
   });
 
-  it("acknowledges the sender's own messages as part of the relationship-wide cursor", async () => {
-    const { me } = await bootstrapAndAccept();
+  it("does not let a device acknowledge its own interleaved message", async () => {
+    const { me, partner } = await bootstrapAndAccept();
     expect((await push(me.credential, 1)).status).toBe(200);
-    expect((await ack(me.credential, 1)).status).toBe(200);
+    expect((await push(partner.credential, 1)).status).toBe(200);
+    expect((await push(me.credential, 2)).status).toBe(200);
 
-    const pull = await exports.default.fetch("https://rucola.test/v1/sync/pull?after=0", {
-      headers: { authorization: `Bearer ${me.credential}` },
-    });
-    expect(pull.status).toBe(200);
-    const body = await json(pull);
-    expect(body.messages).toEqual([]);
+    const response = await ack(partner.credential, 3);
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({ acknowledgedThrough: 3, deleted: 2 });
+
+    const rows = await env.DB.prepare(
+      `SELECT server_seq, sender_device_id FROM mailbox_messages
+       WHERE relationship_id = ?1 ORDER BY server_seq`,
+    ).bind(me.relationshipId).all<{ server_seq: number; sender_device_id: string }>();
+    expect(rows.results.map((row) => row.server_seq)).toEqual([2]);
+    expect(rows.results[0]?.sender_device_id).toBe(partner.deviceId);
   });
 });
