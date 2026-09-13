@@ -68,7 +68,7 @@ async function uploadMedia(
       authorization: `Bearer ${credential}`,
       "content-type": contentType,
     },
-    body: bytes,
+    body: bytes as unknown as BodyInit,
   });
 }
 
