@@ -1,7 +1,7 @@
 import * as SQLite from 'expo-sqlite';
 
 const DATABASE_NAME = 'rucola.db';
-const SCHEMA_VERSION = 2;
+const SCHEMA_VERSION = 3;
 
 export const RELATIONSHIP_ID = 'the-one';
 
@@ -19,14 +19,10 @@ export function getDatabase(): Promise<SQLite.SQLiteDatabase> {
 }
 
 export function initializeDatabase(db?: SQLite.SQLiteDatabase): Promise<SQLite.SQLiteDatabase> {
-  if (!db) {
-    return getDatabase().then((database) => initializeDatabase(database));
-  }
+  if (!db) return getDatabase().then((database) => initializeDatabase(database));
 
   const existingInitialization = initializationPromises.get(db);
-  if (existingInitialization) {
-    return existingInitialization;
-  }
+  if (existingInitialization) return existingInitialization;
 
   const initialization = initializeDatabaseInternal(db).catch((cause) => {
     initializationPromises.delete(db);
@@ -52,8 +48,6 @@ async function initializeDatabaseInternal(database: SQLite.SQLiteDatabase): Prom
   );
 
   if (version === 0 && tables.length === 0) {
-    // Keep first-run schema creation atomic so an interrupted startup cannot leave
-    // a version-0 database that looks like a legacy database on the next launch.
     await database.withTransactionAsync(async () => {
       await createLatestSchema(database);
       await database.execAsync(`PRAGMA user_version = ${SCHEMA_VERSION};`);
@@ -62,13 +56,12 @@ async function initializeDatabaseInternal(database: SQLite.SQLiteDatabase): Prom
   }
 
   if (version === 0) {
-    if (tables.length !== 3) {
-      throw new Error('Rucola database is incomplete and cannot be migrated safely.');
-    }
+    if (tables.length !== 3) throw new Error('Rucola database is incomplete and cannot be migrated safely.');
     await migrateLegacySchema(database);
   } else if (version === 1) {
-    // Version 1 uses the same schema as the original unversioned database.
     await migrateLegacySchema(database);
+  } else if (version === 2) {
+    await migrateSyncSchema(database);
   }
 
   return verifyDatabase(database);
@@ -81,10 +74,7 @@ async function verifyDatabase(db: SQLite.SQLiteDatabase): Promise<SQLite.SQLiteD
   }
 
   const foreignKeyErrors = await db.getAllAsync('PRAGMA foreign_key_check;');
-  if (foreignKeyErrors.length > 0) {
-    throw new Error('Rucola database integrity check failed after migration.');
-  }
-
+  if (foreignKeyErrors.length > 0) throw new Error('Rucola database integrity check failed after migration.');
   return db;
 }
 
@@ -125,7 +115,69 @@ async function createLatestSchema(db: SQLite.SQLiteDatabase): Promise<void> {
       FOREIGN KEY (relationshipId, participant, messageId)
         REFERENCES messages(relationshipId, participant, id) ON DELETE RESTRICT
     );
+
+    CREATE TABLE sync_state (
+      relationshipId TEXT PRIMARY KEY NOT NULL,
+      deviceId TEXT,
+      participant TEXT CHECK (participant IS NULL OR participant IN ('ME', 'PARTNER')),
+      nextSenderSeq INTEGER NOT NULL CHECK (nextSenderSeq >= 1),
+      pullCursor INTEGER NOT NULL CHECK (pullCursor >= 0),
+      updatedAt INTEGER NOT NULL,
+      FOREIGN KEY (relationshipId) REFERENCES relationships(id) ON DELETE CASCADE
+    );
+
+    CREATE TABLE sync_outbox (
+      relationshipId TEXT NOT NULL,
+      messageId TEXT NOT NULL,
+      senderSeq INTEGER NOT NULL CHECK (senderSeq >= 1),
+      attempts INTEGER NOT NULL CHECK (attempts >= 0),
+      lastError TEXT,
+      nextAttemptAt INTEGER NOT NULL,
+      createdAt INTEGER NOT NULL,
+      PRIMARY KEY (relationshipId, messageId),
+      UNIQUE (relationshipId, senderSeq),
+      FOREIGN KEY (relationshipId) REFERENCES relationships(id) ON DELETE CASCADE,
+      FOREIGN KEY (messageId) REFERENCES messages(id) ON DELETE CASCADE
+    );
+
+    CREATE INDEX sync_outbox_due
+      ON sync_outbox (relationshipId, nextAttemptAt, senderSeq);
   `);
+}
+
+async function migrateSyncSchema(db: SQLite.SQLiteDatabase): Promise<void> {
+  await db.withTransactionAsync(async () => {
+    await db.execAsync(`
+      CREATE TABLE sync_state (
+        relationshipId TEXT PRIMARY KEY NOT NULL,
+        deviceId TEXT,
+        participant TEXT CHECK (participant IS NULL OR participant IN ('ME', 'PARTNER')),
+        nextSenderSeq INTEGER NOT NULL CHECK (nextSenderSeq >= 1),
+        pullCursor INTEGER NOT NULL CHECK (pullCursor >= 0),
+        updatedAt INTEGER NOT NULL,
+        FOREIGN KEY (relationshipId) REFERENCES relationships(id) ON DELETE CASCADE
+      );
+
+      CREATE TABLE sync_outbox (
+        relationshipId TEXT NOT NULL,
+        messageId TEXT NOT NULL,
+        senderSeq INTEGER NOT NULL CHECK (senderSeq >= 1),
+        attempts INTEGER NOT NULL CHECK (attempts >= 0),
+        lastError TEXT,
+        nextAttemptAt INTEGER NOT NULL,
+        createdAt INTEGER NOT NULL,
+        PRIMARY KEY (relationshipId, messageId),
+        UNIQUE (relationshipId, senderSeq),
+        FOREIGN KEY (relationshipId) REFERENCES relationships(id) ON DELETE CASCADE,
+        FOREIGN KEY (messageId) REFERENCES messages(id) ON DELETE CASCADE
+      );
+
+      CREATE INDEX sync_outbox_due
+        ON sync_outbox (relationshipId, nextAttemptAt, senderSeq);
+
+      PRAGMA user_version = ${SCHEMA_VERSION};
+    `);
+  });
 }
 
 interface LegacyMessageRow {
@@ -157,20 +209,12 @@ interface LegacyActiveSlotRow {
 
 function parseLegacyInteger(value: string | number, field: string, rowId: string): number {
   const parsed = typeof value === 'number' ? value : Number(value.trim());
-  if (!Number.isSafeInteger(parsed)) {
-    throw new Error(`Cannot migrate ${field} for legacy row ${rowId}.`);
-  }
+  if (!Number.isSafeInteger(parsed)) throw new Error(`Cannot migrate ${field} for legacy row ${rowId}.`);
   return parsed;
 }
 
-function parseLegacyNullableInteger(
-  value: string | number | null,
-  field: string,
-  rowId: string,
-): number | null {
-  if (value === null) {
-    return null;
-  }
+function parseLegacyNullableInteger(value: string | number | null, field: string, rowId: string): number | null {
+  if (value === null) return null;
   return parseLegacyInteger(value, field, rowId);
 }
 
@@ -191,34 +235,23 @@ async function migrateLegacySchema(db: SQLite.SQLiteDatabase): Promise<void> {
 
     for (const slot of activeSlots) {
       const key = `${slot.relationshipId}:${slot.participant}`;
-      if (slotByParticipant.has(key)) {
-        throw new Error(`Legacy database has multiple active slots for ${key}.`);
-      }
+      if (slotByParticipant.has(key)) throw new Error(`Legacy database has multiple active slots for ${key}.`);
 
       const message = messageById.get(slot.messageId);
-      if (!message) {
-        throw new Error(`Legacy active slot references missing message ${slot.messageId}.`);
-      }
+      if (!message) throw new Error(`Legacy active slot references missing message ${slot.messageId}.`);
       if (message.relationshipId !== slot.relationshipId || message.participant !== slot.participant) {
         throw new Error('Legacy active slot references a message from the wrong relationship or participant.');
       }
-      if (message.isActive !== 1) {
-        throw new Error(`Legacy active slot ${slot.messageId} disagrees with message isActive state.`);
-      }
-
+      if (message.isActive !== 1) throw new Error(`Legacy active slot ${slot.messageId} disagrees with message isActive state.`);
       slotByParticipant.set(key, slot);
     }
 
     for (const message of messages) {
-      if (message.isActive !== 0 && message.isActive !== 1) {
-        throw new Error(`Legacy message ${message.id} has invalid isActive state.`);
-      }
+      if (message.isActive !== 0 && message.isActive !== 1) throw new Error(`Legacy message ${message.id} has invalid isActive state.`);
       if (message.isActive === 1) {
         const key = `${message.relationshipId}:${message.participant}`;
         const slot = slotByParticipant.get(key);
-        if (!slot || slot.messageId !== message.id) {
-          throw new Error(`Legacy active message ${message.id} has no matching active slot.`);
-        }
+        if (!slot || slot.messageId !== message.id) throw new Error(`Legacy active message ${message.id} has no matching active slot.`);
       }
     }
 
@@ -231,19 +264,11 @@ async function migrateLegacySchema(db: SQLite.SQLiteDatabase): Promise<void> {
     await createLatestSchema(db);
 
     for (const relationship of relationships) {
-      const togetherSince = parseLegacyNullableInteger(
-        relationship.togetherSince,
-        'togetherSince',
-        relationship.id,
-      );
+      const togetherSince = parseLegacyNullableInteger(relationship.togetherSince, 'togetherSince', relationship.id);
       await db.runAsync(
         `INSERT INTO relationships (id, partnerNickname, ownName, partnerColor, togetherSince)
          VALUES (?, ?, ?, ?, ?)`,
-        relationship.id,
-        relationship.partnerNickname,
-        relationship.ownName,
-        relationship.partnerColor,
-        togetherSince,
+        relationship.id, relationship.partnerNickname, relationship.ownName, relationship.partnerColor, togetherSince,
       );
     }
 
@@ -253,15 +278,8 @@ async function migrateLegacySchema(db: SQLite.SQLiteDatabase): Promise<void> {
         `INSERT INTO messages
          (id, relationshipId, participant, type, body, createdAt, orderIndex, mediaReference, syncState)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        message.id,
-        message.relationshipId,
-        message.participant,
-        message.type,
-        message.body,
-        createdAt,
-        message.orderIndex,
-        message.mediaReference,
-        message.syncState,
+        message.id, message.relationshipId, message.participant, message.type, message.body, createdAt,
+        message.orderIndex, message.mediaReference, message.syncState,
       );
     }
 
@@ -269,9 +287,7 @@ async function migrateLegacySchema(db: SQLite.SQLiteDatabase): Promise<void> {
       await db.runAsync(
         `INSERT INTO active_message_slots (relationshipId, participant, messageId)
          VALUES (?, ?, ?)`,
-        slot.relationshipId,
-        slot.participant,
-        slot.messageId,
+        slot.relationshipId, slot.participant, slot.messageId,
       );
     }
 
