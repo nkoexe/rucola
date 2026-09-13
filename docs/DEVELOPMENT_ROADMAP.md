@@ -17,12 +17,12 @@ Current foundation status:
 - Android CI build pipeline: complete
 - final navigation architecture: not complete
 - final Home UX: not complete
-- backend: not started
-- real two-device pairing: not started
-- online synchronization: not started
+- cloud backend foundation: **in progress on `cloud/research`**
+- real two-device pairing: backend primitives implemented; mobile integration not started
+- online synchronization: backend protocol implemented; mobile integration not started
 - final Figma implementation: not started
 
-The next risk is application-layer structure and product completeness, not SQLite infrastructure.
+The mobile and cloud workstreams are intentionally progressing in parallel. The cloud backend is no longer future work: its synchronization foundation is actively being implemented on `cloud/research` while the React Native client continues separately.
 
 ## Phase 1 — Application structure and lifecycle hardening
 
@@ -121,36 +121,47 @@ without losing history or incorrectly showing an old active message.
 
 ## Phase 3 — Backend foundation in parallel
 
-Backend work begins once Phase 1 has stabilized. It does **not** wait for pixel-perfect UI.
+Backend work proceeds in parallel with the local/mobile phases. It does **not** wait for pixel-perfect UI.
 
-Goal: create the minimum real transport required for two anonymous installations to pair and exchange messages.
+Goal: create the minimum real transport required for two anonymous installations to pair and exchange messages reliably.
 
 ### Backend direction
 
-Preferred stack remains:
+Production stack:
 
 - Cloudflare Workers — API/orchestration;
-- D1 — relationship/metadata state;
-- R2 — temporary media mailbox where required.
+- D1 — relationship/metadata state and temporary mailbox;
+- R2 — temporary media mailbox/storage.
 
-The backend is a temporary mailbox, not permanent history storage.
+The backend is a temporary mailbox, not permanent history storage. Local SQLite remains the durable source of truth.
 
-### Work
+### Completed backend foundation on `cloud/research`
 
-1. Define the network/domain contract without coupling screens directly to HTTP.
-2. Define anonymous device identity lifecycle.
-3. Define pairing state machine.
-4. Implement five-emoji pairing UX and secure opaque invitation mechanism behind it.
-5. Implement invitation expiry and single-use semantics.
-6. Establish relationship between exactly two participants.
-7. Implement message upload/send contract.
-8. Implement recipient synchronization.
-9. Preserve message order and bursts.
-10. Acknowledge only after durable local persistence.
-11. Handle offline/reconnect/retry behavior.
-12. Preserve local history if the backend is unavailable.
-13. Keep synchronization state separate from read/seen state.
-14. Establish media upload/download lifecycle separately from local media persistence.
+- device-bound authentication;
+- two-person relationship state machine;
+- secure pairing bootstrap/invitation/acceptance flow;
+- invitation expiry and bounded confirmation attempts;
+- message push with stable message identity and idempotent retries;
+- sender sequence and server sequence handling;
+- durable message receipts;
+- atomic database-level message acceptance invariants;
+- media attachment and message/media type invariants;
+- ordered non-destructive mailbox pull;
+- destructive ACK after local durability;
+- concurrent ACK and relationship termination hardening;
+- mailbox expiry/cursor-gap handling;
+- sender-device binding for legacy mailbox retries.
+
+### Remaining backend work
+
+1. Finalize the media upload/completion API.
+2. Add R2 integration.
+3. Enforce 20 MB image / 100 MB video transport limits.
+4. Implement scheduled cleanup and the finite retention contract.
+5. Finish production operational hardening: rate limits, observability, migration safety and recovery.
+6. Remove obsolete protocol state after the client contract is finalized.
+7. Connect the React Native sync engine to the stable protocol.
+8. Add the final E2E encryption layer after transport/storage semantics are stable.
 
 ### Critical synchronization example
 
@@ -192,7 +203,7 @@ Two real people can use two real Android devices and:
 
 - install the app;
 - complete anonymous setup;
-- pair using five emojis;
+- pair using the intended pairing flow;
 - exchange real messages over the Internet;
 - send multiple messages while the other person is offline;
 - reconnect and recover the complete ordered history;
