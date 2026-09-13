@@ -10,7 +10,8 @@
     "prebuild": "expo prebuild",
     "typecheck": "tsc --noEmit",
     "test:domain": "node --experimental-strip-types --test src/domain/__tests__/*.test.mjs",
-    "test:cloud-client": "node --experimental-strip-types --test src/cloud/__tests__/*.test.mjs"
+    "test:cloud-client": "node --experimental-strip-types --test src/cloud/__tests__/*.test.mjs",
+    "test:sync-engine": "node --experimental-strip-types --test src/sync/SyncEngine.test.mjs"
   },
   "dependencies": {
     "expo": "^57.0.0",
