@@ -13,7 +13,8 @@ const MAX_CIPHERTEXT_BYTES = 12 * 1024;
 const MAX_ENCRYPTION_VERSION = 255;
 const MIN_CREATED_AT = Date.UTC(2020, 0, 1);
 const MAX_FUTURE_CREATED_AT_MS = 7 * 24 * 60 * 60 * 1000;
-const MAILBOX_RETENTION_MS = 7 * 24 * 60 * 60 * 1000;
+const MAILBOX_RETENTION_MS = 14 * 24 * 60 * 60 * 1000;
+const RECEIPT_RETENTION_MS = 30 * 24 * 60 * 60 * 1000;
 const MAX_SERVER_SEQUENCE_ALLOCATION_RETRIES = 16;
 const MESSAGE_TYPES = new Set<MessageType>(["TEXT", "EMOJI", "PHOTO_VIDEO", "DRAWING"]);
 
@@ -181,6 +182,7 @@ async function acceptNewMessage(
   ciphertextHash: string,
 ): Promise<"success" | "retry"> {
   const expiresAt = now + MAILBOX_RETENTION_MS;
+  const receiptRetentionExpiresAt = now + RECEIPT_RETENTION_MS;
   try {
     const statements: D1PreparedStatement[] = [];
 
@@ -232,15 +234,16 @@ async function acceptNewMessage(
         `INSERT INTO message_receipts
            (relationship_id, message_id, sender_device_id, sender_seq, type,
             ciphertext_hash, encryption_version, client_created_at, media_upload_id,
-            server_seq, server_received_at, created_at)
+            server_seq, server_received_at, created_at, delivery_expires_at,
+            retention_expires_at, acknowledged_at)
          SELECT relationship_id, message_id, sender_device_id, sender_seq, type,
                 ?1, encryption_version, client_created_at, media_upload_id,
-                server_seq, server_received_at, ?2
+                server_seq, server_received_at, ?2, expires_at, ?3, NULL
          FROM mailbox_messages
-         WHERE relationship_id = ?3
-           AND message_id = ?4
-           AND server_seq = ?5`,
-      ).bind(ciphertextHash, now, device.relationshipId, message.messageId, serverSeq),
+         WHERE relationship_id = ?4
+           AND message_id = ?5
+           AND server_seq = ?6`,
+      ).bind(ciphertextHash, now, receiptRetentionExpiresAt, device.relationshipId, message.messageId, serverSeq),
     );
 
     await env.DB.batch(statements);
@@ -296,7 +299,7 @@ export async function pushMessageDurable(env: Env, request: Request): Promise<Re
   if (!validation.value) return errorResponse(validation.status === 413 ? "PAYLOAD_TOO_LARGE" : "INVALID_REQUEST", validation.message, validation.status);
   const message = validation.value;
 
-  const durableConflict = await classifyDurableReceipt(env, device, message);
+  const durableConflict = await classifyDurableReceipt(env, device, message, now);
   if (durableConflict) return durableConflict;
   const legacyConflict = await classifyLegacyMailbox(env, device, message);
   if (legacyConflict) return legacyConflict;
