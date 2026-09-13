@@ -73,20 +73,11 @@ test('does not ACK inbound data before local commit succeeds', async () => {
   const harness = createHarness({
     pullResponse: {
       messages: [{
-        messageId: 'remote-1',
-        senderDeviceId: 'device-b',
-        senderParticipant: 'PARTNER',
-        senderSeq: 1,
-        createdAt: 1_700_000_000_100,
-        serverSeq: 7,
-        receivedAt: 1_700_000_000_200,
-        type: 'TEXT',
-        ciphertext: 'hello',
-        encryptionVersion: 1,
-        mediaUploadId: null,
+        messageId: 'remote-1', senderDeviceId: 'device-b', senderParticipant: 'PARTNER', senderSeq: 1,
+        createdAt: 1_700_000_000_100, serverSeq: 7, receivedAt: 1_700_000_000_200,
+        type: 'TEXT', ciphertext: 'hello', encryptionVersion: 1, mediaUploadId: null,
       }],
-      nextCursor: 7,
-      hasMore: false,
+      nextCursor: 7, hasMore: false,
     },
     inboundCommitError: new Error('sqlite failed'),
   });
@@ -100,20 +91,11 @@ test('ACK happens only after the inbound transaction resolves', async () => {
   const harness = createHarness({
     pullResponse: {
       messages: [{
-        messageId: 'remote-1',
-        senderDeviceId: 'device-b',
-        senderParticipant: 'PARTNER',
-        senderSeq: 1,
-        createdAt: 1_700_000_000_100,
-        serverSeq: 7,
-        receivedAt: 1_700_000_000_200,
-        type: 'TEXT',
-        ciphertext: 'hello',
-        encryptionVersion: 1,
-        mediaUploadId: null,
+        messageId: 'remote-1', senderDeviceId: 'device-b', senderParticipant: 'PARTNER', senderSeq: 1,
+        createdAt: 1_700_000_000_100, serverSeq: 7, receivedAt: 1_700_000_000_200,
+        type: 'TEXT', ciphertext: 'hello', encryptionVersion: 1, mediaUploadId: null,
       }],
-      nextCursor: 7,
-      hasMore: false,
+      nextCursor: 7, hasMore: false,
     },
   });
 
@@ -151,4 +133,23 @@ test('media messages remain queued until media sync exists', async () => {
   assert.equal(result.failed, 1);
   assert.equal(harness.calls.some(([name]) => name === 'push'), false);
   assert.match(harness.calls.find(([name]) => name === 'markAttemptFailed')?.[2], /Media synchronization/);
+});
+
+test('a failed sender sequence blocks later messages in the same pass', async () => {
+  const harness = createHarness();
+  harness.repository.getMessages = async () => [
+    message({ id: 'local-1', body: 'first' }),
+    message({ id: 'local-2', body: 'second', orderIndex: 2 }),
+  ];
+  harness.state.getDueOutbox = async () => [
+    { messageId: 'local-1', senderSeq: 1, attempts: 0, lastError: null, nextAttemptAt: 0, createdAt: 1 },
+    { messageId: 'local-2', senderSeq: 2, attempts: 0, lastError: null, nextAttemptAt: 0, createdAt: 2 },
+  ];
+  harness.cloud.pushMessage = async () => { throw new Error('offline'); };
+
+  const engine = new SyncEngine({ ...harness });
+  const result = await engine.run();
+  assert.equal(result.failed, 1);
+  assert.equal(harness.calls.filter(([name]) => name === 'push').length, 1);
+  assert.equal(harness.calls.some(([name, id]) => name === 'markAttemptFailed' && id === 'local-2'), false);
 });
