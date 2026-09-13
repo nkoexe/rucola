@@ -213,6 +213,7 @@ describe("media upload", () => {
   it("rejects completion if a checksum-protected object is replaced with different content", async () => {
     const { me } = await bootstrapAndAccept();
     const bytes = new TextEncoder().encode("rucola-media");
+    const tamperedBytes = new TextEncoder().encode("rucola-mediX");
     const checksum = "0b7381118933b71533218ca79d020e4a3075e6db5cb7e611f4d49eede55a3e74";
     const uploadId = await createMedia(me.credential, bytes.byteLength, checksum);
     expect((await uploadMedia(me.credential, uploadId, bytes)).status).toBe(200);
@@ -220,7 +221,7 @@ describe("media upload", () => {
     const row = await env.DB.prepare(
       "SELECT object_key FROM media_uploads WHERE id = ?1",
     ).bind(uploadId).first<{ object_key: string }>();
-    await env.MEDIA_BUCKET.put(row!.object_key, bytes, {
+    await env.MEDIA_BUCKET.put(row!.object_key, tamperedBytes, {
       httpMetadata: { contentType: "image/png" },
       customMetadata: { uploadId },
     });
