@@ -4,58 +4,49 @@ Rucola is a tiny private mobile mailbox for two people in a long-distance relati
 
 > **One thing waiting for you from the person you love.**
 
-It is intentionally **not a conventional chat app**. Each person has one active message; sending a new message moves their previous active message into permanent local history.
+It is intentionally **not a chat app**. Each person has one active message; sending a new message moves their previous active message into permanent local history.
 
-## Development workstreams
+## Current state
 
-Rucola currently has two active development workstreams:
-
-- `migration/react-native` — mobile application and local-first client;
-- `cloud/research` — production synchronization backend and cloud protocol.
-
-They are intentionally developed in parallel. The mobile application must remain useful without the backend, and the backend must treat local devices as the durable source of truth.
-
-## Mobile implementation
-
-The current mobile stack is:
+The app is being built with:
 
 - Expo + React Native + TypeScript
 - Android development builds / Expo prebuild
 - `expo-sqlite` for local persistence
 - `expo-image-picker` + `expo-file-system` for durable local photo/video messages
 - `expo-video` for local video playback
-- domain/use-case layer over the repository boundary
+- a domain/use-case layer over the repository boundary
 
-The prototype supports local onboarding, partner active-message home, text, emoji, photo/video selection and camera capture, durable local media references, captions, immutable history, calendar browsing and local-data reset.
+The local prototype currently supports:
 
-Drawing is still a placeholder. Real two-device synchronization, notifications, widgets and E2E encryption are not yet integrated into the mobile branch.
+- onboarding with partner name, own name, and optional together-since date;
+- one active message per participant;
+- local text and emoji messages;
+- local photo/video selection and camera capture;
+- durable app-owned media;
+- photo/video messages with optional captions;
+- immutable message history;
+- month/date calendar browsing;
+- local reset including owned-media cleanup.
 
-## Cloud implementation
+Drawing is still unimplemented. Real five-emoji two-device pairing, backend synchronization, notifications, widgets, and E2E encryption are not implemented yet.
 
-The production cloud backend uses:
+The UI is intentionally barebones while the functional local app is being completed. Detailed Figma implementation comes afterward.
 
-- Cloudflare Worker — API, authentication, pairing and synchronization orchestration;
-- D1 — relationships, devices, invitations, temporary mailbox state, durable message receipts and media metadata;
-- R2 — temporary media storage, currently being integrated.
+## Documentation
 
-The cloud is a **temporary synchronization mailbox, not a cloud archive**. Local SQLite remains the permanent source of truth.
+Use these documents as the current sources of truth:
 
-The current retention contract is finite: unacknowledged mailbox messages are guaranteed for 14 days, while durable message receipts are retained for 30 days after acceptance. Initial media limits are 20 MB for images and 100 MB for videos.
+- [`AGENTS.md`](AGENTS.md) — engineering constraints and development workflow
+- [`docs/PRODUCT_SPEC.md`](docs/PRODUCT_SPEC.md) — product behavior, scope, and UX direction
+- [`docs/DEVELOPMENT_ROADMAP.md`](docs/DEVELOPMENT_ROADMAP.md) — phased implementation plan and milestones
+- [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — application architecture and persistence/synchronization invariants
+- [`docs/REACT_NATIVE_MIGRATION.md`](docs/REACT_NATIVE_MIGRATION.md) — historical migration record
+- [`src/data/README.md`](src/data/README.md) — native SQLite integration-test coverage
 
-Read these documents before substantial backend changes:
+`docs/PRODUCT_SPEC.md` replaces the older `docs/PRODUCT.md`; the latter is intentionally no longer maintained.
 
-- [`docs/CLOUD_ARCHITECTURE.md`](docs/CLOUD_ARCHITECTURE.md) — current cloud protocol and boundaries;
-- [`docs/MEDIA_LIFECYCLE.md`](docs/MEDIA_LIFECYCLE.md) — cloud media state machine;
-- [`docs/CLOUD_HARDENING.md`](docs/CLOUD_HARDENING.md) — security/correctness audit and remaining implementation work.
-
-For general product/client architecture:
-
-- [`AGENTS.md`](AGENTS.md) — engineering and product constraints;
-- [`docs/PRODUCT.md`](docs/PRODUCT.md) — product behavior and MVP scope;
-- [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — overall local-first architecture;
-- [`docs/REACT_NATIVE_MIGRATION.md`](docs/REACT_NATIVE_MIGRATION.md) — migration status.
-
-## Mobile development
+## Development
 
 Install dependencies:
 
@@ -87,32 +78,18 @@ Run Android:
 npm run android
 ```
 
-The project is intended to use an Expo development build rather than Expo Go because future features require native capabilities.
+The project uses an Expo development build rather than Expo Go because native capabilities are required.
 
-## Cloud development
-
-From `cloud/worker/`:
-
-```bash
-npm ci
-npm test
-npm run typecheck
-```
-
-Apply local D1 migrations when needed:
-
-```bash
-npm run migrate:local
-```
-
-R2 integration and media upload endpoints are not yet part of the implemented API.
+The native SQLite integration suite is available through the development-only integration test screen and uses disposable databases.
 
 ## Design
 
 Rucola should feel pastel, cutesy, playful, handmade and slightly wonky rather than like a generic Material app.
 
-Figma is the visual reference for the later UI pass. Functional behavior, local correctness and synchronization semantics take priority while the feature set is being stabilized.
+Figma is the visual reference for the later UI pass.
 
 ## Git workflow
 
-Develop on `migration/react-native`, `cloud/research`, or a focused feature branch. Keep commits small and reviewable and never develop directly on `main`.
+`main` is the stable integration baseline. Ongoing implementation happens on focused `feature/*`, `fix/*`, `test/*`, `chore/*`, or research branches created from `main`.
+
+Keep commits small and reviewable. Never commit generated secrets, local databases, or machine-specific build artifacts.

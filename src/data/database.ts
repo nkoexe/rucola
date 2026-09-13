@@ -6,15 +6,37 @@ const SCHEMA_VERSION = 2;
 export const RELATIONSHIP_ID = 'the-one';
 
 let databasePromise: Promise<SQLite.SQLiteDatabase> | null = null;
+const initializationPromises = new WeakMap<SQLite.SQLiteDatabase, Promise<SQLite.SQLiteDatabase>>();
 
 export function getDatabase(): Promise<SQLite.SQLiteDatabase> {
-  databasePromise ??= SQLite.openDatabaseAsync(DATABASE_NAME);
+  if (!databasePromise) {
+    databasePromise = SQLite.openDatabaseAsync(DATABASE_NAME).catch((cause) => {
+      databasePromise = null;
+      throw cause;
+    });
+  }
   return databasePromise;
 }
 
-export async function initializeDatabase(db?: SQLite.SQLiteDatabase): Promise<SQLite.SQLiteDatabase> {
-  const database = db ?? await getDatabase();
+export function initializeDatabase(db?: SQLite.SQLiteDatabase): Promise<SQLite.SQLiteDatabase> {
+  if (!db) {
+    return getDatabase().then((database) => initializeDatabase(database));
+  }
 
+  const existingInitialization = initializationPromises.get(db);
+  if (existingInitialization) {
+    return existingInitialization;
+  }
+
+  const initialization = initializeDatabaseInternal(db).catch((cause) => {
+    initializationPromises.delete(db);
+    throw cause;
+  });
+  initializationPromises.set(db, initialization);
+  return initialization;
+}
+
+async function initializeDatabaseInternal(database: SQLite.SQLiteDatabase): Promise<SQLite.SQLiteDatabase> {
   await database.execAsync('PRAGMA foreign_keys = ON;');
   await database.execAsync('PRAGMA journal_mode = WAL;');
 
@@ -30,8 +52,12 @@ export async function initializeDatabase(db?: SQLite.SQLiteDatabase): Promise<SQ
   );
 
   if (version === 0 && tables.length === 0) {
-    await createLatestSchema(database);
-    await database.execAsync(`PRAGMA user_version = ${SCHEMA_VERSION};`);
+    // Keep first-run schema creation atomic so an interrupted startup cannot leave
+    // a version-0 database that looks like a legacy database on the next launch.
+    await database.withTransactionAsync(async () => {
+      await createLatestSchema(database);
+      await database.execAsync(`PRAGMA user_version = ${SCHEMA_VERSION};`);
+    });
     return verifyDatabase(database);
   }
 
