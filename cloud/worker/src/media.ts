@@ -9,8 +9,10 @@ const MIN_MEDIA_BYTES = 1;
 const PENDING_RETENTION_MS = 24 * 60 * 60 * 1000;
 const READY_RETENTION_MS = 14 * 24 * 60 * 60 * 1000;
 const MAX_MIME_BYTES = 128;
+
 const PHOTO_MIME_TYPES = new Set(["image/jpeg", "image/png", "image/webp", "image/heic", "image/heif"]);
 const VIDEO_MIME_TYPES = new Set(["video/mp4", "video/quicktime", "video/webm"]);
+
 type ReservationType = "PHOTO" | "VIDEO";
 type MediaStatus = "PENDING" | "READY" | "ATTACHED" | "ABANDONED";
 interface CreateMediaRequest { type?: unknown; mime?: unknown; size?: unknown; checksum?: unknown; }
@@ -59,8 +61,7 @@ export async function uploadMedia(env: Env, request: Request, uploadId: string):
   const contentLength = Number(contentLengthHeader); if (!Number.isSafeInteger(contentLength) || contentLength !== upload.size_bytes) return errorResponse("MEDIA_SIZE_MISMATCH", "Content-Length does not match the reservation", 400);
   if (!request.body) return errorResponse("INVALID_REQUEST", "Media request body required", 400);
   let stored: R2Object | null = null;
-  try { stored = await env.MEDIA_BUCKET.put(upload.object_key, request.body, { httpMetadata: { contentType: upload.declared_mime }, customMetadata: { uploadId: upload.id }, ...(upload.checksum === null ? {} : { sha256: checksumBytes(upload.checksum) }) }); }
-  catch { return errorResponse("MEDIA_UPLOAD_FAILED", "Media upload could not be stored", 502); }
+  try { stored = await env.MEDIA_BUCKET.put(upload.object_key, request.body, { httpMetadata: { contentType: upload.declared_mime }, customMetadata: { uploadId: upload.id }, ...(upload.checksum === null ? {} : { sha256: checksumBytes(upload.checksum) }) }); } catch { return errorResponse("MEDIA_UPLOAD_FAILED", "Media upload could not be stored", 502); }
   if (!stored || stored.size !== upload.size_bytes || stored.httpMetadata?.contentType !== upload.declared_mime) { await removeObjectBestEffort(env, upload.object_key); return errorResponse("MEDIA_STORAGE_MISMATCH", "Stored media does not match the reservation", 502); }
   if (upload.checksum !== null && !sameSha256(stored, upload.checksum)) { await removeObjectBestEffort(env, upload.object_key); return errorResponse("MEDIA_CHECKSUM_MISMATCH", "Stored media checksum does not match the reservation", 400); }
   return json({ uploadId: upload.id, status: "UPLOADED" });
