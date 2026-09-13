@@ -72,6 +72,13 @@ async function uploadMedia(
   });
 }
 
+async function completeMedia(credential: string, uploadId: string): Promise<Response> {
+  return exports.default.fetch(`https://rucola.test/v1/media/${uploadId}/complete`, {
+    method: "POST",
+    headers: { authorization: `Bearer ${credential}` },
+  });
+}
+
 describe("media upload", () => {
   it("streams a reserved object to R2 and preserves its reservation metadata", async () => {
     const { me } = await bootstrapAndAccept();
@@ -147,5 +154,84 @@ describe("media upload", () => {
     const notPending = await uploadMedia(me.credential, freshUploadId, bytes);
     expect(notPending.status).toBe(409);
     expect((await json(notPending)).error).toMatchObject({ code: "MEDIA_NOT_PENDING" });
+  });
+
+  it("completes an uploaded object and is idempotent", async () => {
+    const { me } = await bootstrapAndAccept();
+    const bytes = new TextEncoder().encode("rucola-media");
+    const uploadId = await createMedia(me.credential, bytes.byteLength);
+    expect((await uploadMedia(me.credential, uploadId, bytes)).status).toBe(200);
+
+    const first = await completeMedia(me.credential, uploadId);
+    expect(first.status).toBe(200);
+    expect(await json(first)).toEqual({ uploadId, status: "READY" });
+
+    const row = await env.DB.prepare(
+      "SELECT status, completed_at FROM media_uploads WHERE id = ?1",
+    ).bind(uploadId).first<{ status: string; completed_at: number | null }>();
+    expect(row?.status).toBe("READY");
+    expect(row?.completed_at).not.toBeNull();
+
+    const second = await completeMedia(me.credential, uploadId);
+    expect(second.status).toBe(200);
+    expect(await json(second)).toEqual({ uploadId, status: "READY" });
+  });
+
+  it("rejects completion before upload without changing the reservation", async () => {
+    const { me } = await bootstrapAndAccept();
+    const uploadId = await createMedia(me.credential, 3);
+
+    const response = await completeMedia(me.credential, uploadId);
+    expect(response.status).toBe(409);
+    expect((await json(response)).error).toMatchObject({ code: "MEDIA_NOT_UPLOADED" });
+
+    const row = await env.DB.prepare(
+      "SELECT status, completed_at FROM media_uploads WHERE id = ?1",
+    ).bind(uploadId).first<{ status: string; completed_at: number | null }>();
+    expect(row).toEqual({ status: "PENDING", completed_at: null });
+  });
+
+  it("verifies the declared SHA-256 during upload and completion", async () => {
+    const { me } = await bootstrapAndAccept();
+    const bytes = new TextEncoder().encode("rucola-media");
+    const checksum = "0b7381118933b71533218ca79d020e4a3075e6db5cb7e611f4d49eede55a3e74";
+    const uploadId = await createMedia(me.credential, bytes.byteLength, checksum);
+
+    const uploaded = await uploadMedia(me.credential, uploadId, bytes);
+    expect(uploaded.status).toBe(200);
+    const completed = await completeMedia(me.credential, uploadId);
+    expect(completed.status).toBe(200);
+
+    const row = await env.DB.prepare(
+      "SELECT status FROM media_uploads WHERE id = ?1",
+    ).bind(uploadId).first<{ status: string }>();
+    expect(row?.status).toBe("READY");
+  });
+
+  it("rejects a mismatched declared SHA-256 and removes the object", async () => {
+    const { me } = await bootstrapAndAccept();
+    const bytes = new TextEncoder().encode("rucola-media");
+    const checksum = "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff";
+    const uploadId = await createMedia(me.credential, bytes.byteLength, checksum);
+
+    const response = await uploadMedia(me.credential, uploadId, bytes);
+    expect(response.status).toBe(400);
+    expect((await json(response)).error).toMatchObject({ code: "MEDIA_CHECKSUM_MISMATCH" });
+
+    const row = await env.DB.prepare(
+      "SELECT object_key, status FROM media_uploads WHERE id = ?1",
+    ).bind(uploadId).first<{ object_key: string; status: string }>();
+    expect(row?.status).toBe("PENDING");
+    expect(await env.MEDIA_BUCKET.head(row!.object_key)).toBeNull();
+  });
+
+  it("rejects completion from the other paired device", async () => {
+    const { me, partner } = await bootstrapAndAccept();
+    const bytes = new Uint8Array([1, 2, 3]);
+    const uploadId = await createMedia(me.credential, bytes.byteLength);
+    expect((await uploadMedia(me.credential, uploadId, bytes)).status).toBe(200);
+
+    const response = await completeMedia(partner.credential, uploadId);
+    expect(response.status).toBe(404);
   });
 });
