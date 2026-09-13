@@ -1,5 +1,5 @@
 import type { SQLiteDatabase } from 'expo-sqlite';
-import { RELATIONSHIP_ID } from './database.ts';
+import { RELATIONSHIP_ID } from './constants.ts';
 import type { MessageType, Participant, SyncState } from '../domain/models';
 const DEFAULT_NEXT_SENDER_SEQ = 1;
 const DEFAULT_PULL_CURSOR = 0;
