@@ -161,7 +161,7 @@ The receiving client may ACK only after every message through that sequence has 
 
 For media messages this means the referenced media must also be durably persisted locally before the ACK covers that message.
 
-The Worker validates that the cursor is not ahead of the relationship's known sequence and then deletes eligible mailbox rows. Repeated ACKs are idempotent. ACK does not delete media objects directly.
+The Worker validates that the cursor is not ahead of the relationship's known sequence, marks the corresponding durable receipts as acknowledged, and then deletes eligible mailbox rows in the same D1 batch. Repeated ACKs are idempotent. ACK does not delete media objects directly.
 
 ## Durable receipts
 
@@ -169,9 +169,15 @@ Mailbox deletion cannot be the only source of message identity because a sender 
 
 `message_receipts` therefore survives mailbox deletion and stores only synchronization metadata plus a SHA-256 digest of the opaque ciphertext. It preserves the original `server_seq` and immutable message identity.
 
-A matching retry returns the original server sequence instead of allocating another one. A mismatching retry is rejected.
+Each receipt records:
 
-Receipts have a **30-day retention window after acceptance**, providing a finite retry/idempotency guarantee beyond mailbox ACK. This is intentionally not indefinite. Receipt cleanup must be coordinated with media cleanup and must never remove a receipt while the protocol still promises retries for it.
+- `delivery_expires_at` — the end of the 14-day unacknowledged delivery guarantee;
+- `acknowledged_at` — whether the recipient crossed the local durability boundary;
+- `retention_expires_at` — the end of the finite receipt-retention period.
+
+A matching retry during the delivery window returns the original server sequence. Once an unacknowledged delivery window expires, the receipt becomes a retry-expired tombstone rather than silently creating a second acceptance. After ACK, the receipt remains available for the post-ACK idempotency window.
+
+Acknowledged receipts have a **30-day retention window after acceptance**. This is intentionally not indefinite. Receipt cleanup must be coordinated with media cleanup and must never remove a receipt while the protocol still promises retries for it.
 
 ## Media
 
@@ -221,7 +227,7 @@ Therefore every important operation must be safe to retry:
 - ACK is idempotent;
 - cleanup is eventually consistent and retry-safe.
 
-The retry guarantees are intentionally finite: mailbox delivery is guaranteed for 14 days while unacknowledged, and durable message identity is retained for 30 days. After those boundaries, the system makes no indefinite recovery guarantee.
+The retry guarantees are intentionally finite: mailbox delivery is guaranteed for 14 days while unacknowledged, and durable message identity is retained for its documented finite receipt window. After those boundaries, the system makes no indefinite recovery guarantee.
 
 The system should prefer a recoverable duplicate request over irreversible data loss within the defined retention windows.
 
