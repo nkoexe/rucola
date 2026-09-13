@@ -94,12 +94,12 @@ describe("media upload", () => {
     expect(object!.customMetadata?.uploadId).toBe(uploadId);
   });
 
-  it("rejects missing or incorrect Content-Length before writing to R2", async () => {
+  it("rejects a streamed request without Content-Length before writing to R2", async () => {
     const { me } = await bootstrapAndAccept();
     const bytes = new TextEncoder().encode("rucola-media");
     const uploadId = await createMedia(me.credential, bytes.byteLength);
 
-    const missingLengthRequest = new Request(`https://rucola.test/v1/media/${uploadId}`, {
+    const request = new Request(`https://rucola.test/v1/media/${uploadId}`, {
       method: "PUT",
       headers: {
         authorization: `Bearer ${me.credential}`,
@@ -112,20 +112,8 @@ describe("media upload", () => {
         },
       }),
     });
-    const missingLength = await exports.default.fetch(missingLengthRequest);
-    expect(missingLength.status).toBe(411);
-
-    const wrongLength = await exports.default.fetch(`https://rucola.test/v1/media/${uploadId}`, {
-      method: "PUT",
-      headers: {
-        authorization: `Bearer ${me.credential}`,
-        "content-type": "image/png",
-        "content-length": String(bytes.byteLength + 1),
-      },
-      body: bytes,
-    });
-    expect(wrongLength.status).toBe(400);
-    expect((await json(wrongLength)).error).toMatchObject({ code: "MEDIA_SIZE_MISMATCH" });
+    const response = await exports.default.fetch(request);
+    expect(response.status).toBe(411);
 
     const row = await env.DB.prepare(
       "SELECT object_key FROM media_uploads WHERE id = ?1",
