@@ -24,6 +24,7 @@ const VIDEO_MIME_TYPES = new Set([
 ]);
 
 type ReservationType = "PHOTO" | "VIDEO";
+type MediaStatus = "PENDING" | "READY" | "ATTACHED" | "ABANDONED";
 
 interface CreateMediaRequest {
   type?: unknown;
@@ -40,7 +41,8 @@ interface MediaUploadRow {
   media_type: ReservationType;
   declared_mime: string;
   size_bytes: number;
-  status: "PENDING" | "READY" | "ATTACHED" | "ABANDONED";
+  checksum: string | null;
+  status: MediaStatus;
   expires_at: number;
 }
 
@@ -133,14 +135,14 @@ function maxBytes(type: ReservationType): number {
   return type === "PHOTO" ? MAX_PHOTO_BYTES : MAX_VIDEO_BYTES;
 }
 
-async function getOwnedPendingUpload(
+async function getOwnedUpload(
   env: Env,
   device: AuthenticatedDevice,
   uploadId: string,
 ): Promise<MediaUploadRow | null> {
   return env.DB.prepare(
     `SELECT id, relationship_id, created_by_device_id, object_key,
-            media_type, declared_mime, size_bytes, status, expires_at
+            media_type, declared_mime, size_bytes, checksum, status, expires_at
      FROM media_uploads
      JOIN relationships ON relationships.id = media_uploads.relationship_id
      WHERE media_uploads.id = ?1
@@ -148,6 +150,16 @@ async function getOwnedPendingUpload(
        AND media_uploads.created_by_device_id = ?3
        AND relationships.status = 'ACTIVE'`,
   ).bind(uploadId, device.relationshipId, device.id).first<MediaUploadRow>();
+}
+
+function removeObjectBestEffort(env: Env, objectKey: string): Promise<void> {
+  return env.MEDIA_BUCKET.delete(objectKey).catch(() => undefined);
+}
+
+function sameSha256(object: R2Object, expected: string): boolean {
+  const actual = object.checksums?.sha256;
+  if (!actual) return false;
+  return Array.from(new Uint8Array(actual), (byte) => byte.toString(16).padStart(2, "0")).join("") === expected;
 }
 
 export async function createMediaReservation(env: Env, request: Request): Promise<Response> {
@@ -241,7 +253,7 @@ export async function uploadMedia(env: Env, request: Request, uploadId: string):
   const contentType = request.headers.get("content-type")?.split(";", 1)[0]?.trim().toLowerCase();
   if (!contentType) return errorResponse("INVALID_CONTENT_TYPE", "Content-Type is required", 400);
 
-  const upload = await getOwnedPendingUpload(env, device, uploadId);
+  const upload = await getOwnedUpload(env, device, uploadId);
   if (!upload) return errorResponse("MEDIA_NOT_FOUND", "Media upload was not found", 404);
 
   const now = Date.now();
@@ -284,26 +296,24 @@ export async function uploadMedia(env: Env, request: Request, uploadId: string):
     stored = await env.MEDIA_BUCKET.put(upload.object_key, boundedStream, {
       httpMetadata: { contentType: upload.declared_mime },
       customMetadata: { uploadId: upload.id },
+      ...(upload.checksum === null ? {} : { sha256: upload.checksum }),
     });
   } catch {
     return errorResponse("MEDIA_UPLOAD_FAILED", "Media upload could not be stored", 502);
   }
 
   if (!stored || stored.size !== upload.size_bytes || stored.httpMetadata?.contentType !== upload.declared_mime) {
-    try {
-      await env.MEDIA_BUCKET.delete(upload.object_key);
-    } catch {
-      // The reservation remains PENDING and completion will reject any invalid object.
-    }
+    await removeObjectBestEffort(env, upload.object_key);
     return errorResponse("MEDIA_STORAGE_MISMATCH", "Stored media does not match the reservation", 502);
   }
 
+  if (upload.checksum !== null && !sameSha256(stored, upload.checksum)) {
+    await removeObjectBestEffort(env, upload.object_key);
+    return errorResponse("MEDIA_CHECKSUM_MISMATCH", "Stored media checksum does not match the reservation", 400);
+  }
+
   if (bytesSeen !== upload.size_bytes) {
-    try {
-      await env.MEDIA_BUCKET.delete(upload.object_key);
-    } catch {
-      // Best-effort cleanup; the reservation remains PENDING and is subject to expiry cleanup.
-    }
+    await removeObjectBestEffort(env, upload.object_key);
     return errorResponse("MEDIA_SIZE_MISMATCH", "Uploaded media size does not match the reservation", 400);
   }
 
@@ -311,4 +321,74 @@ export async function uploadMedia(env: Env, request: Request, uploadId: string):
     uploadId: upload.id,
     status: "UPLOADED",
   });
+}
+
+export async function completeMedia(env: Env, request: Request, uploadId: string): Promise<Response> {
+  const device = await authenticateDevice(env, request);
+  if (!device) return errorResponse("UNAUTHENTICATED", "Valid device credentials are required", 401);
+
+  if (!/^[0-9a-f-]{36}$/i.test(uploadId)) {
+    return errorResponse("INVALID_UPLOAD_ID", "Invalid media upload ID", 400);
+  }
+
+  const upload = await getOwnedUpload(env, device, uploadId);
+  if (!upload) return errorResponse("MEDIA_NOT_FOUND", "Media upload was not found", 404);
+
+  const now = Date.now();
+  if (now >= upload.expires_at) {
+    return errorResponse("MEDIA_EXPIRED", "Media upload has expired", 409);
+  }
+  if (upload.status !== "PENDING") {
+    if (upload.status === "READY") {
+      return json({ uploadId: upload.id, status: "READY" });
+    }
+    return errorResponse("MEDIA_NOT_PENDING", "Media upload is no longer pending", 409);
+  }
+
+  let object: R2Object | null;
+  try {
+    object = await env.MEDIA_BUCKET.head(upload.object_key);
+  } catch {
+    return errorResponse("MEDIA_STORAGE_UNAVAILABLE", "Media storage could not be checked", 502);
+  }
+
+  if (!object) {
+    return errorResponse("MEDIA_NOT_UPLOADED", "Media object has not been uploaded", 409);
+  }
+
+  if (
+    object.size !== upload.size_bytes ||
+    object.httpMetadata?.contentType !== upload.declared_mime ||
+    object.customMetadata?.uploadId !== upload.id ||
+    (upload.checksum !== null && !sameSha256(object, upload.checksum))
+  ) {
+    await removeObjectBestEffort(env, upload.object_key);
+    return errorResponse("MEDIA_STORAGE_MISMATCH", "Stored media does not match the reservation", 409);
+  }
+
+  try {
+    const result = await env.DB.prepare(
+      `UPDATE media_uploads
+       SET status = 'READY', completed_at = ?1
+       WHERE id = ?2
+         AND relationship_id = ?3
+         AND created_by_device_id = ?4
+         AND status = 'PENDING'
+         AND expires_at > ?1`,
+    ).bind(now, upload.id, device.relationshipId, device.id).run();
+
+    if (result.meta.changes !== 1) {
+      const current = await getOwnedUpload(env, device, upload.id);
+      if (current?.status === "READY") return json({ uploadId: current.id, status: "READY" });
+      if (!current) return errorResponse("MEDIA_NOT_FOUND", "Media upload was not found", 404);
+      if (Date.now() >= current.expires_at) {
+        return errorResponse("MEDIA_EXPIRED", "Media upload has expired", 409);
+      }
+      return errorResponse("MEDIA_NOT_PENDING", "Media upload is no longer pending", 409);
+    }
+  } catch {
+    return errorResponse("DATABASE_UNAVAILABLE", "Media completion could not be recorded", 503);
+  }
+
+  return json({ uploadId: upload.id, status: "READY" });
 }
