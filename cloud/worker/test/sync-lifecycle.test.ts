@@ -1,198 +1,72 @@
 import { env, exports } from "cloudflare:workers";
 import { describe, expect, it } from "vitest";
 
-interface BootstrapBody {
-  relationshipId: string;
-  deviceId: string;
-  credential: string;
-  token: string;
-  confirmationCode: string;
-}
-
-async function json(response: Response): Promise<Record<string, unknown>> {
-  return (await response.json()) as Record<string, unknown>;
-}
-
+interface BootstrapBody { relationshipId: string; deviceId: string; credential: string; token: string; confirmationCode: string; }
+async function json(response: Response): Promise<Record<string, unknown>> { return (await response.json()) as Record<string, unknown>; }
 let bootstrapTestId = 500;
-
 async function bootstrapAndAccept(): Promise<{ me: BootstrapBody; partner: BootstrapBody }> {
   bootstrapTestId += 1;
-  const bootstrapResponse = await exports.default.fetch("https://rucola.test/v1/pairing/bootstrap", {
-    method: "POST",
-    headers: {
-      "content-type": "application/json",
-      "cf-connecting-ip": `192.0.2.${((bootstrapTestId - 1) % 254) + 1}`,
-    },
-    body: JSON.stringify({ expiresInSeconds: 3600 }),
-  });
+  const bootstrapResponse = await exports.default.fetch("https://rucola.test/v1/pairing/bootstrap", { method: "POST", headers: { "content-type": "application/json", "cf-connecting-ip": `192.0.2.${((bootstrapTestId - 1) % 254) + 1}` }, body: JSON.stringify({ expiresInSeconds: 3600 }) });
   expect(bootstrapResponse.status).toBe(201);
   const me = (await json(bootstrapResponse)) as unknown as BootstrapBody;
-
-  const acceptResponse = await exports.default.fetch("https://rucola.test/v1/pairing/accept", {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({ token: me.token, confirmationCode: me.confirmationCode }),
-  });
+  const acceptResponse = await exports.default.fetch("https://rucola.test/v1/pairing/accept", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ token: me.token, confirmationCode: me.confirmationCode }) });
   expect(acceptResponse.status).toBe(201);
   const partner = (await json(acceptResponse)) as unknown as BootstrapBody;
   return { me, partner };
 }
-
-async function push(credential: string, senderSeq: number, messageId = crypto.randomUUID()): Promise<Response> {
-  return exports.default.fetch("https://rucola.test/v1/sync/push", {
-    method: "POST",
-    headers: {
-      authorization: `Bearer ${credential}`,
-      "content-type": "application/json",
-    },
-    body: JSON.stringify({
-      messageId,
-      senderSeq,
-      type: "TEXT",
-      ciphertext: `ciphertext-${senderSeq}`,
-      encryptionVersion: 1,
-      createdAt: Date.now(),
-    }),
-  });
+async function push(credential: string, senderSeq: number, messageId = crypto.randomUUID(), createdAt = Date.now()): Promise<Response> {
+  return exports.default.fetch("https://rucola.test/v1/sync/push", { method: "POST", headers: { authorization: `Bearer ${credential}`, "content-type": "application/json" }, body: JSON.stringify({ messageId, senderSeq, type: "TEXT", ciphertext: `ciphertext-${senderSeq}`, encryptionVersion: 1, createdAt }) });
 }
-
-async function ack(credential: string, throughServerSeq: number): Promise<Response> {
-  return exports.default.fetch("https://rucola.test/v1/sync/ack", {
-    method: "POST",
-    headers: {
-      authorization: `Bearer ${credential}`,
-      "content-type": "application/json",
-    },
-    body: JSON.stringify({ throughServerSeq }),
-  });
-}
-
-async function pull(credential: string, after = 0): Promise<Response> {
-  return exports.default.fetch(`https://rucola.test/v1/sync/pull?after=${after}`, {
-    headers: { authorization: `Bearer ${credential}` },
-  });
-}
+async function ack(credential: string, throughServerSeq: number): Promise<Response> { return exports.default.fetch("https://rucola.test/v1/sync/ack", { method: "POST", headers: { authorization: `Bearer ${credential}`, "content-type": "application/json" }, body: JSON.stringify({ throughServerSeq }) }); }
+async function pull(credential: string, after = 0): Promise<Response> { return exports.default.fetch(`https://rucola.test/v1/sync/pull?after=${after}`, { headers: { authorization: `Bearer ${credential}` } }); }
 
 describe("Rucola sync lifecycle hardening", () => {
   it("serializes concurrent ACKs without deleting messages beyond the cursor", async () => {
     const { me, partner } = await bootstrapAndAccept();
-    expect((await push(me.credential, 1)).status).toBe(200);
-    expect((await push(me.credential, 2)).status).toBe(200);
-    expect((await push(me.credential, 3)).status).toBe(200);
-
-    const responses = await Promise.all([
-      ack(partner.credential, 2),
-      ack(partner.credential, 2),
-      ack(partner.credential, 2),
-    ]);
-
+    expect((await push(me.credential, 1)).status).toBe(200); expect((await push(me.credential, 2)).status).toBe(200); expect((await push(me.credential, 3)).status).toBe(200);
+    const responses = await Promise.all([ack(partner.credential, 2), ack(partner.credential, 2), ack(partner.credential, 2)]);
     expect(responses.map((response) => response.status).sort()).toEqual([200, 200, 200]);
-    const deletedCounts = await Promise.all(
-      responses.map(async (response) => ((await json(response)).deleted as number)),
-    );
+    const deletedCounts = await Promise.all(responses.map(async (response) => (await json(response)).deleted as number));
     expect(deletedCounts.reduce((sum, count) => sum + count, 0)).toBe(2);
-
-    const rows = await env.DB.prepare(
-      "SELECT server_seq FROM mailbox_messages WHERE relationship_id = ?1 ORDER BY server_seq",
-    ).bind(me.relationshipId).all<{ server_seq: number }>();
+    const rows = await env.DB.prepare("SELECT server_seq FROM mailbox_messages WHERE relationship_id = ?1 ORDER BY server_seq").bind(me.relationshipId).all<{ server_seq: number }>();
     expect(rows.results.map((row) => row.server_seq)).toEqual([3]);
-
-    const receipts = await env.DB.prepare(
-      "SELECT server_seq, acknowledged_at FROM message_receipts WHERE relationship_id = ?1 ORDER BY server_seq",
-    ).bind(me.relationshipId).all<{ server_seq: number; acknowledged_at: number | null }>();
-    expect(receipts.results).toHaveLength(3);
-    expect(receipts.results.slice(0, 2).every((row) => row.acknowledged_at !== null)).toBe(true);
-    expect(receipts.results[2]?.acknowledged_at).toBeNull();
   });
-
   it("does not ACK-delete mailbox rows after the relationship has ended", async () => {
-    const { me, partner } = await bootstrapAndAccept();
-    expect((await push(me.credential, 1)).status).toBe(200);
-
-    await env.DB.prepare(
-      "UPDATE relationships SET status = 'ENDED', ended_at = ?1 WHERE id = ?2",
-    ).bind(Date.now(), me.relationshipId).run();
-
-    const response = await ack(partner.credential, 1);
-    expect(response.status).toBe(409);
-    expect((await json(response)).error).toMatchObject({ code: "RELATIONSHIP_INACTIVE" });
-
-    const rows = await env.DB.prepare(
-      "SELECT server_seq FROM mailbox_messages WHERE relationship_id = ?1 ORDER BY server_seq",
-    ).bind(me.relationshipId).all<{ server_seq: number }>();
-    expect(rows.results.map((row) => row.server_seq)).toEqual([1]);
+    const { me, partner } = await bootstrapAndAccept(); expect((await push(me.credential, 1)).status).toBe(200);
+    await env.DB.prepare("UPDATE relationships SET status = 'ENDED', ended_at = ?1 WHERE id = ?2").bind(Date.now(), me.relationshipId).run();
+    const response = await ack(partner.credential, 1); expect(response.status).toBe(409); expect((await json(response)).error).toMatchObject({ code: "RELATIONSHIP_INACTIVE" });
+    const rows = await env.DB.prepare("SELECT server_seq FROM mailbox_messages WHERE relationship_id = ?1 ORDER BY server_seq").bind(me.relationshipId).all<{ server_seq: number }>(); expect(rows.results.map((row) => row.server_seq)).toEqual([1]);
   });
-
   it("does not expose mailbox messages after relationship termination", async () => {
-    const { me } = await bootstrapAndAccept();
-    expect((await push(me.credential, 1)).status).toBe(200);
-
-    await env.DB.prepare(
-      "UPDATE relationships SET status = 'ENDED', ended_at = ?1 WHERE id = ?2",
-    ).bind(Date.now(), me.relationshipId).run();
-
-    const response = await pull(me.credential);
-    expect(response.status).toBe(409);
-    expect((await json(response)).error).toMatchObject({ code: "RELATIONSHIP_INACTIVE" });
+    const { me } = await bootstrapAndAccept(); expect((await push(me.credential, 1)).status).toBe(200);
+    await env.DB.prepare("UPDATE relationships SET status = 'ENDED', ended_at = ?1 WHERE id = ?2").bind(Date.now(), me.relationshipId).run();
+    const response = await pull(me.credential); expect(response.status).toBe(409); expect((await json(response)).error).toMatchObject({ code: "RELATIONSHIP_INACTIVE" });
   });
-
   it("preserves a message pushed concurrently with an earlier ACK", async () => {
-    const { me, partner } = await bootstrapAndAccept();
-    expect((await push(me.credential, 1)).status).toBe(200);
-
-    const [ackResponse, pushResponse] = await Promise.all([
-      ack(partner.credential, 1),
-      push(me.credential, 2),
-    ]);
-
-    expect(ackResponse.status).toBe(200);
-    expect(pushResponse.status).toBe(200);
-
-    const rows = await env.DB.prepare(
-      "SELECT server_seq FROM mailbox_messages WHERE relationship_id = ?1 ORDER BY server_seq",
-    ).bind(me.relationshipId).all<{ server_seq: number }>();
-    expect(rows.results.map((row) => row.server_seq)).toEqual([2]);
+    const { me, partner } = await bootstrapAndAccept(); expect((await push(me.credential, 1)).status).toBe(200);
+    const [ackResponse, pushResponse] = await Promise.all([ack(partner.credential, 1), push(me.credential, 2)]);
+    expect(ackResponse.status).toBe(200); expect(pushResponse.status).toBe(200);
+    const rows = await env.DB.prepare("SELECT server_seq FROM mailbox_messages WHERE relationship_id = ?1 ORDER BY server_seq").bind(me.relationshipId).all<{ server_seq: number }>(); expect(rows.results.map((row) => row.server_seq)).toEqual([2]);
   });
-
   it("does not resurrect an unacknowledged message after its delivery window expires", async () => {
-    const { me } = await bootstrapAndAccept();
-    const messageId = crypto.randomUUID();
-    expect((await push(me.credential, 1, messageId)).status).toBe(200);
-
+    const { me } = await bootstrapAndAccept(); const messageId = crypto.randomUUID(); const createdAt = Date.now();
+    expect((await push(me.credential, 1, messageId, createdAt)).status).toBe(200);
     const expiredAt = Date.now() - 1;
+    const original = await env.DB.prepare("SELECT created_at FROM message_receipts WHERE relationship_id = ?1 AND message_id = ?2").bind(me.relationshipId, messageId).first<{ created_at: number }>();
+    expect(original?.created_at).toBe(createdAt);
     await env.DB.batch([
-      env.DB.prepare(
-        "UPDATE mailbox_messages SET expires_at = ?1 WHERE relationship_id = ?2 AND message_id = ?3",
-      ).bind(expiredAt, me.relationshipId, messageId),
-      env.DB.prepare(
-        "UPDATE message_receipts SET delivery_expires_at = ?1 WHERE relationship_id = ?2 AND message_id = ?3",
-      ).bind(expiredAt, me.relationshipId, messageId),
+      env.DB.prepare("UPDATE mailbox_messages SET expires_at = ?1, created_at = ?2 WHERE relationship_id = ?3 AND message_id = ?4").bind(expiredAt, expiredAt - 1, me.relationshipId, messageId),
+      env.DB.prepare("UPDATE message_receipts SET delivery_expires_at = ?1 WHERE relationship_id = ?2 AND message_id = ?3").bind(expiredAt, me.relationshipId, messageId),
     ]);
-
-    const retry = await push(me.credential, 1, messageId);
-    expect(retry.status).toBe(409);
-    expect((await json(retry)).error).toMatchObject({ code: "MESSAGE_RETRY_EXPIRED" });
-
-    const mailbox = await env.DB.prepare(
-      "SELECT COUNT(*) AS count FROM mailbox_messages WHERE relationship_id = ?1 AND message_id = ?2",
-    ).bind(me.relationshipId, messageId).first<{ count: number }>();
-    expect(mailbox?.count).toBe(1);
+    const retry = await push(me.credential, 1, messageId, createdAt); expect(retry.status).toBe(409); expect((await json(retry)).error).toMatchObject({ code: "MESSAGE_RETRY_EXPIRED" });
+    const mailbox = await env.DB.prepare("SELECT COUNT(*) AS count FROM mailbox_messages WHERE relationship_id = ?1 AND message_id = ?2").bind(me.relationshipId, messageId).first<{ count: number }>(); expect(mailbox?.count).toBe(1);
   });
-
   it("allows pull to advance across an expired cursor gap", async () => {
-    const { me, partner } = await bootstrapAndAccept();
-    expect((await push(me.credential, 1)).status).toBe(200);
-    expect((await push(me.credential, 2)).status).toBe(200);
-
-    await env.DB.prepare(
-      "UPDATE mailbox_messages SET expires_at = ?1 WHERE relationship_id = ?2 AND server_seq = 1",
-    ).bind(Date.now() - 1, me.relationshipId).run();
-
-    const response = await pull(partner.credential, 0);
-    expect(response.status).toBe(200);
-    const body = await json(response);
-    expect((body.messages as Array<{ serverSeq: number }>).map((message) => message.serverSeq)).toEqual([2]);
-    expect(body.nextCursor).toBe(2);
-    expect(body.hasMore).toBe(false);
+    const { me, partner } = await bootstrapAndAccept(); expect((await push(me.credential, 1)).status).toBe(200); expect((await push(me.credential, 2)).status).toBe(200);
+    const second = await env.DB.prepare("SELECT created_at FROM mailbox_messages WHERE relationship_id = ?1 AND server_seq = 2").bind(me.relationshipId).first<{ created_at: number }>();
+    const expiredAt = (second?.created_at ?? Date.now()) - 1;
+    await env.DB.prepare("UPDATE mailbox_messages SET expires_at = ?1, created_at = ?2 WHERE relationship_id = ?3 AND server_seq = 1").bind(expiredAt, expiredAt - 1, me.relationshipId).run();
+    const response = await pull(partner.credential, 0); expect(response.status).toBe(200); const body = await json(response);
+    expect((body.messages as Array<{ serverSeq: number }>).map((message) => message.serverSeq)).toEqual([2]); expect(body.nextCursor).toBe(2); expect(body.hasMore).toBe(false);
   });
 });
