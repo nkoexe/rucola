@@ -101,27 +101,17 @@ export class SyncEngine {
 
   private async pushDue(result: SyncRunResult): Promise<void> {
     const due = await this.state.getDueOutbox(this.now(), this.outboxBatchSize);
+    if (due.length === 0) return;
+
+    const messages = await this.repository.getMessages();
+    const byId = new Map(messages.map((message) => [message.id, message]));
 
     for (const item of due) {
       try {
-        const message = (await this.repository.getMessages()).find((candidate) => candidate.id === item.messageId);
-        if (!message) {
-          await this.state.markAttemptFailed(item.messageId, new Error('Local message no longer exists.'), this.now());
-          result.failed += 1;
-          continue;
-        }
-
-        if (message.participant !== 'ME') {
-          await this.state.markAttemptFailed(item.messageId, new Error('Only local messages can be synchronized.'), this.now());
-          result.failed += 1;
-          continue;
-        }
-
-        if (!isSupportedWithoutMedia(message.type)) {
-          await this.state.markAttemptFailed(item.messageId, new Error('Media synchronization is not implemented yet.'), this.now());
-          result.failed += 1;
-          continue;
-        }
+        const message = byId.get(item.messageId);
+        if (!message) throw new Error('Local message no longer exists.');
+        if (message.participant !== 'ME') throw new Error('Only local messages can be synchronized.');
+        if (!isSupportedWithoutMedia(message.type)) throw new Error('Media synchronization is not implemented yet.');
 
         const ciphertext = await this.codec.encrypt(message);
         if (!ciphertext) throw new Error('Sync codec returned empty ciphertext.');
@@ -139,6 +129,10 @@ export class SyncEngine {
       } catch (cause) {
         await this.state.markAttemptFailed(item.messageId, cause, this.now());
         result.failed += 1;
+        // senderSeq is the ordering contract. Do not allow seq N+1 onto the
+        // server while seq N is still retrying, or serverSeq ordering can differ
+        // from the user's local message order.
+        break;
       }
     }
   }
@@ -161,7 +155,12 @@ export class SyncEngine {
       }
 
       const inbound: InboundSyncMessage[] = [];
+      let previousServerSeq = cursor;
       for (const remote of response.messages) {
+        if (!Number.isSafeInteger(remote.serverSeq) || remote.serverSeq <= previousServerSeq) {
+          throw new Error('Cloud returned inbound messages out of server-sequence order.');
+        }
+        previousServerSeq = remote.serverSeq;
         const decoded = await this.codec.decrypt(remote);
         inbound.push({
           id: remote.messageId,
@@ -173,6 +172,10 @@ export class SyncEngine {
         });
       }
 
+      const lastServerSeq = inbound.at(-1)?.serverSeq ?? cursor;
+      if (response.nextCursor < lastServerSeq) throw new Error('Cloud cursor precedes its newest inbound message.');
+
+      // commitInbound is the durable boundary. ACK happens only after it resolves.
       await this.state.commitInbound(inbound, response.nextCursor, this.now());
 
       const ack = await this.cloud.acknowledgeMessages(response.nextCursor);
