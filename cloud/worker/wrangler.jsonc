@@ -3,6 +3,9 @@
   "name": "rucola-cloud-worker",
   "main": "src/index.ts",
   "compatibility_date": "2026-09-12",
+  "triggers": {
+    "crons": ["*/15 * * * *"]
+  },
   "d1_databases": [
     {
       "binding": "DB",
