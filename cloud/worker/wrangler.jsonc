@@ -11,6 +11,12 @@
       "preview_database_id": "rucola-local"
     }
   ],
+  "r2_buckets": [
+    {
+      "binding": "MEDIA_BUCKET",
+      "bucket_name": "rucola-media"
+    }
+  ],
   "ratelimits": [
     {
       "name": "PAIRING_BOOTSTRAP_LIMITER",
