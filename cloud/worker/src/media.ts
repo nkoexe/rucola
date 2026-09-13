@@ -6,6 +6,8 @@ const MAX_JSON_BODY_BYTES = 16 * 1024;
 const MAX_PHOTO_BYTES = 20 * 1024 * 1024;
 const MAX_VIDEO_BYTES = 100 * 1024 * 1024;
 const MIN_MEDIA_BYTES = 1;
+const PENDING_RETENTION_MS = 24 * 60 * 60 * 1000;
+const MAX_MIME_BYTES = 128;
 
 const PHOTO_MIME_TYPES = new Set([
   "image/jpeg",
@@ -29,23 +31,6 @@ interface CreateMediaRequest {
   size?: unknown;
   checksum?: unknown;
 }
-
-interface MediaRow {
-  id: string;
-  relationship_id: string;
-  created_by_device_id: string;
-  object_key: string;
-  media_type: ReservationType;
-  declared_mime: string;
-  size_bytes: number;
-  checksum: string | null;
-  status: "PENDING" | "READY" | "ATTACHED" | "ABANDONED";
-  created_at: number;
-  expires_at: number;
-};
-
-const PENDING_RETENTION_MS = 24 * 60 * 60 * 1000;
-const MAX_IDENTIFIER_BYTES = 128;
 
 function utf8ByteLength(value: string): number {
   return new TextEncoder().encode(value).byteLength;
@@ -80,7 +65,7 @@ function parseType(value: unknown): ReservationType | null {
 }
 
 function parseMime(value: unknown): string | null {
-  if (typeof value !== "string" || value.length === 0 || utf8ByteLength(value) > MAX_IDENTIFIER_BYTES) {
+  if (typeof value !== "string" || value.length === 0 || utf8ByteLength(value) > MAX_MIME_BYTES) {
     return null;
   }
   return value.trim().toLowerCase() || null;
@@ -110,16 +95,6 @@ function maxBytes(type: ReservationType): number {
 export async function createMediaReservation(env: Env, request: Request): Promise<Response> {
   const device = await authenticateDevice(env, request);
   if (!device) return errorResponse("UNAUTHENTICATED", "Valid device credentials are required", 401);
-
-  const relationship = await env.DB.prepare(
-    `SELECT status
-     FROM relationships
-     WHERE id = ?1`,
-  ).bind(device.relationshipId).first<{ status: "PAIRING" | "ACTIVE" | "ENDED" }>();
-
-  if (!relationship || relationship.status !== "ACTIVE") {
-    return errorResponse("RELATIONSHIP_INACTIVE", "Relationship is not active", 409);
-  }
 
   const body = await readJson(request);
   if (!body) return errorResponse("INVALID_REQUEST", "JSON request body required", 400);
@@ -157,12 +132,15 @@ export async function createMediaReservation(env: Env, request: Request): Promis
   const expiresAt = now + PENDING_RETENTION_MS;
 
   try {
-    await env.DB.prepare(
+    const result = await env.DB.prepare(
       `INSERT INTO media_uploads (
          id, relationship_id, created_by_device_id, object_key,
          media_type, declared_mime, size_bytes, checksum, status,
          created_at, expires_at, completed_at, attached_at
-       ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, 'PENDING', ?9, ?10, NULL, NULL)`,
+       )
+       SELECT ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, 'PENDING', ?9, ?10, NULL, NULL
+       FROM relationships
+       WHERE id = ?2 AND status = 'ACTIVE'`,
     ).bind(
       uploadId,
       device.relationshipId,
@@ -175,6 +153,10 @@ export async function createMediaReservation(env: Env, request: Request): Promis
       now,
       expiresAt,
     ).run();
+
+    if (result.meta.changes !== 1) {
+      return errorResponse("RELATIONSHIP_INACTIVE", "Relationship is not active", 409);
+    }
   } catch {
     return errorResponse("DATABASE_UNAVAILABLE", "Media reservation could not be created", 503);
   }
@@ -188,16 +170,4 @@ export async function createMediaReservation(env: Env, request: Request): Promis
     status: "PENDING",
     expiresAt,
   }, 201);
-}
-
-export function mediaRowToResponse(row: MediaRow): Record<string, unknown> {
-  return {
-    uploadId: row.id,
-    mediaType: row.media_type,
-    mime: row.declared_mime,
-    size: row.size_bytes,
-    checksum: row.checksum,
-    status: row.status,
-    expiresAt: row.expires_at,
-  };
 }
