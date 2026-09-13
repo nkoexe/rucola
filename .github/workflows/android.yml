@@ -19,6 +19,7 @@ jobs:
       - run: npm run typecheck
       - run: npm run test:domain
       - run: npm run test:cloud-client
+      - run: npm run test:sync-engine
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
