@@ -167,10 +167,12 @@ describe("media upload", () => {
     expect(await json(first)).toEqual({ uploadId, status: "READY" });
 
     const row = await env.DB.prepare(
-      "SELECT status, completed_at FROM media_uploads WHERE id = ?1",
-    ).bind(uploadId).first<{ status: string; completed_at: number | null }>();
+      "SELECT status, completed_at, expires_at, created_at FROM media_uploads WHERE id = ?1",
+    ).bind(uploadId).first<{ status: string; completed_at: number | null; expires_at: number; created_at: number }>();
     expect(row?.status).toBe("READY");
     expect(row?.completed_at).not.toBeNull();
+    expect(row!.expires_at - row!.completed_at!).toBe(14 * 24 * 60 * 60 * 1000);
+    expect(row!.expires_at).toBeGreaterThan(row!.created_at);
 
     const second = await completeMedia(me.credential, uploadId);
     expect(second.status).toBe(200);
@@ -208,21 +210,30 @@ describe("media upload", () => {
     expect(row?.status).toBe("READY");
   });
 
-  it("rejects a mismatched declared SHA-256 and removes the object", async () => {
+  it("rejects completion if a checksum-protected object is replaced with different content", async () => {
     const { me } = await bootstrapAndAccept();
     const bytes = new TextEncoder().encode("rucola-media");
-    const checksum = "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff";
+    const checksum = "0b7381118933b71533218ca79d020e4a3075e6db5cb7e611f4d49eede55a3e74";
     const uploadId = await createMedia(me.credential, bytes.byteLength, checksum);
-
-    const response = await uploadMedia(me.credential, uploadId, bytes);
-    expect(response.status).toBe(400);
-    expect((await json(response)).error).toMatchObject({ code: "MEDIA_CHECKSUM_MISMATCH" });
+    expect((await uploadMedia(me.credential, uploadId, bytes)).status).toBe(200);
 
     const row = await env.DB.prepare(
-      "SELECT object_key, status FROM media_uploads WHERE id = ?1",
-    ).bind(uploadId).first<{ object_key: string; status: string }>();
-    expect(row?.status).toBe("PENDING");
+      "SELECT object_key FROM media_uploads WHERE id = ?1",
+    ).bind(uploadId).first<{ object_key: string }>();
+    await env.MEDIA_BUCKET.put(row!.object_key, bytes, {
+      httpMetadata: { contentType: "image/png" },
+      customMetadata: { uploadId },
+    });
+
+    const response = await completeMedia(me.credential, uploadId);
+    expect(response.status).toBe(409);
+    expect((await json(response)).error).toMatchObject({ code: "MEDIA_STORAGE_MISMATCH" });
     expect(await env.MEDIA_BUCKET.head(row!.object_key)).toBeNull();
+
+    const state = await env.DB.prepare(
+      "SELECT status FROM media_uploads WHERE id = ?1",
+    ).bind(uploadId).first<{ status: string }>();
+    expect(state?.status).toBe("PENDING");
   });
 
   it("rejects completion from the other paired device", async () => {
