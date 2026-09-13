@@ -94,7 +94,7 @@ export async function pullMessages(env: Env, request: Request): Promise<Response
          AND m.sender_device_id != ?4
        ORDER BY m.server_seq ASC
        LIMIT ?5`,
-    ).bind(device.relationshipId, cursor, now, device.deviceId, limit + 1).all<MailboxRow>();
+    ).bind(device.relationshipId, cursor, now, device.id, limit + 1).all<MailboxRow>();
 
     let rows = result.results;
     const hasMore = rows.length > limit;
