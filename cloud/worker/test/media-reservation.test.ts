@@ -239,4 +239,58 @@ describe("media reservation", () => {
     expect(response.status).toBe(400);
     expect((await json(response)).error).toMatchObject({ code: "INVALID_REQUEST" });
   });
+
+  it("enforces media size and MIME invariants at the database boundary", async () => {
+    const { me } = await bootstrapAndAccept();
+    const base = {
+      relationshipId: me.relationshipId,
+      deviceId: me.deviceId,
+    };
+
+    await expect(
+      env.DB.prepare(
+        `INSERT INTO media_uploads (
+           id, relationship_id, created_by_device_id, object_key,
+           media_type, declared_mime, size_bytes, checksum, status,
+           created_at, expires_at, completed_at, attached_at
+         ) VALUES (?1, ?2, ?3, ?4, 'PHOTO', 'image/jpeg', ?5, NULL, 'PENDING', ?6, ?7, NULL, NULL)`,
+      ).bind(
+        crypto.randomUUID(), base.relationshipId, base.deviceId, `media/${crypto.randomUUID()}`,
+        20 * 1024 * 1024 + 1, Date.now(), Date.now() + 86_400_000,
+      ).run(),
+    ).rejects.toThrow();
+
+    await expect(
+      env.DB.prepare(
+        `INSERT INTO media_uploads (
+           id, relationship_id, created_by_device_id, object_key,
+           media_type, declared_mime, size_bytes, checksum, status,
+           created_at, expires_at, completed_at, attached_at
+         ) VALUES (?1, ?2, ?3, ?4, 'VIDEO', 'image/jpeg', 1, NULL, 'PENDING', ?5, ?6, NULL, NULL)`,
+      ).bind(
+        crypto.randomUUID(), base.relationshipId, base.deviceId, `media/${crypto.randomUUID()}`,
+        Date.now(), Date.now() + 86_400_000,
+      ).run(),
+    ).rejects.toThrow();
+
+    const valid = await createMedia(me.credential, {
+      type: "PHOTO",
+      mime: "image/jpeg",
+      size: 1024,
+    });
+    expect(valid.status).toBe(201);
+    const uploadId = (await json(valid)).uploadId as string;
+
+    await expect(
+      env.DB.prepare(
+        "UPDATE media_uploads SET size_bytes = ?1 WHERE id = ?2",
+      ).bind(20 * 1024 * 1024 + 1, uploadId).run(),
+    ).rejects.toThrow();
+
+    await expect(
+      env.DB.prepare(
+        "UPDATE media_uploads SET declared_mime = ?1 WHERE id = ?2",
+      ).bind("video/mp4", uploadId).run(),
+    ).rejects.toThrow();
+  });
 });
