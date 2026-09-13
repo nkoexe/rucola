@@ -1,5 +1,6 @@
 import { authenticateDevice } from "./auth";
 import { databaseHealthy, checkSchema } from "./db";
+import { runCleanup } from "./cleanup";
 import { errorResponse, json, methodNotAllowed } from "./http";
 import { acceptInvitation, bootstrapPairing, createInvitation } from "./pairing";
 import { completeMedia, createMediaReservation, uploadMedia } from "./media";
@@ -123,5 +124,15 @@ export default {
     }
 
     return errorResponse("NOT_FOUND", "Route not found", 404);
+  },
+
+  async scheduled(_controller: ScheduledController, env: Env, ctx: ExecutionContext): Promise<void> {
+    ctx.waitUntil(
+      runCleanup(env).then((result) => {
+        console.log("rucola cleanup completed", result);
+      }).catch((error: unknown) => {
+        console.error("rucola cleanup failed", error);
+      }),
+    );
   },
 } satisfies ExportedHandler<Env>;
