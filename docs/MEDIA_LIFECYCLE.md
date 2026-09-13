@@ -17,6 +17,13 @@ Server-side size limits:
 
 These are transport/storage limits. Rounded corners, cropping, 4:3 or 1:1 framing and other presentation behavior belong to the client UI.
 
+The current reservation API accepts these MIME types:
+
+- `PHOTO`: `image/jpeg`, `image/png`, `image/webp`, `image/heic`, `image/heif`;
+- `VIDEO`: `video/mp4`, `video/quicktime`, `video/webm`.
+
+The optional checksum is a SHA-256 hexadecimal digest of the opaque uploaded object bytes.
+
 ## States
 
 D1 metadata and the R2 object have independent lifecycle state:
@@ -32,12 +39,18 @@ The D1 row is authoritative for whether an upload is attachable. R2 presence alo
 
 ## Upload flow
 
-1. Authenticated device creates a short-lived `PENDING` upload reservation.
-2. The reservation binds the upload to the relationship, creating device, media type, size and object key.
+1. Authenticated device creates a short-lived `PENDING` upload reservation with `POST /v1/media/create`.
+2. The reservation binds the upload to the relationship, creating device, media type, size, checksum and a server-generated opaque object key.
 3. The client uploads the opaque/encrypted object to R2.
 4. An authenticated completion operation verifies the object metadata and declared constraints, then transitions `PENDING -> READY`.
 5. Only `READY` uploads can be accepted by message push.
 6. Message acceptance atomically creates the mailbox message and transitions the upload `READY -> ATTACHED`.
+
+The reservation response does not expose the R2 object key. The upload API will address the reservation by `uploadId` and keep object naming server-controlled.
+
+The initial reservation lifetime is **24 hours**. This is intentionally shorter than the 14-day message delivery window; completed media gets its own lifecycle treatment after `READY`.
+
+Reservation validation is performed before the D1 insert and mirrored by D1 triggers for size and supported MIME invariants. The API currently rejects `DRAWING` reservations until the drawing editor is available.
 
 Completion must be idempotent. Repeating completion for an already `READY` upload with the same validated object state should succeed; completion of `ATTACHED` must not revert it.
 
@@ -103,9 +116,9 @@ The final end-to-end encryption protocol is intentionally deferred until the tra
 
 ## Required implementation order
 
-1. Define upload reservation/completion API and validation limits.
+1. Define upload reservation/completion API and validation limits. **Reservation API is implemented; completion remains next.**
 2. Add R2 binding and object-key generation.
-3. Add upload lifecycle tests for retries, ownership, expiry, size/type limits and state transitions.
+3. Add upload lifecycle tests for retries, ownership, expiry, size/type limits and state transitions. **Reservation validation tests are implemented; R2 lifecycle tests remain.**
 4. Implement R2-backed upload completion.
 5. Integrate attachment with durable message acceptance.
 6. Implement scheduled receipt/media cleanup only after the retention contract is covered by tests.
