@@ -2,6 +2,7 @@ import { authenticateDevice } from "./auth";
 import { databaseHealthy, checkSchema } from "./db";
 import { errorResponse, json, methodNotAllowed } from "./http";
 import { acceptInvitation, bootstrapPairing, createInvitation } from "./pairing";
+import { createMediaReservation } from "./media";
 import { pullMessages } from "./sync-pull";
 import { acknowledgeMessages } from "./sync-ack";
 import { pushMessageDurable } from "./sync-durable";
@@ -43,12 +44,6 @@ async function handleCreateInvitation(env: Env, request: Request): Promise<Respo
   return createInvitation(env, request, device);
 }
 
-async function allowPairingBootstrap(env: Env, request: Request): Promise<boolean> {
-  const clientKey = request.headers.get("cf-connecting-ip") ?? "local-development";
-  const result = await env.PAIRING_BOOTSTRAP_LIMITER.limit({ key: `pairing-bootstrap:${clientKey}` });
-  return result.success;
-}
-
 function rateLimitedResponse(): Response {
   const response = json(
     { error: { code: "PAIRING_RATE_LIMITED", message: "Too many pairing bootstrap attempts" } },
@@ -56,6 +51,12 @@ function rateLimitedResponse(): Response {
   );
   response.headers.set("retry-after", "60");
   return response;
+}
+
+async function allowPairingBootstrap(env: Env, request: Request): Promise<boolean> {
+  const clientKey = request.headers.get("cf-connecting-ip") ?? "local-development";
+  const result = await env.PAIRING_BOOTSTRAP_LIMITER.limit({ key: `pairing-bootstrap:${clientKey}` });
+  return result.success;
 }
 
 export default {
@@ -93,6 +94,10 @@ export default {
     if (url.pathname === "/v1/pairing/accept") {
       if (request.method !== "POST") return methodNotAllowed(["POST", "OPTIONS"]);
       return acceptInvitation(env, request);
+    }
+    if (url.pathname === "/v1/media/create") {
+      if (request.method !== "POST") return methodNotAllowed(["POST", "OPTIONS"]);
+      return createMediaReservation(env, request);
     }
     if (url.pathname === "/v1/sync/push") {
       if (request.method !== "POST") return methodNotAllowed(["POST", "OPTIONS"]);
