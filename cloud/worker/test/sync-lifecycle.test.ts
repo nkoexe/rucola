@@ -96,6 +96,13 @@ describe("Rucola sync lifecycle hardening", () => {
       "SELECT server_seq FROM mailbox_messages WHERE relationship_id = ?1 ORDER BY server_seq",
     ).bind(me.relationshipId).all<{ server_seq: number }>();
     expect(rows.results.map((row) => row.server_seq)).toEqual([3]);
+
+    const receipts = await env.DB.prepare(
+      "SELECT server_seq, acknowledged_at FROM message_receipts WHERE relationship_id = ?1 ORDER BY server_seq",
+    ).bind(me.relationshipId).all<{ server_seq: number; acknowledged_at: number | null }>();
+    expect(receipts.results).toHaveLength(3);
+    expect(receipts.results.slice(0, 2).every((row) => row.acknowledged_at !== null)).toBe(true);
+    expect(receipts.results[2]?.acknowledged_at).toBeNull();
   });
 
   it("does not ACK-delete mailbox rows after the relationship has ended", async () => {
@@ -145,6 +152,31 @@ describe("Rucola sync lifecycle hardening", () => {
       "SELECT server_seq FROM mailbox_messages WHERE relationship_id = ?1 ORDER BY server_seq",
     ).bind(me.relationshipId).all<{ server_seq: number }>();
     expect(rows.results.map((row) => row.server_seq)).toEqual([2]);
+  });
+
+  it("does not resurrect an unacknowledged message after its delivery window expires", async () => {
+    const { me } = await bootstrapAndAccept();
+    const messageId = crypto.randomUUID();
+    expect((await push(me.credential, 1, messageId)).status).toBe(200);
+
+    const expiredAt = Date.now() - 1;
+    await env.DB.batch([
+      env.DB.prepare(
+        "UPDATE mailbox_messages SET expires_at = ?1 WHERE relationship_id = ?2 AND message_id = ?3",
+      ).bind(expiredAt, me.relationshipId, messageId),
+      env.DB.prepare(
+        "UPDATE message_receipts SET delivery_expires_at = ?1 WHERE relationship_id = ?2 AND message_id = ?3",
+      ).bind(expiredAt, me.relationshipId, messageId),
+    ]);
+
+    const retry = await push(me.credential, 1, messageId);
+    expect(retry.status).toBe(409);
+    expect((await json(retry)).error).toMatchObject({ code: "MESSAGE_RETRY_EXPIRED" });
+
+    const mailbox = await env.DB.prepare(
+      "SELECT COUNT(*) AS count FROM mailbox_messages WHERE relationship_id = ?1 AND message_id = ?2",
+    ).bind(me.relationshipId, messageId).first<{ count: number }>();
+    expect(mailbox?.count).toBe(1);
   });
 
   it("allows pull to advance across an expired cursor gap", async () => {
