@@ -23,25 +23,13 @@ function randomConfirmationCode(): string {
   return String(value % 1_000_000).padStart(6, "0");
 }
 function parseJsonObject(value: unknown): Record<string, unknown> | null { return value !== null && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : null; }
-function isJsonContentType(request: Request): boolean {
-  const contentType = request.headers.get("content-type");
-  return contentType?.split(";", 1)[0]?.trim().toLowerCase() === "application/json";
-}
-
+function isJsonContentType(request: Request): boolean { const contentType = request.headers.get("content-type"); return contentType?.split(";", 1)[0]?.trim().toLowerCase() === "application/json"; }
 async function readJson<T extends object>(request: Request): Promise<T | null> {
   const contentLength = request.headers.get("content-length");
-  if (contentLength !== null) {
-    const parsedLength = Number(contentLength);
-    if (!Number.isSafeInteger(parsedLength) || parsedLength < 0 || parsedLength > MAX_JSON_BODY_BYTES) return null;
-  }
+  if (contentLength !== null) { const parsedLength = Number(contentLength); if (!Number.isSafeInteger(parsedLength) || parsedLength < 0 || parsedLength > MAX_JSON_BODY_BYTES) return null; }
   if (!request.body) return null;
-  try {
-    const body = new Uint8Array(await request.arrayBuffer());
-    if (body.byteLength > MAX_JSON_BODY_BYTES) return null;
-    return parseJsonObject(JSON.parse(new TextDecoder().decode(body))) as T | null;
-  } catch { return null; }
+  try { const body = new Uint8Array(await request.arrayBuffer()); if (body.byteLength > MAX_JSON_BODY_BYTES) return null; return parseJsonObject(JSON.parse(new TextDecoder().decode(body))) as T | null; } catch { return null; }
 }
-
 function invitationLifetime(body: PairingCreateRequest | null): number {
   if (!body) return 0;
   if (body.expiresInSeconds === undefined) return DEFAULT_INVITATION_LIFETIME_MS;
@@ -85,20 +73,21 @@ export async function acceptInvitation(env: Env, request: Request): Promise<Resp
   if (invitation.locked_until !== null && invitation.locked_until > now) { const retryAfter = Math.max(1, Math.ceil((invitation.locked_until - now) / 1000)); return new Response(JSON.stringify({ error: { code:"PAIRING_RATE_LIMITED", message:"Too many invalid confirmation attempts" } }), { status:429, headers:{"content-type":"application/json; charset=utf-8","cache-control":"no-store","x-content-type-options":"nosniff","referrer-policy":"no-referrer","retry-after":String(retryAfter)} }); }
   const suppliedCodeHash = await sha256Hex(confirmationCode);
   if (!equalHex(suppliedCodeHash, invitation.confirmation_code_hash)) { const lockUntil = now + CONFIRMATION_LOCKOUT_MS; await env.DB.prepare(`UPDATE invitations SET failed_attempts = failed_attempts + 1, locked_until = CASE WHEN failed_attempts + 1 >= ?1 THEN ?2 ELSE locked_until END WHERE id = ?3 AND consumed_at IS NULL AND expires_at > ?4`).bind(MAX_CONFIRMATION_ATTEMPTS, lockUntil, invitation.id, now).run(); return errorResponse("INVALID_INVITATION", "Invalid invitation", 400); }
-  const relationship = await env.DB.prepare(`SELECT status FROM relationships WHERE id = ?1`).bind(invitation.relationship_id).first<{ status:"PAIRING"|"ACTIVE"|"ENDED" }>();
+  const relationship = await env.DB.prepare(`SELECT status FROM relationships WHERE id = ?1`).bind(invitation.relationship_id).first<{ status: "PAIRING"|"ACTIVE"|"ENDED" }>();
   if (!relationship || relationship.status !== "PAIRING") return errorResponse("PAIRING_CLOSED", "Pairing is no longer open", 409);
   const activeDevices = await env.DB.prepare(`SELECT COUNT(*) AS count FROM devices WHERE relationship_id = ?1 AND revoked_at IS NULL`).bind(invitation.relationship_id).first<{count:number}>();
   if (activeDevices?.count !== 1) return errorResponse("PAIRING_CONFLICT", "Pairing state is invalid", 409);
   const activeDevice = await env.DB.prepare(`SELECT id FROM devices WHERE relationship_id = ?1 AND participant = 'ME' AND revoked_at IS NULL`).bind(invitation.relationship_id).first<{id:string}>();
   if (!activeDevice) return errorResponse("PAIRING_CONFLICT", "Pairing state is invalid", 409);
   const deviceId = randomId(); const credential = randomToken(CREDENTIAL_BYTES); const credentialHash = await sha256Hex(credential);
-  try { await env.DB.batch([
-    env.DB.prepare(`INSERT INTO devices (id, relationship_id, participant, credential_hash, created_at, last_seen_at) SELECT ?1, relationship_id, 'PARTNER', ?2, ?3, ?3 FROM invitations WHERE id = ?4 AND consumed_at IS NULL AND expires_at > ?3 AND (locked_until IS NULL OR locked_until <= ?3)`).bind(deviceId, credentialHash, now, invitation.id),
-    env.DB.prepare(`UPDATE invitations SET consumed_at = ?1, consumed_by_device_id = ?2 WHERE id = ?3 AND consumed_at IS NULL AND expires_at > ?1 AND (locked_until IS NULL OR locked_until <= ?1)`).bind(now, deviceId, invitation.id),
-    env.DB.prepare(`UPDATE relationships SET status = 'ACTIVE' WHERE id = ?1 AND status = 'PAIRING' AND EXISTS (SELECT 1 FROM invitations WHERE id = ?2 AND consumed_by_device_id = ?3)`).bind(invitation.relationship_id, invitation.id, deviceId),
-  ]); } catch { return errorResponse("PAIRING_CONFLICT", "Pairing could not be completed", 409); }
-  const createdDevice = await env.DB.prepare(`SELECT id FROM devices WHERE id = ?1 AND relationship_id = ?2 AND participant = 'PARTNER'`).bind(deviceId, invitation.relationship_id).first<{id:string}>();
-  if (!createdDevice) return errorResponse("PAIRING_CONFLICT", "Invitation was already consumed", 409);
+  try {
+    const results = await env.DB.batch([
+      env.DB.prepare(`INSERT INTO devices (id, relationship_id, participant, credential_hash, created_at, last_seen_at) SELECT ?1, relationship_id, 'PARTNER', ?2, ?3, ?3 FROM invitations WHERE id = ?4 AND consumed_at IS NULL AND expires_at > ?3 AND (locked_until IS NULL OR locked_until <= ?3) AND EXISTS (SELECT 1 FROM relationships WHERE id = relationship_id AND status = 'PAIRING')`).bind(deviceId, credentialHash, now, invitation.id),
+      env.DB.prepare(`UPDATE invitations SET consumed_at = ?1, consumed_by_device_id = ?2 WHERE id = ?3 AND consumed_at IS NULL AND expires_at > ?1 AND (locked_until IS NULL OR locked_until <= ?1)`).bind(now, deviceId, invitation.id),
+      env.DB.prepare(`UPDATE relationships SET status = 'ACTIVE' WHERE id = ?1 AND status = 'PAIRING' AND EXISTS (SELECT 1 FROM invitations WHERE id = ?2 AND consumed_by_device_id = ?3)`).bind(invitation.relationship_id, invitation.id, deviceId),
+    ]);
+    if ((results[0]?.meta.changes ?? 0) !== 1 || (results[1]?.meta.changes ?? 0) !== 1 || (results[2]?.meta.changes ?? 0) !== 1) return errorResponse("PAIRING_CONFLICT", "Invitation was already consumed", 409);
+  } catch { return errorResponse("PAIRING_CONFLICT", "Pairing could not be completed", 409); }
   return json({ relationshipId:invitation.relationship_id, deviceId, participant:"PARTNER" satisfies Participant, credential }, 201);
 }
 
