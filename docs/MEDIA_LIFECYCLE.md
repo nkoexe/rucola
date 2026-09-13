@@ -86,26 +86,30 @@ Media cleanup must account for both windows. A still-retriable accepted message 
 
 Because receipts reference `media_uploads` with `ON DELETE RESTRICT`, media metadata cannot be deleted while a retained receipt references it. Any cleanup implementation must account for this dependency.
 
-## Cleanup
+## Cleanup and recovery
 
-Cleanup will be performed by scheduled Cloudflare Worker work once the R2 integration exists.
+A scheduled Cloudflare Worker cleanup runs every 15 minutes. Each invocation is deliberately bounded and can be repeated safely.
+
+Cleanup proceeds in dependency order:
+
+1. delete mailbox rows whose 14-day delivery window has expired;
+2. delete durable receipts whose 30-day retention has expired, but only when the mailbox row is already gone;
+3. claim expired `PENDING`/`READY` media, or previously claimed `ABANDONED` media, by moving it to `ABANDONED` before touching R2;
+4. claim `ATTACHED` media only when no retained receipt references it;
+5. delete the R2 object, then delete the corresponding `ABANDONED` D1 row.
+
+The `ABANDONED` claim is important for concurrency and crash recovery. An expired `READY` upload cannot be attached after it has been claimed, and a failed R2 delete leaves the row retryable on a later invocation. R2 deletion is treated as idempotent, so an already-missing object does not strand D1 metadata.
+
+An attached upload is not deleted merely because its `expires_at` passed. The receipt dependency is the authoritative retention boundary after attachment. This prevents the 14-day `READY` deadline from accidentally cutting off a retained message retry/idempotency guarantee.
+
+Cleanup is limited to 50 rows per phase per invocation. Repeated scheduled runs drain larger backlogs without creating an unbounded Worker invocation.
 
 Safe cleanup candidates include:
 
 - expired `PENDING` uploads that were never completed;
-- `ABANDONED` uploads after their retention window;
 - expired `READY` uploads that were never attached;
-- `ATTACHED` uploads only after the associated receipt retention period expires.
-
-Cleanup must be:
-
-- retry-safe and idempotent;
-- bounded per invocation;
-- driven by D1 lifecycle/expiry state;
-- ordered so database references and retry guarantees are not broken;
-- observable enough to detect stuck uploads or deletion failures.
-
-A failed R2 delete must not corrupt D1 state; a later invocation must be able to retry safely. Cleanup must tolerate an already-missing R2 object.
+- previously `ABANDONED` uploads whose R2/D1 cleanup was interrupted;
+- `ATTACHED` uploads after all retained receipt references have expired.
 
 No cleanup job may delete an R2 object merely because a mailbox message was pulled or ACKed.
 
@@ -119,10 +123,10 @@ The final end-to-end encryption protocol is intentionally deferred until the tra
 
 1. Define upload reservation/completion API and validation limits. **Implemented.**
 2. Add R2 binding and object-key generation. **Implemented.**
-3. Add upload lifecycle tests for retries, ownership, expiry, size/type limits and state transitions. **Core coverage implemented; full cleanup/recovery tests remain.**
+3. Add upload lifecycle tests for retries, ownership, expiry, size/type limits and state transitions. **Core coverage implemented.**
 4. Implement R2-backed upload completion. **Implemented and hardened.**
 5. Integrate attachment with durable message acceptance. **Implemented at the D1 trigger boundary.**
-6. Implement scheduled receipt/media cleanup only after the retention contract is covered by tests.
-7. Add operational metrics/logging and failure recovery.
+6. Implement scheduled receipt/media cleanup. **Implemented with bounded, restart-safe recovery.**
+7. Add operational metrics/logging and failure recovery. **Basic scheduled logging implemented; deeper metrics remain.**
 8. Connect the React Native sync engine.
 9. Add the final E2E encryption layer after the transport/storage contract is stable.
