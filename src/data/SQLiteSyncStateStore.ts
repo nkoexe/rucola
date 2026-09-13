@@ -1,6 +1,6 @@
 import type { SQLiteDatabase } from 'expo-sqlite';
 import { RELATIONSHIP_ID } from './database';
-import type { Participant, SyncState } from '../domain/models';
+import type { Message, MessageType, Participant, SyncState } from '../domain/models';
 
 export interface LocalSyncState {
   relationshipId: string;
@@ -18,6 +18,15 @@ export interface PendingSyncMessage {
   lastError: string | null;
   nextAttemptAt: number;
   createdAt: number;
+}
+
+export interface InboundSyncMessage {
+  id: string;
+  type: MessageType;
+  body: string;
+  createdAt: number;
+  serverSeq: number;
+  mediaReference?: string | null;
 }
 
 type SQLiteWriteContext = Pick<SQLiteDatabase, 'getFirstAsync' | 'getAllAsync' | 'runAsync'>;
@@ -46,6 +55,24 @@ function retryDelay(attempts: number): number {
 function normalizeError(cause: unknown): string {
   if (cause instanceof Error && cause.message.trim()) return cause.message.trim().slice(0, 500);
   return String(cause).trim().slice(0, 500) || 'Unknown sync error';
+}
+
+function validateInboundMessage(message: InboundSyncMessage): void {
+  const id = message.id.trim();
+  if (!id) throw new Error('Inbound message ID is required.');
+  if (!Number.isSafeInteger(message.serverSeq) || message.serverSeq < 1) {
+    throw new Error('Inbound server sequence is invalid.');
+  }
+  if (!Number.isSafeInteger(message.createdAt) || message.createdAt < 0) {
+    throw new Error('Inbound message timestamp is invalid.');
+  }
+  if (!message.type) throw new Error('Inbound message type is required.');
+  if ((message.type === 'TEXT' || message.type === 'EMOJI') && !message.body.trim()) {
+    throw new Error('Inbound text messages require content.');
+  }
+  if ((message.type === 'PHOTO_VIDEO' || message.type === 'DRAWING') && !message.mediaReference?.trim()) {
+    throw new Error('Inbound media messages require resolved local media.');
+  }
 }
 
 export class SQLiteSyncStateStore {
@@ -259,6 +286,118 @@ export class SQLiteSyncStateStore {
         RELATIONSHIP_ID,
         DEFAULT_NEXT_SENDER_SEQ,
         cursor,
+        now,
+      );
+    });
+  }
+
+  /**
+   * Persists a fully prepared inbound batch and its pull cursor in one SQLite transaction.
+   * The caller must validate/decrypt cloud payloads and resolve media before entering here.
+   * ACK is intentionally not performed by this method: callers may ACK only after this
+   * transaction resolves successfully.
+   */
+  async commitInbound(messages: InboundSyncMessage[], nextCursor: number, now = Date.now()): Promise<void> {
+    if (!Number.isSafeInteger(nextCursor) || nextCursor < 0) {
+      throw new Error('Inbound pull cursor must be a non-negative safe integer.');
+    }
+    for (const message of messages) validateInboundMessage(message);
+
+    const orderedMessages = [...messages].sort((a, b) => a.serverSeq - b.serverSeq);
+    const maxServerSeq = orderedMessages.at(-1)?.serverSeq ?? 0;
+    if (maxServerSeq > nextCursor) {
+      throw new Error('Inbound pull cursor cannot precede the newest inbound message.');
+    }
+
+    await this.withWrite(async (tx) => {
+      const relationship = await tx.getFirstAsync<{ id: string }>(
+        'SELECT id FROM relationships WHERE id = ?',
+        RELATIONSHIP_ID,
+      );
+      if (!relationship) throw new Error('Cannot persist inbound messages before setup is complete.');
+
+      const state = await tx.getFirstAsync<{ pullCursor: number }>(
+        'SELECT pullCursor FROM sync_state WHERE relationshipId = ?',
+        RELATIONSHIP_ID,
+      );
+      const currentCursor = state?.pullCursor ?? DEFAULT_PULL_CURSOR;
+      if (nextCursor < currentCursor) throw new Error('Pull cursor cannot move backwards.');
+
+      let nextOrderIndex = (await tx.getFirstAsync<{ nextOrderIndex: number }>(
+        'SELECT COALESCE(MAX(orderIndex), 0) + 1 AS nextOrderIndex FROM messages WHERE relationshipId = ?',
+        RELATIONSHIP_ID,
+      ))?.nextOrderIndex ?? 1;
+      let latestPartnerMessageId: string | null = null;
+
+      for (const inbound of orderedMessages) {
+        const normalizedId = inbound.id.trim();
+        const existing = await tx.getFirstAsync<{
+          id: string;
+          relationshipId: string;
+          participant: Participant;
+          type: MessageType;
+          body: string;
+          createdAt: number;
+          mediaReference: string | null;
+          syncState: SyncState;
+        }>(
+          `SELECT id, relationshipId, participant, type, body, createdAt, mediaReference, syncState
+           FROM messages WHERE id = ?`,
+          normalizedId,
+        );
+
+        if (existing) {
+          if (
+            existing.relationshipId !== RELATIONSHIP_ID ||
+            existing.participant !== 'PARTNER' ||
+            existing.type !== inbound.type ||
+            existing.body !== inbound.body ||
+            existing.createdAt !== inbound.createdAt ||
+            existing.mediaReference !== (inbound.mediaReference?.trim() || null)
+          ) {
+            throw new Error(`Inbound message ${normalizedId} conflicts with local data.`);
+          }
+          latestPartnerMessageId = normalizedId;
+          continue;
+        }
+
+        await tx.runAsync(
+          `INSERT INTO messages
+             (id, relationshipId, participant, type, body, createdAt, orderIndex, mediaReference, syncState)
+           VALUES (?, ?, 'PARTNER', ?, ?, ?, ?, ?, ?)`,
+          normalizedId,
+          RELATIONSHIP_ID,
+          inbound.type,
+          inbound.body,
+          inbound.createdAt,
+          nextOrderIndex,
+          inbound.mediaReference?.trim() || null,
+          'SYNCED' satisfies SyncState,
+        );
+        latestPartnerMessageId = normalizedId;
+        nextOrderIndex += 1;
+      }
+
+      if (latestPartnerMessageId) {
+        await tx.runAsync(
+          `INSERT INTO active_message_slots (relationshipId, participant, messageId)
+           VALUES (?, 'PARTNER', ?)
+           ON CONFLICT(relationshipId, participant) DO UPDATE SET messageId = excluded.messageId`,
+          RELATIONSHIP_ID,
+          latestPartnerMessageId,
+        );
+      }
+
+      await tx.runAsync(
+        `INSERT INTO sync_state
+           (relationshipId, deviceId, participant, nextSenderSeq, pullCursor, updatedAt)
+         VALUES (?, NULL, NULL, ?, ?, ?)
+         ON CONFLICT(relationshipId) DO UPDATE SET
+           pullCursor = excluded.pullCursor,
+           updatedAt = excluded.updatedAt`,
+        RELATIONSHIP_ID,
+        DEFAULT_NEXT_SENDER_SEQ,
+        nextCursor,
         now,
       );
     });
