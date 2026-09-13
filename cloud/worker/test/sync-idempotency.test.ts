@@ -15,7 +15,7 @@ async function json(response: Response): Promise<Record<string, unknown>> {
 
 let bootstrapTestId = 200;
 
-async function bootstrapAndAccept(): Promise<{ me: BootstrapBody }> {
+async function bootstrapAndAccept(): Promise<{ me: BootstrapBody; partner: BootstrapBody }> {
   bootstrapTestId += 1;
   const bootstrapResponse = await exports.default.fetch("https://rucola.test/v1/pairing/bootstrap", {
     method: "POST",
@@ -34,7 +34,8 @@ async function bootstrapAndAccept(): Promise<{ me: BootstrapBody }> {
     body: JSON.stringify({ token: me.token, confirmationCode: me.confirmationCode }),
   });
   expect(acceptResponse.status).toBe(201);
-  return { me };
+  const partner = (await json(acceptResponse)) as unknown as BootstrapBody;
+  return { me, partner };
 }
 
 function pushRequest(credential: string, body: Record<string, unknown>): RequestInit {
@@ -48,9 +49,17 @@ function pushRequest(credential: string, body: Record<string, unknown>): Request
   };
 }
 
+async function ack(credential: string, throughServerSeq: unknown): Promise<Response> {
+  return exports.default.fetch("https://rucola.test/v1/sync/ack", {
+    method: "POST",
+    headers: { authorization: `Bearer ${credential}`, "content-type": "application/json" },
+    body: JSON.stringify({ throughServerSeq }),
+  });
+}
+
 describe("durable message idempotency", () => {
   it("returns the original server sequence after the mailbox row is ACKed", async () => {
-    const { me } = await bootstrapAndAccept();
+    const { me, partner } = await bootstrapAndAccept();
     const message = {
       messageId: crypto.randomUUID(),
       senderSeq: 41,
@@ -60,51 +69,35 @@ describe("durable message idempotency", () => {
       createdAt: Date.now(),
     };
 
-    const first = await exports.default.fetch(
-      "https://rucola.test/v1/sync/push",
-      pushRequest(me.credential, message),
-    );
+    const first = await exports.default.fetch("https://rucola.test/v1/sync/push", pushRequest(me.credential, message));
     const firstBody = await json(first);
     expect(first.status).toBe(200);
 
-    const ack = await exports.default.fetch("https://rucola.test/v1/sync/ack", {
-      method: "POST",
-      headers: {
-        authorization: `Bearer ${me.credential}`,
-        "content-type": "application/json",
-      },
-      body: JSON.stringify({ throughServerSeq: firstBody.serverSeq }),
-    });
-    expect(ack.status).toBe(200);
+    const ackResponse = await ack(partner.credential, firstBody.serverSeq);
+    expect(ackResponse.status).toBe(200);
 
-    const mailbox = await env.DB
-      .prepare("SELECT COUNT(*) AS count FROM mailbox_messages WHERE relationship_id = ?1 AND message_id = ?2")
-      .bind(me.relationshipId, message.messageId)
-      .first<{ count: number }>();
-    const receipt = await env.DB
-      .prepare("SELECT server_seq, acknowledged_at FROM message_receipts WHERE relationship_id = ?1 AND message_id = ?2")
-      .bind(me.relationshipId, message.messageId)
-      .first<{ server_seq: number; acknowledged_at: number | null }>();
+    const mailbox = await env.DB.prepare(
+      "SELECT COUNT(*) AS count FROM mailbox_messages WHERE relationship_id = ?1 AND message_id = ?2",
+    ).bind(me.relationshipId, message.messageId).first<{ count: number }>();
+    const receipt = await env.DB.prepare(
+      "SELECT server_seq, acknowledged_at FROM message_receipts WHERE relationship_id = ?1 AND message_id = ?2",
+    ).bind(me.relationshipId, message.messageId).first<{ server_seq: number; acknowledged_at: number | null }>();
     expect(mailbox?.count).toBe(0);
     expect(receipt?.server_seq).toBe(firstBody.serverSeq);
     expect(receipt?.acknowledged_at).not.toBeNull();
 
-    const retry = await exports.default.fetch(
-      "https://rucola.test/v1/sync/push",
-      pushRequest(me.credential, message),
-    );
+    const retry = await exports.default.fetch("https://rucola.test/v1/sync/push", pushRequest(me.credential, message));
     expect(retry.status).toBe(200);
     expect(await json(retry)).toEqual(firstBody);
 
-    const relationship = await env.DB
-      .prepare("SELECT next_server_seq FROM relationships WHERE id = ?1")
-      .bind(me.relationshipId)
-      .first<{ next_server_seq: number }>();
+    const relationship = await env.DB.prepare(
+      "SELECT next_server_seq FROM relationships WHERE id = ?1",
+    ).bind(me.relationshipId).first<{ next_server_seq: number }>();
     expect(relationship?.next_server_seq).toBe(2);
   });
 
   it("rejects a changed payload after the original mailbox row was ACKed", async () => {
-    const { me } = await bootstrapAndAccept();
+    const { me, partner } = await bootstrapAndAccept();
     const messageId = crypto.randomUUID();
     const createdAt = Date.now();
     const original = {
@@ -119,13 +112,7 @@ describe("durable message idempotency", () => {
     const first = await exports.default.fetch("https://rucola.test/v1/sync/push", pushRequest(me.credential, original));
     expect(first.status).toBe(200);
     const firstBody = await json(first);
-
-    const ack = await exports.default.fetch("https://rucola.test/v1/sync/ack", {
-      method: "POST",
-      headers: { authorization: `Bearer ${me.credential}`, "content-type": "application/json" },
-      body: JSON.stringify({ throughServerSeq: firstBody.serverSeq }),
-    });
-    expect(ack.status).toBe(200);
+    expect((await ack(partner.credential, firstBody.serverSeq)).status).toBe(200);
 
     const conflict = await exports.default.fetch(
       "https://rucola.test/v1/sync/push",
@@ -136,7 +123,7 @@ describe("durable message idempotency", () => {
   });
 
   it("rejects sender sequence reuse after the original mailbox row was ACKed", async () => {
-    const { me } = await bootstrapAndAccept();
+    const { me, partner } = await bootstrapAndAccept();
     const first = {
       messageId: crypto.randomUUID(),
       senderSeq: 9,
@@ -149,13 +136,7 @@ describe("durable message idempotency", () => {
     const response = await exports.default.fetch("https://rucola.test/v1/sync/push", pushRequest(me.credential, first));
     expect(response.status).toBe(200);
     const body = await json(response);
-
-    const ack = await exports.default.fetch("https://rucola.test/v1/sync/ack", {
-      method: "POST",
-      headers: { authorization: `Bearer ${me.credential}`, "content-type": "application/json" },
-      body: JSON.stringify({ throughServerSeq: body.serverSeq }),
-    });
-    expect(ack.status).toBe(200);
+    expect((await ack(partner.credential, body.serverSeq)).status).toBe(200);
 
     const conflict = await exports.default.fetch(
       "https://rucola.test/v1/sync/push",
