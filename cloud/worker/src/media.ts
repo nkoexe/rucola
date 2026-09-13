@@ -250,15 +250,31 @@ export async function uploadMedia(env: Env, request: Request, uploadId: string):
     }),
   );
 
+  let stored: R2Object | null = null;
   try {
-    await env.MEDIA_BUCKET.put(upload.object_key, boundedStream, {
+    stored = await env.MEDIA_BUCKET.put(upload.object_key, boundedStream, {
       httpMetadata: { contentType: upload.declared_mime },
+      customMetadata: { uploadId: upload.id },
     });
   } catch {
     return errorResponse("MEDIA_UPLOAD_FAILED", "Media upload could not be stored", 502);
   }
 
+  if (!stored || stored.size !== upload.size_bytes || stored.httpMetadata?.contentType !== upload.declared_mime) {
+    try {
+      await env.MEDIA_BUCKET.delete(upload.object_key);
+    } catch {
+      // The reservation remains PENDING and completion will reject any invalid object.
+    }
+    return errorResponse("MEDIA_STORAGE_MISMATCH", "Stored media does not match the reservation", 502);
+  }
+
   if (bytesSeen !== upload.size_bytes) {
+    try {
+      await env.MEDIA_BUCKET.delete(upload.object_key);
+    } catch {
+      // Best-effort cleanup; the reservation remains PENDING and is subject to expiry cleanup.
+    }
     return errorResponse("MEDIA_SIZE_MISMATCH", "Uploaded media size does not match the reservation", 400);
   }
 
