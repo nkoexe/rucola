@@ -200,6 +200,27 @@ describe("media reservation", () => {
     }
   });
 
+  it("accepts an omitted checksum and preserves an explicit null checksum", async () => {
+    const { me } = await bootstrapAndAccept();
+
+    const omitted = await createMedia(me.credential, {
+      type: "PHOTO",
+      mime: "image/jpeg",
+      size: 1,
+    });
+    expect(omitted.status).toBe(201);
+    expect((await json(omitted)).checksum).toBeNull();
+
+    const explicitNull = await createMedia(me.credential, {
+      type: "PHOTO",
+      mime: "image/jpeg",
+      size: 1,
+      checksum: null,
+    });
+    expect(explicitNull.status).toBe(201);
+    expect((await json(explicitNull)).checksum).toBeNull();
+  });
+
   it("rejects malformed checksums", async () => {
     const { me } = await bootstrapAndAccept();
     const response = await createMedia(me.credential, {
