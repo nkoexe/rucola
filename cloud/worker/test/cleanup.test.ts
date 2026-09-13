@@ -79,7 +79,8 @@ describe("cleanup lifecycle", () => {
     const row = await env.DB.prepare("SELECT object_key FROM media_uploads WHERE id = ?").bind(uploadId).first<{ object_key: string }>();
     expect(row).not.toBeNull();
     await env.MEDIA_BUCKET.put(row!.object_key, new Uint8Array([1, 2, 3, 4]));
-    await env.DB.prepare("UPDATE media_uploads SET expires_at = ? WHERE id = ?").bind(Date.now() - 1, uploadId).run();
+    const now = Date.now();
+    await env.DB.prepare("UPDATE media_uploads SET created_at = ?, expires_at = ? WHERE id = ?").bind(now - 1000, now - 1, uploadId).run();
 
     const result = await runCleanup(env);
 
@@ -91,7 +92,8 @@ describe("cleanup lifecycle", () => {
   it("removes an expired pending upload even when its object is already missing", async () => {
     const { me } = await bootstrapAndAccept();
     const uploadId = await createMedia(me.credential);
-    await env.DB.prepare("UPDATE media_uploads SET expires_at = ? WHERE id = ?").bind(Date.now() - 1, uploadId).run();
+    const now = Date.now();
+    await env.DB.prepare("UPDATE media_uploads SET created_at = ?, expires_at = ? WHERE id = ?").bind(now - 1000, now - 1, uploadId).run();
 
     const result = await runCleanup(env);
 
@@ -105,7 +107,8 @@ describe("cleanup lifecycle", () => {
     await uploadAndComplete(me.credential, uploadId);
     const row = await env.DB.prepare("SELECT object_key FROM media_uploads WHERE id = ?").bind(uploadId).first<{ object_key: string }>();
     expect(row).not.toBeNull();
-    await env.DB.prepare("UPDATE media_uploads SET expires_at = ? WHERE id = ?").bind(Date.now() - 1, uploadId).run();
+    const now = Date.now();
+    await env.DB.prepare("UPDATE media_uploads SET created_at = ?, expires_at = ? WHERE id = ?").bind(now - 1000, now - 1, uploadId).run();
 
     const result = await runCleanup(env);
 
@@ -184,7 +187,7 @@ describe("cleanup lifecycle", () => {
 
     expect(result.expiredReceipts).toBe(1);
     expect(result.mediaObjectsDeleted).toBe(1);
-    expect(await env.DB.prepare("SELECT id FROM message_receipts WHERE message_id = ?").bind(messageId).first()).toBeNull();
+    expect(await env.DB.prepare("SELECT message_id FROM message_receipts WHERE message_id = ?").bind(messageId).first()).toBeNull();
     expect(await env.DB.prepare("SELECT id FROM media_uploads WHERE id = ?").bind(uploadId).first()).toBeNull();
     expect(await env.MEDIA_BUCKET.head(row!.object_key)).toBeNull();
   });
