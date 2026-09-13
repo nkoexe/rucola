@@ -80,6 +80,7 @@ export async function acknowledgeMessages(env: Env, request: Request): Promise<R
          SET acknowledged_at = ?1
          WHERE relationship_id = ?2
            AND server_seq <= ?3
+           AND sender_device_id != ?4
            AND acknowledged_at IS NULL
            AND EXISTS (
              SELECT 1 FROM mailbox_messages AS m
@@ -87,26 +88,28 @@ export async function acknowledgeMessages(env: Env, request: Request): Promise<R
                AND m.message_id = message_receipts.message_id
                AND m.server_seq = message_receipts.server_seq
                AND m.server_seq <= ?3
+               AND m.sender_device_id = message_receipts.sender_device_id
+               AND m.sender_device_id != ?4
            )
            AND EXISTS (
              SELECT 1 FROM relationships
              WHERE id = ?2 AND status = 'ACTIVE'
            )`,
-      ).bind(acknowledgedAt, device.relationshipId, throughServerSeq),
-      // Pull is non-destructive. Once the client has durably persisted the
-      // contiguous high-water mark, the temporary mailbox copies can be
-      // removed. Keep the relationship ACTIVE predicate on the destructive
-      // statement too so relationship termination cannot turn this into a
-      // post-termination cleanup operation.
+      ).bind(acknowledgedAt, device.relationshipId, throughServerSeq, device.deviceId),
+      // Pull is non-destructive. Once the recipient has durably persisted the
+      // contiguous high-water mark, only the partner-originated temporary
+      // mailbox copies may be removed. A device can never ACK away its own
+      // outbound copy; the other device must receive it and acknowledge it.
       env.DB.prepare(
         `DELETE FROM mailbox_messages
          WHERE relationship_id = ?1
            AND server_seq <= ?2
+           AND sender_device_id != ?3
            AND EXISTS (
              SELECT 1 FROM relationships
              WHERE id = ?1 AND status = 'ACTIVE'
            )`,
-      ).bind(device.relationshipId, throughServerSeq),
+      ).bind(device.relationshipId, throughServerSeq, device.deviceId),
     ]);
 
     // Repeated ACKs are deliberately successful even when the rows were
