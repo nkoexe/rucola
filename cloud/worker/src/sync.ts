@@ -216,6 +216,21 @@ async function acceptNewMessage(env: Env, device: AuthenticatedDevice, message: 
     const statements: D1PreparedStatement[] = [];
 
     if (message.mediaUploadId) {
+      // Transition the media first. A zero-row UPDATE is still a successful D1
+      // statement, so the following INSERT must require the ATTACHED state and
+      // the sequence allocation must only happen when that INSERT succeeds.
+      statements.push(
+        env.DB.prepare(
+          `UPDATE media_uploads
+           SET status = 'ATTACHED', attached_at = ?1
+           WHERE id = ?2
+             AND relationship_id = ?3
+             AND created_by_device_id = ?4
+             AND status = 'READY'
+             AND expires_at > ?1`,
+        ).bind(now, message.mediaUploadId, device.relationshipId, device.id),
+      );
+
       statements.push(
         env.DB.prepare(
           `INSERT INTO mailbox_messages
@@ -228,8 +243,7 @@ async function acceptNewMessage(env: Env, device: AuthenticatedDevice, message: 
              ON m.id = ?12
             AND m.relationship_id = r.id
             AND m.created_by_device_id = ?2
-            AND m.status = 'READY'
-            AND m.expires_at > ?7
+            AND m.status = 'ATTACHED'
            WHERE r.id = ?13
              AND r.status = 'ACTIVE'
              AND r.next_server_seq = ?6`,
@@ -252,14 +266,19 @@ async function acceptNewMessage(env: Env, device: AuthenticatedDevice, message: 
 
       statements.push(
         env.DB.prepare(
-          `UPDATE media_uploads
-           SET status = 'ATTACHED', attached_at = ?1
-           WHERE id = ?2
-             AND relationship_id = ?3
-             AND created_by_device_id = ?4
-             AND status = 'READY'
-             AND expires_at > ?1`,
-        ).bind(now, message.mediaUploadId, device.relationshipId, device.id),
+          `UPDATE relationships
+           SET next_server_seq = next_server_seq + 1
+           WHERE id = ?1
+             AND status = 'ACTIVE'
+             AND next_server_seq = ?2
+             AND EXISTS (
+               SELECT 1
+               FROM mailbox_messages
+               WHERE relationship_id = ?1
+                 AND message_id = ?3
+                 AND server_seq = ?2
+             )`,
+        ).bind(device.relationshipId, serverSeq, message.messageId),
       );
     } else {
       statements.push(
@@ -288,19 +307,28 @@ async function acceptNewMessage(env: Env, device: AuthenticatedDevice, message: 
           device.relationshipId,
         ),
       );
+
+      statements.push(
+        env.DB.prepare(
+          `UPDATE relationships
+           SET next_server_seq = next_server_seq + 1
+           WHERE id = ?1
+             AND status = 'ACTIVE'
+             AND next_server_seq = ?2
+             AND EXISTS (
+               SELECT 1
+               FROM mailbox_messages
+               WHERE relationship_id = ?1
+                 AND message_id = ?3
+                 AND server_seq = ?2
+             )`,
+        ).bind(device.relationshipId, serverSeq, message.messageId),
+      );
     }
 
-    statements.push(
-      env.DB.prepare(
-        `UPDATE relationships
-         SET next_server_seq = next_server_seq + 1
-         WHERE id = ?1
-           AND status = 'ACTIVE'
-           AND next_server_seq = ?2`,
-      ).bind(device.relationshipId, serverSeq),
-    );
-
-    await env.DB.batch(statements);
+    const results = await env.DB.batch(statements);
+    const sequenceUpdate = results[results.length - 1];
+    if (sequenceUpdate?.meta.changes !== 1) return "retry";
 
     // Verification must be sequentially consistent with the committed batch.
     // This matters once D1 read replication is enabled: an ordinary follow-up
