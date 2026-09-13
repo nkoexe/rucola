@@ -20,6 +20,8 @@ export interface CloudClientOptions {
   baseUrl: string;
   credential?: string | null;
   fetchImpl?: CloudFetch;
+  requestTimeoutMs?: number;
+  uploadTimeoutMs?: number;
 }
 
 export interface CloudClientErrorDetails {
@@ -47,12 +49,25 @@ type RequestOptions = {
   path: string;
   body?: JsonValue;
   authenticated?: boolean;
+  timeoutMs?: number;
 };
+
+const DEFAULT_REQUEST_TIMEOUT_MS = 15_000;
+const DEFAULT_UPLOAD_TIMEOUT_MS = 120_000;
+const MAX_REQUEST_TIMEOUT_MS = 300_000;
 
 function normalizeBaseUrl(value: string): string {
   const trimmed = value.trim();
   if (!trimmed) throw new Error('Cloud base URL is required.');
   return trimmed.replace(/\/+$/, '');
+}
+
+function normalizeTimeout(value: number | undefined, fallback: number, label: string): number {
+  const timeout = value ?? fallback;
+  if (!Number.isSafeInteger(timeout) || timeout < 1 || timeout > MAX_REQUEST_TIMEOUT_MS) {
+    throw new Error(`${label} must be between 1 and ${MAX_REQUEST_TIMEOUT_MS} milliseconds.`);
+  }
+  return timeout;
 }
 
 function contentTypeIsJson(response: Response): boolean {
@@ -87,14 +102,98 @@ function parseError(status: number, body: JsonValue): CloudClientError {
   });
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === 'object' && !Array.isArray(value);
+}
+
+function isString(value: unknown): value is string {
+  return typeof value === 'string' && value.length > 0;
+}
+
+function isSafePositiveInteger(value: unknown): value is number {
+  return Number.isSafeInteger(value) && (value as number) > 0;
+}
+
+function isSafeNonNegativeInteger(value: unknown): value is number {
+  return Number.isSafeInteger(value) && (value as number) >= 0;
+}
+
+function isMessageType(value: unknown): boolean {
+  return value === 'TEXT' || value === 'EMOJI' || value === 'PHOTO_VIDEO' || value === 'DRAWING';
+}
+
+function assertResponseShape(path: string, body: unknown): void {
+  if (!isRecord(body)) throw new CloudClientError({ code: 'INVALID_RESPONSE', message: `Cloud returned an invalid response for ${path}.`, status: 200 });
+
+  const requireStrings = (...keys: string[]) => keys.every((key) => isString(body[key]));
+  const requireNumbers = (...keys: string[]) => keys.every((key) => isSafePositiveInteger(body[key]) || isSafeNonNegativeInteger(body[key]));
+
+  switch (path.split('?')[0]) {
+    case '/v1/auth/probe':
+      if (body.authenticated !== true || (body.participant !== 'ME' && body.participant !== 'PARTNER')) throw new CloudClientError({ code: 'INVALID_RESPONSE', message: 'Cloud returned an invalid auth probe response.', status: 200 });
+      return;
+    case '/v1/pairing/bootstrap':
+      if (!requireStrings('relationshipId', 'invitationId', 'deviceId', 'credential', 'token', 'confirmationCode') || body.participant !== 'ME' || !isSafePositiveInteger(body.expiresAt)) throw new CloudClientError({ code: 'INVALID_RESPONSE', message: 'Cloud returned an invalid pairing bootstrap response.', status: 200 });
+      return;
+    case '/v1/pairing/create':
+      if (!requireStrings('relationshipId', 'invitationId', 'token', 'confirmationCode') || !isSafePositiveInteger(body.expiresAt)) throw new CloudClientError({ code: 'INVALID_RESPONSE', message: 'Cloud returned an invalid pairing creation response.', status: 200 });
+      return;
+    case '/v1/pairing/accept':
+      if (!requireStrings('relationshipId', 'deviceId', 'credential') || body.participant !== 'PARTNER') throw new CloudClientError({ code: 'INVALID_RESPONSE', message: 'Cloud returned an invalid pairing acceptance response.', status: 200 });
+      return;
+    case '/v1/sync/push':
+      if (!requireStrings('messageId') || !requireNumbers('senderSeq', 'serverSeq', 'acceptedAt')) throw new CloudClientError({ code: 'INVALID_RESPONSE', message: 'Cloud returned an invalid sync push response.', status: 200 });
+      return;
+    case '/v1/sync/pull': {
+      if (!Array.isArray(body.messages) || !isSafeNonNegativeInteger(body.nextCursor) || typeof body.hasMore !== 'boolean') throw new CloudClientError({ code: 'INVALID_RESPONSE', message: 'Cloud returned an invalid sync pull response.', status: 200 });
+      for (const message of body.messages) {
+        if (!isRecord(message)
+          || !requirePullMessage(message)) {
+          throw new CloudClientError({ code: 'INVALID_RESPONSE', message: 'Cloud returned an invalid inbound sync message.', status: 200 });
+        }
+      }
+      return;
+    }
+    case '/v1/sync/ack':
+      if (!isSafePositiveInteger(body.acknowledgedThrough) || !isSafeNonNegativeInteger(body.deleted) || !isSafePositiveInteger(body.acknowledgedAt)) throw new CloudClientError({ code: 'INVALID_RESPONSE', message: 'Cloud returned an invalid sync ACK response.', status: 200 });
+      return;
+    case '/v1/media/create':
+      if (!requireStrings('uploadId', 'mediaType', 'mime') || (body.mediaType !== 'PHOTO' && body.mediaType !== 'VIDEO') || !isSafePositiveInteger(body.size) || !(body.checksum === null || typeof body.checksum === 'string') || body.status !== 'PENDING' || !isSafePositiveInteger(body.expiresAt)) throw new CloudClientError({ code: 'INVALID_RESPONSE', message: 'Cloud returned an invalid media reservation response.', status: 200 });
+      return;
+    case '/v1/media/complete':
+      if (!requireStrings('uploadId') || body.status !== 'READY') throw new CloudClientError({ code: 'INVALID_RESPONSE', message: 'Cloud returned an invalid media completion response.', status: 200 });
+      return;
+    default:
+      return;
+  }
+}
+
+function requirePullMessage(message: Record<string, unknown>): boolean {
+  return isString(message.messageId)
+    && isString(message.senderDeviceId)
+    && (message.senderParticipant === 'ME' || message.senderParticipant === 'PARTNER')
+    && isSafePositiveInteger(message.senderSeq)
+    && isSafeNonNegativeInteger(message.createdAt)
+    && isSafePositiveInteger(message.serverSeq)
+    && isSafeNonNegativeInteger(message.receivedAt)
+    && isMessageType(message.type)
+    && isString(message.ciphertext)
+    && isSafePositiveInteger(message.encryptionVersion)
+    && (message.mediaUploadId === null || isString(message.mediaUploadId));
+}
+
 export class CloudClient {
   private readonly baseUrl: string;
   private readonly fetchImpl: CloudFetch;
+  private readonly requestTimeoutMs: number;
+  private readonly uploadTimeoutMs: number;
   private credential: string | null;
 
   constructor(options: CloudClientOptions) {
     this.baseUrl = normalizeBaseUrl(options.baseUrl);
     this.fetchImpl = options.fetchImpl ?? fetch;
+    this.requestTimeoutMs = normalizeTimeout(options.requestTimeoutMs, DEFAULT_REQUEST_TIMEOUT_MS, 'Cloud request timeout');
+    this.uploadTimeoutMs = normalizeTimeout(options.uploadTimeoutMs, DEFAULT_UPLOAD_TIMEOUT_MS, 'Cloud upload timeout');
     this.credential = options.credential?.trim() || null;
   }
 
@@ -111,84 +210,41 @@ export class CloudClient {
   }
 
   async authProbe(): Promise<AuthProbeResponse> {
-    return this.request<AuthProbeResponse>({
-      method: 'GET',
-      path: '/v1/auth/probe',
-      authenticated: true,
-    });
+    return this.request<AuthProbeResponse>({ method: 'GET', path: '/v1/auth/probe', authenticated: true });
   }
 
   async bootstrapPairing(request: PairingBootstrapRequest = {}): Promise<PairingBootstrapResponse> {
-    return this.request<PairingBootstrapResponse>({
-      method: 'POST',
-      path: '/v1/pairing/bootstrap',
-      body: request,
-    });
+    return this.request<PairingBootstrapResponse>({ method: 'POST', path: '/v1/pairing/bootstrap', body: request });
   }
 
   async createInvitation(expiresInSeconds?: number): Promise<PairingCreateResponse> {
-    return this.request<PairingCreateResponse>({
-      method: 'POST',
-      path: '/v1/pairing/create',
-      body: expiresInSeconds === undefined ? {} : { expiresInSeconds },
-      authenticated: true,
-    });
+    return this.request<PairingCreateResponse>({ method: 'POST', path: '/v1/pairing/create', body: expiresInSeconds === undefined ? {} : { expiresInSeconds }, authenticated: true });
   }
 
   async acceptInvitation(token: string, confirmationCode: string): Promise<PairingAcceptResponse> {
-    return this.request<PairingAcceptResponse>({
-      method: 'POST',
-      path: '/v1/pairing/accept',
-      body: { token, confirmationCode },
-    });
+    return this.request<PairingAcceptResponse>({ method: 'POST', path: '/v1/pairing/accept', body: { token, confirmationCode } });
   }
 
   async pushMessage(message: CloudPushMessage): Promise<CloudPushResponse> {
-    return this.request<CloudPushResponse>({
-      method: 'POST',
-      path: '/v1/sync/push',
-      body: message,
-      authenticated: true,
-    });
+    return this.request<CloudPushResponse>({ method: 'POST', path: '/v1/sync/push', body: message, authenticated: true });
   }
 
   async pullMessages(after = 0, limit = 50): Promise<CloudPullResponse> {
     const params = new URLSearchParams({ after: String(after), limit: String(limit) });
-    return this.request<CloudPullResponse>({
-      method: 'GET',
-      path: `/v1/sync/pull?${params.toString()}`,
-      authenticated: true,
-    });
+    return this.request<CloudPullResponse>({ method: 'GET', path: `/v1/sync/pull?${params.toString()}`, authenticated: true });
   }
 
   async acknowledgeMessages(throughServerSeq: number): Promise<CloudAckResponse> {
-    return this.request<CloudAckResponse>({
-      method: 'POST',
-      path: '/v1/sync/ack',
-      body: { throughServerSeq },
-      authenticated: true,
-    });
+    return this.request<CloudAckResponse>({ method: 'POST', path: '/v1/sync/ack', body: { throughServerSeq }, authenticated: true });
   }
 
   async createMediaReservation(request: CreateMediaReservationRequest): Promise<CreateMediaReservationResponse> {
-    return this.request<CreateMediaReservationResponse>({
-      method: 'POST',
-      path: '/v1/media/create',
-      body: request,
-      authenticated: true,
-    });
+    return this.request<CreateMediaReservationResponse>({ method: 'POST', path: '/v1/media/create', body: request, authenticated: true });
   }
 
-  async uploadMedia(
-    uploadId: string,
-    body: BodyInit,
-    contentType: string,
-    contentLength: number,
-  ): Promise<MediaUploadResponse> {
-    if (!Number.isSafeInteger(contentLength) || contentLength < 1) {
-      throw new Error('A positive safe media content length is required.');
-    }
-    const response = await this.fetchImpl(`${this.baseUrl}/v1/media/${encodeURIComponent(uploadId)}`, {
+  async uploadMedia(uploadId: string, body: BodyInit, contentType: string, contentLength: number): Promise<MediaUploadResponse> {
+    if (!Number.isSafeInteger(contentLength) || contentLength < 1) throw new Error('A positive safe media content length is required.');
+    const response = await this.fetchWithTimeout(`${this.baseUrl}/v1/media/${encodeURIComponent(uploadId)}`, {
       method: 'PUT',
       headers: {
         Authorization: this.authorizationHeader(),
@@ -196,52 +252,51 @@ export class CloudClient {
         'Content-Length': String(contentLength),
       },
       body,
-    });
-    return this.parseSuccessfulResponse<MediaUploadResponse>(response);
+    }, this.uploadTimeoutMs);
+    return this.parseSuccessfulResponse<MediaUploadResponse>(response, `/v1/media/${encodeURIComponent(uploadId)}`);
   }
 
   async completeMedia(uploadId: string): Promise<CompleteMediaResponse> {
-    return this.request<CompleteMediaResponse>({
-      method: 'POST',
-      path: `/v1/media/${encodeURIComponent(uploadId)}/complete`,
-      authenticated: true,
-    });
+    return this.request<CompleteMediaResponse>({ method: 'POST', path: `/v1/media/${encodeURIComponent(uploadId)}/complete`, authenticated: true });
   }
 
   private authorizationHeader(): string {
-    if (!this.credential) throw new CloudClientError({
-      code: 'CLIENT_UNAUTHENTICATED',
-      message: 'A cloud device credential is required for this operation.',
-      status: 0,
-    });
+    if (!this.credential) throw new CloudClientError({ code: 'CLIENT_UNAUTHENTICATED', message: 'A cloud device credential is required for this operation.', status: 0 });
     return `Bearer ${this.credential}`;
   }
 
+  private async fetchWithTimeout(url: string, init: RequestInit, timeoutMs: number): Promise<Response> {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+      return await this.fetchImpl(url, { ...init, signal: controller.signal });
+    } catch (cause) {
+      if (controller.signal.aborted) {
+        throw new CloudClientError({ code: 'CLIENT_TIMEOUT', message: `Cloud request timed out after ${timeoutMs} ms.`, status: 0 });
+      }
+      throw cause;
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
   private async request<T>(options: RequestOptions): Promise<T> {
-    const headers: Record<string, string> = {
-      Accept: 'application/json',
-    };
+    const headers: Record<string, string> = { Accept: 'application/json' };
     if (options.body !== undefined) headers['Content-Type'] = 'application/json';
     if (options.authenticated) headers.Authorization = this.authorizationHeader();
-
-    const response = await this.fetchImpl(`${this.baseUrl}${options.path}`, {
+    const response = await this.fetchWithTimeout(`${this.baseUrl}${options.path}`, {
       method: options.method,
       headers,
       body: options.body === undefined ? undefined : JSON.stringify(options.body),
-    });
-    return this.parseSuccessfulResponse<T>(response);
+    }, options.timeoutMs ?? this.requestTimeoutMs);
+    return this.parseSuccessfulResponse<T>(response, options.path);
   }
 
-  private async parseSuccessfulResponse<T>(response: Response): Promise<T> {
+  private async parseSuccessfulResponse<T>(response: Response, path: string): Promise<T> {
     const body = await parseResponseBody(response);
     if (!response.ok) throw parseError(response.status, body);
-    if (body === null) {
-      throw new CloudClientError({
-        code: 'INVALID_RESPONSE',
-        message: 'Cloud returned a non-JSON success response.',
-        status: response.status,
-      });
-    }
+    if (body === null) throw new CloudClientError({ code: 'INVALID_RESPONSE', message: 'Cloud returned a non-JSON success response.', status: response.status });
+    assertResponseShape(path, body);
     return body as T;
   }
 }
