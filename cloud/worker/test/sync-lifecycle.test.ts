@@ -1,3 +1,4 @@
+import { describe, expect, it } from "vitest";
 import { env, exports } from "cloudflare:workers";
 interface BootstrapBody { relationshipId: string; deviceId: string; credential: string; token: string; confirmationCode: string; }
 async function json(response: Response): Promise<Record<string, unknown>> { return (await response.json()) as Record<string, unknown>; }
