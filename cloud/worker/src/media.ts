@@ -79,7 +79,8 @@ function parseSize(value: unknown): number | null {
 }
 
 function parseChecksum(value: unknown): string | null | undefined {
-  if (value === undefined || value === null) return value === null ? null : undefined;
+  if (value === undefined) return null;
+  if (value === null) return null;
   if (typeof value !== "string" || !/^[0-9a-fA-F]{64}$/.test(value)) return undefined;
   return value.toLowerCase();
 }
