@@ -1,6 +1,6 @@
 import type { Message } from '../domain/models';
 import type { RucolaRepository } from '../domain/repository';
-import { CloudClient } from '../cloud/CloudClient';
+import { CloudClient, CloudClientError } from '../cloud/CloudClient';
 import type { CloudPulledMessage, CloudMessageType } from '../cloud/protocol';
 import { SQLiteSyncStateStore, type InboundSyncMessage } from '../data/SQLiteSyncStateStore';
 
@@ -37,18 +37,20 @@ const DEFAULT_PULL_BATCH_SIZE = 50;
 
 function normalizeBatchSize(value: number | undefined, fallback: number): number {
   const batchSize = value ?? fallback;
-  if (!Number.isSafeInteger(batchSize) || batchSize < 1 || batchSize > 100) {
-    throw new Error('Sync batch size must be between 1 and 100.');
-  }
+  if (!Number.isSafeInteger(batchSize) || batchSize < 1 || batchSize > 100) throw new Error('Sync batch size must be between 1 and 100.');
   return batchSize;
 }
 
-function toCloudType(type: Message['type']): CloudMessageType {
-  return type;
+function toCloudType(type: Message['type']): CloudMessageType { return type; }
+function isSupportedWithoutMedia(type: Message['type']): boolean { return type === 'TEXT' || type === 'EMOJI'; }
+
+function isRetryableSyncError(cause: unknown): boolean {
+  if (!(cause instanceof CloudClientError)) return false;
+  return cause.status === 0 || cause.status === 408 || cause.status === 429 || cause.status >= 500;
 }
 
-function isSupportedWithoutMedia(type: Message['type']): boolean {
-  return type === 'TEXT' || type === 'EMOJI';
+function isBlockedSyncError(cause: unknown): boolean {
+  return cause instanceof Error && cause.message === 'Media synchronization is not implemented yet.';
 }
 
 export class SyncEngine {
@@ -69,37 +71,25 @@ export class SyncEngine {
     this.now = options.now ?? Date.now;
     this.outboxBatchSize = normalizeBatchSize(options.outboxBatchSize, DEFAULT_OUTBOX_BATCH_SIZE);
     this.pullBatchSize = normalizeBatchSize(options.pullBatchSize, DEFAULT_PULL_BATCH_SIZE);
-
-    if (!Number.isSafeInteger(this.codec.encryptionVersion) || this.codec.encryptionVersion < 1 || this.codec.encryptionVersion > 255) {
-      throw new Error('Sync codec encryptionVersion must be between 1 and 255.');
-    }
+    if (!Number.isSafeInteger(this.codec.encryptionVersion) || this.codec.encryptionVersion < 1 || this.codec.encryptionVersion > 255) throw new Error('Sync codec encryptionVersion must be between 1 and 255.');
   }
 
-  /** Coalesces concurrent callers into one sync pass. */
   run(): Promise<SyncRunResult> {
     if (!this.runPromise) {
-      this.runPromise = this.runInternal().finally(() => {
-        this.runPromise = null;
-      });
+      this.runPromise = this.runInternal().finally(() => { this.runPromise = null; });
     }
     return this.runPromise;
   }
 
   private async runInternal(): Promise<SyncRunResult> {
-    const result: SyncRunResult = {
-      pushed: 0,
-      pulled: 0,
-      acknowledged: 0,
-      failed: 0,
-      moreIncoming: false,
-    };
-
+    const result: SyncRunResult = { pushed: 0, pulled: 0, acknowledged: 0, failed: 0, moreIncoming: false };
     await this.pushDue(result);
     await this.pullIncoming(result);
     return result;
   }
 
   private async pushDue(result: SyncRunResult): Promise<void> {
+    await this.state.reconcileOutbox(this.now());
     const due = await this.state.getDueOutbox(this.now(), this.outboxBatchSize);
     if (due.length === 0) return;
 
@@ -127,12 +117,27 @@ export class SyncEngine {
         await this.state.markSynced(message.id);
         result.pushed += 1;
       } catch (cause) {
-        await this.state.markAttemptFailed(item.messageId, cause, this.now());
+        if (isBlockedSyncError(cause)) {
+          await this.state.markBlocked(item.messageId, cause);
+          result.failed += 1;
+          // A blocked media message must not hold the entire text queue hostage.
+          // It remains in the durable outbox, but its next attempt is intentionally
+          // parked until media synchronization is implemented.
+          continue;
+        }
+
+        if (isRetryableSyncError(cause)) {
+          await this.state.markAttemptFailed(item.messageId, cause, this.now());
+          result.failed += 1;
+          // Preserve senderSeq ordering across transient failures.
+          break;
+        }
+
+        await this.state.markBlocked(item.messageId, cause);
         result.failed += 1;
-        // senderSeq is the ordering contract. Do not allow seq N+1 onto the
-        // server while seq N is still retrying, or serverSeq ordering can differ
-        // from the user's local message order.
-        break;
+        // Permanent protocol/local failures cannot safely be retried automatically.
+        // Do not block later independent messages behind them.
+        continue;
       }
     }
   }
@@ -143,45 +148,31 @@ export class SyncEngine {
 
     while (hasMore) {
       const response = await this.cloud.pullMessages(cursor, this.pullBatchSize);
+      if (!Number.isSafeInteger(response.nextCursor) || response.nextCursor < cursor) throw new Error('Cloud returned an invalid pull cursor.');
       if (response.messages.length === 0) {
-        if (response.nextCursor < cursor) throw new Error('Cloud returned a backwards pull cursor.');
         if (response.nextCursor !== cursor) throw new Error('Cloud advanced the cursor without returning messages.');
+        if (response.hasMore) throw new Error('Cloud reported more inbound messages without returning a batch.');
         result.moreIncoming = false;
         return;
-      }
-
-      if (!Number.isSafeInteger(response.nextCursor) || response.nextCursor < cursor) {
-        throw new Error('Cloud returned an invalid pull cursor.');
       }
 
       const inbound: InboundSyncMessage[] = [];
       let previousServerSeq = cursor;
       for (const remote of response.messages) {
-        if (!Number.isSafeInteger(remote.serverSeq) || remote.serverSeq <= previousServerSeq) {
-          throw new Error('Cloud returned inbound messages out of server-sequence order.');
-        }
+        if (!Number.isSafeInteger(remote.serverSeq) || remote.serverSeq <= previousServerSeq) throw new Error('Cloud returned inbound messages out of server-sequence order.');
+        if (remote.senderParticipant !== 'PARTNER' || remote.senderDeviceId.trim() === '') throw new Error('Cloud returned a message from an invalid sender.');
         previousServerSeq = remote.serverSeq;
         const decoded = await this.codec.decrypt(remote);
-        inbound.push({
-          id: remote.messageId,
-          type: decoded.type,
-          body: decoded.body,
-          createdAt: remote.createdAt,
-          serverSeq: remote.serverSeq,
-          mediaReference: decoded.mediaReference,
-        });
+        if (decoded.type !== remote.type) throw new Error('Sync codec changed the inbound message type.');
+        inbound.push({ id: remote.messageId, type: decoded.type, body: decoded.body, createdAt: remote.createdAt, serverSeq: remote.serverSeq, mediaReference: decoded.mediaReference });
       }
 
       const lastServerSeq = inbound.at(-1)?.serverSeq ?? cursor;
       if (response.nextCursor < lastServerSeq) throw new Error('Cloud cursor precedes its newest inbound message.');
 
-      // commitInbound is the durable boundary. ACK happens only after it resolves.
       await this.state.commitInbound(inbound, response.nextCursor, this.now());
-
       const ack = await this.cloud.acknowledgeMessages(response.nextCursor);
-      if (ack.acknowledgedThrough < response.nextCursor) {
-        throw new Error('Cloud acknowledged fewer messages than requested.');
-      }
+      if (ack.acknowledgedThrough < response.nextCursor) throw new Error('Cloud acknowledged fewer messages than requested.');
 
       cursor = response.nextCursor;
       result.pulled += inbound.length;
