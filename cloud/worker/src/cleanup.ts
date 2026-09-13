@@ -1,3 +1,5 @@
+import type { Env } from "./types";
+
 const CLEANUP_BATCH_SIZE = 50;
 
 interface MediaCleanupRow {
@@ -19,12 +21,12 @@ async function deleteMediaObject(env: Env, objectKey: string): Promise<boolean> 
   }
 }
 
-async function claimExpiredMedia(env: Env, now: number): Promise<MediaCleanupRow[]> {
+async function claimMediaForCleanup(env: Env, now: number): Promise<MediaCleanupRow[]> {
   const result = await env.DB.prepare(
     `SELECT id, object_key
        FROM media_uploads
-      WHERE status IN ('PENDING', 'READY')
-        AND expires_at <= ?
+      WHERE (status IN ('PENDING', 'READY') AND expires_at <= ?)
+         OR status = 'ABANDONED'
       ORDER BY expires_at
       LIMIT ?`,
   )
@@ -37,8 +39,10 @@ async function claimExpiredMedia(env: Env, now: number): Promise<MediaCleanupRow
       `UPDATE media_uploads
           SET status = 'ABANDONED'
         WHERE id = ?
-          AND status IN ('PENDING', 'READY')
-          AND expires_at <= ?`,
+          AND (
+            (status IN ('PENDING', 'READY') AND expires_at <= ?)
+            OR status = 'ABANDONED'
+          )`,
     )
       .bind(row.id, now)
       .run();
@@ -86,6 +90,8 @@ async function claimUnreferencedAttachedMedia(env: Env): Promise<MediaCleanupRow
 async function finalizeMediaCleanup(env: Env, rows: MediaCleanupRow[]): Promise<number> {
   let deleted = 0;
   for (const row of rows) {
+    // R2 delete is idempotent: a missing object is already in the desired
+    // state and must not strand the D1 row forever.
     if (!(await deleteMediaObject(env, row.object_key))) continue;
 
     const result = await env.DB.prepare(
@@ -138,13 +144,28 @@ async function cleanupExpiredReceipts(env: Env, now: number): Promise<number> {
 
 async function cleanupExpiredMailbox(env: Env, now: number): Promise<number> {
   const result = await env.DB.prepare(
-    `DELETE FROM mailbox_messages
+    `SELECT relationship_id, message_id
+       FROM mailbox_messages
       WHERE expires_at <= ?
+      ORDER BY expires_at
       LIMIT ?`,
   )
     .bind(now, CLEANUP_BATCH_SIZE)
-    .run();
-  return result.meta.changes ?? 0;
+    .all<ReceiptCleanupRow>();
+
+  let deleted = 0;
+  for (const row of result.results) {
+    const result = await env.DB.prepare(
+      `DELETE FROM mailbox_messages
+        WHERE relationship_id = ?
+          AND message_id = ?
+          AND expires_at <= ?`,
+    )
+      .bind(row.relationship_id, row.message_id, now)
+      .run();
+    if ((result.meta.changes ?? 0) === 1) deleted += 1;
+  }
+  return deleted;
 }
 
 export interface CleanupResult {
@@ -163,9 +184,10 @@ export async function runCleanup(env: Env, now = Date.now()): Promise<CleanupRes
   // also releases the FK dependency that protects ATTACHED media.
   const expiredReceipts = await cleanupExpiredReceipts(env, now);
 
-  // Claim first, then touch R2. The ABANDONED state prevents a concurrent
-  // push from attaching an expired READY upload while R2 cleanup is running.
-  const expiredMedia = await claimExpiredMedia(env, now);
+  // Claim first, then touch R2. ABANDONED makes a partial R2/D1 failure
+  // restartable and prevents an expired READY upload from being attached
+  // while cleanup is in progress.
+  const expiredMedia = await claimMediaForCleanup(env, now);
   const orphanedAttachedMedia = await claimUnreferencedAttachedMedia(env);
   const mediaObjectsDeleted = await finalizeMediaCleanup(env, [
     ...expiredMedia,
@@ -174,5 +196,3 @@ export async function runCleanup(env: Env, now = Date.now()): Promise<CleanupRes
 
   return { expiredMailbox, expiredReceipts, mediaObjectsDeleted };
 }
-
-import type { Env } from "./types";
