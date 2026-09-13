@@ -71,13 +71,34 @@ export async function acknowledgeMessages(env: Env, request: Request): Promise<R
   const acknowledgedAt = Date.now();
 
   try {
-    // Pull is non-destructive. Once the client has durably persisted the
-    // contiguous high-water mark, the temporary mailbox copies can be removed.
-    // Keep the relationship ACTIVE predicate on the destructive statement too:
-    // if the relationship ends between validation and deletion, do not delete
-    // anything after it has become inactive.
-    const result = await session
-      .prepare(
+    // Receipt acknowledgement and mailbox deletion are one D1 batch. This
+    // preserves the idempotency record if the response is lost while making
+    // ACK the recipient's destructive durability boundary.
+    const results = await env.DB.batch([
+      env.DB.prepare(
+        `UPDATE message_receipts
+         SET acknowledged_at = ?1
+         WHERE relationship_id = ?2
+           AND server_seq <= ?3
+           AND acknowledged_at IS NULL
+           AND EXISTS (
+             SELECT 1 FROM mailbox_messages AS m
+             WHERE m.relationship_id = ?2
+               AND m.message_id = message_receipts.message_id
+               AND m.server_seq = message_receipts.server_seq
+               AND m.server_seq <= ?3
+           )
+           AND EXISTS (
+             SELECT 1 FROM relationships
+             WHERE id = ?2 AND status = 'ACTIVE'
+           )`,
+      ).bind(acknowledgedAt, device.relationshipId, throughServerSeq),
+      // Pull is non-destructive. Once the client has durably persisted the
+      // contiguous high-water mark, the temporary mailbox copies can be
+      // removed. Keep the relationship ACTIVE predicate on the destructive
+      // statement too so relationship termination cannot turn this into a
+      // post-termination cleanup operation.
+      env.DB.prepare(
         `DELETE FROM mailbox_messages
          WHERE relationship_id = ?1
            AND server_seq <= ?2
@@ -85,13 +106,12 @@ export async function acknowledgeMessages(env: Env, request: Request): Promise<R
              SELECT 1 FROM relationships
              WHERE id = ?1 AND status = 'ACTIVE'
            )`,
-      )
-      .bind(device.relationshipId, throughServerSeq)
-      .run();
+      ).bind(device.relationshipId, throughServerSeq),
+    ]);
 
     // Repeated ACKs are deliberately successful even when the rows were
     // already removed, making the operation idempotent.
-    const deleted = result.meta.changes ?? 0;
+    const deleted = results[1]?.meta.changes ?? 0;
 
     return json({
       acknowledgedThrough: throughServerSeq,
