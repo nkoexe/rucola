@@ -2,7 +2,9 @@ import { useEffect, useRef, useState } from 'react';
 import * as ImagePicker from 'expo-image-picker';
 import { Alert, KeyboardAvoidingView, PanResponder, Platform, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import type { getRepository } from '../../data/repository';
+import { launchCameraWithPermission } from '../../data/camera';
 import { deleteOwnedMedia, persistPickedMedia } from '../../data/media';
+import { runNativeIntegrationTests } from '../../data/nativeIntegration';
 import type { Message, Relationship } from '../../domain/models';
 import { GetActiveMessage, SendMessage } from '../../domain/useCases';
 import { MessageMedia } from '../../components/MessageMedia';
@@ -29,6 +31,7 @@ export function HomeScreen({ relationship, repositoryPromise, revision, onChange
   const [composerType, setComposerType] = useState<ComposerType>('TEXT');
   const [sending, setSending] = useState(false);
   const [pickingMedia, setPickingMedia] = useState(false);
+  const [runningTests, setRunningTests] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const historyPanResponder = useRef(
@@ -90,8 +93,6 @@ export function HomeScreen({ relationship, repositoryPromise, revision, onChange
           mediaReference,
         });
       } catch (cause) {
-        // The file is owned by this unsent message, so do not leave an orphan
-        // behind when persistence succeeds but the database write fails.
         await deleteOwnedMedia(mediaReference);
         throw cause;
       }
@@ -117,14 +118,37 @@ export function HomeScreen({ relationship, repositoryPromise, revision, onChange
         })),
       },
       {
-        text: 'Camera',
-        onPress: () => void sendMedia(() => ImagePicker.launchCameraAsync({
-          mediaTypes: ['images', 'videos'],
-          quality: 0.9,
-        })),
+        text: 'Take photo',
+        onPress: () => void sendMedia(() => launchCameraWithPermission(['images'])),
+      },
+      {
+        text: 'Record video',
+        onPress: () => void sendMedia(() => launchCameraWithPermission(['videos'])),
       },
       { text: 'Cancel', style: 'cancel' },
     ]);
+  };
+
+  const runAllTests = async () => {
+    if (runningTests || !__DEV__) return;
+
+    setRunningTests(true);
+    try {
+      const results = await runNativeIntegrationTests();
+      const passed = results.filter((result) => result.passed).length;
+      const failed = results.length - passed;
+      const failures = results.filter((result) => !result.passed).map((result) => result.name);
+      Alert.alert(
+        failed === 0 ? 'All tests passed' : 'Tests failed',
+        failed === 0
+          ? `${passed}/${results.length} passed`
+          : `${passed}/${results.length} passed\n\nFailed:\n${failures.join('\n')}`,
+      );
+    } catch (cause) {
+      Alert.alert('Test runner failed', cause instanceof Error ? cause.message : 'Could not run tests.');
+    } finally {
+      setRunningTests(false);
+    }
   };
 
   return (
@@ -187,6 +211,15 @@ export function HomeScreen({ relationship, repositoryPromise, revision, onChange
             <Text style={styles.sendText}>{sending ? '...' : 'Send'}</Text>
           </Pressable>
         </View>
+        {__DEV__ ? (
+          <Pressable
+            onPress={() => void runAllTests()}
+            disabled={runningTests}
+            style={[styles.devTestButton, runningTests && styles.disabled]}
+          >
+            <Text style={styles.devTestButtonText}>{runningTests ? 'Running tests…' : 'Run all tests'}</Text>
+          </Pressable>
+        ) : null}
       </View>
     </KeyboardAvoidingView>
   );
@@ -219,5 +252,7 @@ const styles = StyleSheet.create({
   secondaryButton: { padding: 10, borderWidth: 1, borderRadius: 12 },
   send: { marginLeft: 'auto', backgroundColor: '#1D2A1B', borderRadius: 16, paddingHorizontal: 20, paddingVertical: 11 },
   sendText: { color: '#F3F6E9', fontWeight: '700' },
+  devTestButton: { width: '100%', marginTop: 16, minHeight: 64, alignItems: 'center', justifyContent: 'center', backgroundColor: '#1D2A1B', borderRadius: 16 },
+  devTestButtonText: { color: '#F3F6E9', fontSize: 20, fontWeight: '800' },
   disabled: { opacity: 0.35 },
 });

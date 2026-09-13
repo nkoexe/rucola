@@ -15,9 +15,9 @@
 
 ## Product / architecture checks
 
-- [ ] Respects `docs/PRODUCT.md`
+- [ ] Respects `docs/PRODUCT_SPEC.md`
 - [ ] Respects `docs/ARCHITECTURE.md`
-- [ ] Does not introduce read receipts, replies, editing, deletion, reactions, or other explicit MVP exclusions
+- [ ] Does not introduce read receipts, replies, editing, deletion, reactions, or other explicit initial-product exclusions
 - [ ] Local history remains authoritative; no server-as-archive assumptions
 
 ## Notes / trade-offs

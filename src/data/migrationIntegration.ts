@@ -262,6 +262,27 @@ async function testRejectsNewerSchema(): Promise<void> {
   });
 }
 
+async function testInitializationFailureCanRetry(): Promise<void> {
+  await withRawTestDatabase(async (db) => {
+    await db.execAsync(`
+      CREATE TABLE relationships (id TEXT PRIMARY KEY NOT NULL);
+      CREATE TABLE messages (id TEXT PRIMARY KEY NOT NULL);
+      PRAGMA user_version = 0;
+    `);
+
+    await assertRejects(
+      () => initializeDatabase(db),
+      'Initialization should reject an incomplete schema before retry',
+    );
+
+    await db.execAsync('DROP TABLE messages; DROP TABLE relationships;');
+    await initializeDatabase(db);
+
+    const version = await db.getFirstAsync<{ user_version: number }>('PRAGMA user_version');
+    assertEqual(version?.user_version, 2, 'Initialization should retry successfully after a previous failure');
+  });
+}
+
 export async function runMigrationIntegrationTests(): Promise<void> {
   await testV0Migration();
   await testV1Migration();
@@ -272,4 +293,5 @@ export async function runMigrationIntegrationTests(): Promise<void> {
   await testRollbackAfterTransformationFailure();
   await testRejectsIncompleteSchema();
   await testRejectsNewerSchema();
+  await testInitializationFailureCanRetry();
 }

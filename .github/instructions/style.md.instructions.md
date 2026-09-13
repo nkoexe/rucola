@@ -43,7 +43,7 @@ description: always use the provided coding style and guidelines when generating
 - Keep UI code readable; extract reusable components when they are actually reused or clearly represent a meaningful design component.
 - Avoid abstraction for abstraction's sake.
 - Do not duplicate important business rules across UI, persistence, and networking layers.
-- Keep domain rules testable without requiring Android UI infrastructure where practical.
+- Keep domain rules testable without requiring React Native UI infrastructure where practical.
 - Comments should explain *why*, not restate what the code obviously does.
 - Do not leave TODOs for things that are required for the current task.
 - If something is intentionally deferred, make the reason clear.
@@ -104,7 +104,7 @@ description: always use the provided coding style and guidelines when generating
 - Test behaviour, not implementation details.
 - Prioritize tests around domain rules and important state transitions.
 - Add regression tests when fixing a bug.
-- UI tests should cover important user journeys rather than every individual composable.
+- UI tests should cover important user journeys rather than every individual React Native component.
 - Do not weaken or delete tests simply to make CI pass.
 - If a test exposes a genuine design/architecture problem, fix the underlying problem rather than gaming the test.
 
