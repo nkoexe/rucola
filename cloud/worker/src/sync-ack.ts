@@ -95,7 +95,7 @@ export async function acknowledgeMessages(env: Env, request: Request): Promise<R
              SELECT 1 FROM relationships
              WHERE id = ?2 AND status = 'ACTIVE'
            )`,
-      ).bind(acknowledgedAt, device.relationshipId, throughServerSeq, device.deviceId),
+      ).bind(acknowledgedAt, device.relationshipId, throughServerSeq, device.id),
       // Pull is non-destructive. Once the recipient has durably persisted the
       // contiguous high-water mark, only the partner-originated temporary
       // mailbox copies may be removed. A device can never ACK away its own
@@ -109,7 +109,7 @@ export async function acknowledgeMessages(env: Env, request: Request): Promise<R
              SELECT 1 FROM relationships
              WHERE id = ?1 AND status = 'ACTIVE'
            )`,
-      ).bind(device.relationshipId, throughServerSeq, device.deviceId),
+      ).bind(device.relationshipId, throughServerSeq, device.id),
     ]);
 
     // Repeated ACKs are deliberately successful even when the rows were
