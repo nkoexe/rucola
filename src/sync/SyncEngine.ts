@@ -2,7 +2,7 @@ import type { Message } from '../domain/models';
 import type { RucolaRepository } from '../domain/repository';
 import { CloudClient, CloudClientError } from '../cloud/CloudClient.ts';
 import type { CloudPulledMessage, CloudMessageType } from '../cloud/protocol';
-import { SQLiteSyncStateStore, type InboundSyncMessage } from '../data/SQLiteSyncStateStore.ts';
+import type { SQLiteSyncStateStore, InboundSyncMessage } from '../data/SQLiteSyncStateStore.ts';
 
 export interface SyncCodec { encryptionVersion: number; encrypt(message: Message): Promise<string>; decrypt(message: CloudPulledMessage): Promise<{ type: CloudMessageType; body: string; mediaReference?: string | null }>; }
 export interface SyncEngineOptions { cloud: CloudClient; state: SQLiteSyncStateStore; repository: RucolaRepository; codec: SyncCodec; now?: () => number; outboxBatchSize?: number; pullBatchSize?: number; }
