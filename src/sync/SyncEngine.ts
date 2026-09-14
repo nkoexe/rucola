@@ -1,8 +1,8 @@
 import type { Message } from '../domain/models';
 import type { RucolaRepository } from '../domain/repository';
-import { CloudClient, CloudClientError } from '../cloud/CloudClient.ts';
+import { CloudClient, CloudClientError } from '../cloud/CloudClient';
 import type { CloudPulledMessage, CloudMessageType } from '../cloud/protocol';
-import { SQLiteSyncStateStore, type InboundSyncMessage } from '../data/SQLiteSyncStateStore.ts';
+import { SQLiteSyncStateStore, type InboundSyncMessage } from '../data/SQLiteSyncStateStore';
 
 export interface SyncCodec {
   encryptionVersion: number;
