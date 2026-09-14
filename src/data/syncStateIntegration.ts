@@ -8,7 +8,7 @@ function assertEqual<T>(actual: T, expected: T, message: string): void {
 
 export async function runSyncStateIntegrationTests(db: SQLite.SQLiteDatabase): Promise<void> {
   const repository = new SQLiteRucolaRepository(db);
-  const store = new SQLiteSyncStateStore(db);
+  const store = new SQLiteSyncStateStore({ database: db });
   await repository.saveSetup({ partnerNickname: 'Partner', ownName: 'Nico', togetherSince: null });
   const initial = await store.getState();
   assertEqual(initial.nextSenderSeq, 1, 'Fresh sync state should start sender sequences at one');
