@@ -14,12 +14,10 @@ function normalizeBatchSize(value: number | undefined, fallback: number): number
 function toCloudType(type: Message['type']): CloudMessageType { return type; }
 function isSupportedWithoutMedia(type: Message['type']): boolean { return type === 'TEXT' || type === 'EMOJI'; }
 function isRetryableSyncError(cause: unknown): boolean {
-  if (cause instanceof CloudClientError) return cause.status === 0 || cause.status === 408 || cause.status === 429 || cause.status >= 500;
-  if (cause && typeof cause === 'object') {
-    const candidate = cause as { name?: unknown; status?: unknown; code?: unknown };
-    if (candidate.name === 'CloudClientError' && typeof candidate.status === 'number' && typeof candidate.code === 'string') return candidate.status === 0 || candidate.status === 408 || candidate.status === 429 || candidate.status >= 500;
-  }
-  return false;
+  const candidate = cause as { status?: unknown; code?: unknown } | null;
+  if (!(cause instanceof CloudClientError) && (!candidate || typeof candidate !== 'object')) return false;
+  if (typeof candidate?.status !== 'number' || typeof candidate?.code !== 'string') return false;
+  return candidate.status === 0 || candidate.status === 408 || candidate.status === 429 || candidate.status >= 500;
 }
 function isBlockedSyncError(cause: unknown): boolean { return cause instanceof Error && cause.message === 'Media synchronization is not implemented yet.'; }
 function isBlockedOutboxItem(nextAttemptAt: number): boolean { return nextAttemptAt === BLOCKED_RETRY_AT; }
