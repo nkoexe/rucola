@@ -118,6 +118,7 @@ test('transient cloud failures remain retryable and preserve sender ordering', a
   const result = await engine.run();
   assert.equal(result.failed, 1);
   assert.equal(harness.calls.filter(([name]) => name === 'push').length, 1);
+  assert.equal(harness.calls.some(([name, id]) => name === 'markAttemptFailed' && id === 'local-1'), true);
   assert.equal(harness.calls.some(([name, id]) => name === 'markAttemptFailed' && id === 'local-2'), false);
 });
 
