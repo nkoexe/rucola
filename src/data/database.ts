@@ -1,7 +1,7 @@
 import * as SQLite from 'expo-sqlite';
 
 const DATABASE_NAME = 'rucola.db';
-const SCHEMA_VERSION = 3;
+const SCHEMA_VERSION = 4;
 
 export const RELATIONSHIP_ID = 'the-one';
 
@@ -62,6 +62,8 @@ async function initializeDatabaseInternal(database: SQLite.SQLiteDatabase): Prom
     await migrateLegacySchema(database);
   } else if (version === 2) {
     await migrateSyncSchema(database);
+  } else if (version === 3) {
+    await migrateSyncInboxSchema(database);
   }
 
   return verifyDatabase(database);
@@ -72,6 +74,11 @@ async function verifyDatabase(db: SQLite.SQLiteDatabase): Promise<SQLite.SQLiteD
   if (currentVersion !== SCHEMA_VERSION) {
     throw new Error(`Rucola database migration stopped at version ${currentVersion}.`);
   }
+
+  const requiredTables = await db.getAllAsync<{ name: string }>(
+    "SELECT name FROM sqlite_master WHERE type = 'table' AND name IN ('relationships', 'messages', 'active_message_slots', 'sync_state', 'sync_outbox', 'sync_inbox')",
+  );
+  if (requiredTables.length !== 6) throw new Error('Rucola database schema is missing required tables.');
 
   const foreignKeyErrors = await db.getAllAsync('PRAGMA foreign_key_check;');
   if (foreignKeyErrors.length > 0) throw new Error('Rucola database integrity check failed after migration.');
@@ -142,6 +149,16 @@ async function createLatestSchema(db: SQLite.SQLiteDatabase): Promise<void> {
 
     CREATE INDEX sync_outbox_due
       ON sync_outbox (relationshipId, nextAttemptAt, senderSeq);
+
+    CREATE TABLE sync_inbox (
+      relationshipId TEXT NOT NULL,
+      messageId TEXT NOT NULL,
+      serverSeq INTEGER NOT NULL CHECK (serverSeq >= 1),
+      PRIMARY KEY (relationshipId, messageId),
+      UNIQUE (relationshipId, serverSeq),
+      FOREIGN KEY (relationshipId) REFERENCES relationships(id) ON DELETE CASCADE,
+      FOREIGN KEY (messageId) REFERENCES messages(id) ON DELETE CASCADE
+    );
   `);
 }
 
@@ -174,6 +191,24 @@ async function migrateSyncSchema(db: SQLite.SQLiteDatabase): Promise<void> {
 
       CREATE INDEX sync_outbox_due
         ON sync_outbox (relationshipId, nextAttemptAt, senderSeq);
+
+      PRAGMA user_version = 3;
+    `);
+  });
+}
+
+async function migrateSyncInboxSchema(db: SQLite.SQLiteDatabase): Promise<void> {
+  await db.withTransactionAsync(async () => {
+    await db.execAsync(`
+      CREATE TABLE sync_inbox (
+        relationshipId TEXT NOT NULL,
+        messageId TEXT NOT NULL,
+        serverSeq INTEGER NOT NULL CHECK (serverSeq >= 1),
+        PRIMARY KEY (relationshipId, messageId),
+        UNIQUE (relationshipId, serverSeq),
+        FOREIGN KEY (relationshipId) REFERENCES relationships(id) ON DELETE CASCADE,
+        FOREIGN KEY (messageId) REFERENCES messages(id) ON DELETE CASCADE
+      );
 
       PRAGMA user_version = ${SCHEMA_VERSION};
     `);
