@@ -36,15 +36,7 @@ jobs:
       - uses: android-actions/setup-android@v4
         with:
           packages: platform-tools
-      - uses: actions/cache@v6
-        id: android-sdk-cache
-        with:
-          path: |
-            ${{ env.ANDROID_HOME }}/platforms/android-${{ env.ANDROID_API_LEVEL }}
-            ${{ env.ANDROID_HOME }}/build-tools/${{ env.ANDROID_BUILD_TOOLS }}
-          key: android-sdk-${{ runner.os }}-api${{ env.ANDROID_API_LEVEL }}-build${{ env.ANDROID_BUILD_TOOLS }}-v1
       - name: Install Android SDK components
-        if: steps.android-sdk-cache.outputs.cache-hit != 'true'
         run: |
           sdkmanager "platforms;android-${ANDROID_API_LEVEL}" "build-tools;${ANDROID_BUILD_TOOLS}"
       - run: yes | sdkmanager --licenses >/dev/null || true
