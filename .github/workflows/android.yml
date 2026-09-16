@@ -15,8 +15,7 @@ env:
   ANDROID_API_LEVEL: '36'
   ANDROID_BUILD_TOOLS: '36.0.0'
   ANDROID_NDK_VERSION: '27.1.12297006'
-  ANDROID_SDK_ROOT: ${{ github.workspace }}/.android-sdk
-  ANDROID_HOME: ${{ github.workspace }}/.android-sdk
+  ANDROID_CMDLINE_TOOLS_VERSION: '14742923'
 
 jobs:
   build:
@@ -39,10 +38,14 @@ jobs:
       - uses: actions/cache@v6
         id: android-sdk-cache
         with:
-          path: ${{ env.ANDROID_SDK_ROOT }}
-          key: android-sdk-${{ runner.os }}-api${{ env.ANDROID_API_LEVEL }}-build${{ env.ANDROID_BUILD_TOOLS }}-ndk${{ env.ANDROID_NDK_VERSION }}-v3
+          path: ${{ github.workspace }}/.android-sdk
+          key: android-sdk-${{ runner.os }}-api${{ env.ANDROID_API_LEVEL }}-build${{ env.ANDROID_BUILD_TOOLS }}-ndk${{ env.ANDROID_NDK_VERSION }}-cmdline${{ env.ANDROID_CMDLINE_TOOLS_VERSION }}-v4
       - uses: android-actions/setup-android@v4
+        env:
+          ANDROID_SDK_ROOT: ${{ github.workspace }}/.android-sdk
+          ANDROID_HOME: ${{ github.workspace }}/.android-sdk
         with:
+          cmdline-tools-version: ${{ env.ANDROID_CMDLINE_TOOLS_VERSION }}
           packages: platform-tools
       - name: Install Android SDK components
         run: |
@@ -50,7 +53,6 @@ jobs:
             "platforms;android-${ANDROID_API_LEVEL}" \
             "build-tools;${ANDROID_BUILD_TOOLS}" \
             "ndk;${ANDROID_NDK_VERSION}"
-      - run: yes | sdkmanager --sdk_root="$ANDROID_SDK_ROOT" --licenses >/dev/null || true
       - name: Verify Android SDK components
         run: |
           test -d "$ANDROID_SDK_ROOT/platforms/android-${ANDROID_API_LEVEL}"
