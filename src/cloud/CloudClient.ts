@@ -9,6 +9,7 @@ type RequestOptions = { method: 'GET' | 'POST'; path: string; body?: JsonValue; 
 const DEFAULT_REQUEST_TIMEOUT_MS = 15_000;
 const DEFAULT_UPLOAD_TIMEOUT_MS = 120_000;
 const MAX_REQUEST_TIMEOUT_MS = 300_000;
+const MAX_ENCRYPTION_VERSION = 255;
 function normalizeBaseUrl(value: string): string { const trimmed = value.trim(); if (!trimmed) throw new Error('Cloud base URL is required.'); return trimmed.replace(/\/+$/, ''); }
 function normalizeTimeout(value: number | undefined, fallback: number, label: string): number { const timeout = value ?? fallback; if (!Number.isSafeInteger(timeout) || timeout < 1 || timeout > MAX_REQUEST_TIMEOUT_MS) throw new Error(`${label} must be between 1 and ${MAX_REQUEST_TIMEOUT_MS} milliseconds.`); return timeout; }
 function contentTypeIsJson(response: Response): boolean { return response.headers.get('content-type')?.split(';', 1)[0]?.trim().toLowerCase() === 'application/json'; }
@@ -19,8 +20,9 @@ function isRecord(value: unknown): value is Record<string, unknown> { return val
 function isString(value: unknown): value is string { return typeof value === 'string' && value.length > 0; }
 function isSafePositiveInteger(value: unknown): value is number { return Number.isSafeInteger(value) && (value as number) > 0; }
 function isSafeNonNegativeInteger(value: unknown): value is number { return Number.isSafeInteger(value) && (value as number) >= 0; }
+function isEncryptionVersion(value: unknown): value is number { return isSafePositiveInteger(value) && (value as number) <= MAX_ENCRYPTION_VERSION; }
 function isMessageType(value: unknown): boolean { return value === 'TEXT' || value === 'EMOJI' || value === 'PHOTO_VIDEO' || value === 'DRAWING'; }
-function requirePullMessage(message: Record<string, unknown>): boolean { return isString(message.messageId) && isString(message.senderDeviceId) && (message.senderParticipant === 'ME' || message.senderParticipant === 'PARTNER') && isSafePositiveInteger(message.senderSeq) && isSafeNonNegativeInteger(message.createdAt) && isSafePositiveInteger(message.serverSeq) && isSafeNonNegativeInteger(message.receivedAt) && isMessageType(message.type) && isString(message.ciphertext) && isSafePositiveInteger(message.encryptionVersion) && (message.mediaUploadId === null || isString(message.mediaUploadId)); }
+function requirePullMessage(message: Record<string, unknown>): boolean { return isString(message.messageId) && isString(message.senderDeviceId) && (message.senderParticipant === 'ME' || message.senderParticipant === 'PARTNER') && isSafePositiveInteger(message.senderSeq) && isSafeNonNegativeInteger(message.createdAt) && isSafePositiveInteger(message.serverSeq) && isSafeNonNegativeInteger(message.receivedAt) && isMessageType(message.type) && isString(message.ciphertext) && isEncryptionVersion(message.encryptionVersion) && (message.mediaUploadId === null || isString(message.mediaUploadId)); }
 function assertResponseShape(path: string, body: unknown): void {
   if (!isRecord(body)) invalidResponse(`Cloud returned an invalid response for ${path}.`);
   const requireStrings = (...keys: string[]) => keys.every((key) => isString(body[key]));
