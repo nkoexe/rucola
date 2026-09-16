@@ -56,7 +56,7 @@ function retryDelay(attempts: number): number {
 }
 
 function validateMessage(message: InboundSyncMessage, now: number): void {
-  if (!/^[A-Za-z0-9_-]+$/.test(message.id) || message.id.length === 0 || message.id.length > 128) throw new Error('Invalid inbound message ID.');
+  if (typeof message.id !== 'string' || !/^[A-Za-z0-9_-]+$/.test(message.id) || message.id.length === 0 || message.id.length > 128) throw new Error('Invalid inbound message ID.');
   if (!MESSAGE_TYPES.has(message.type)) throw new Error('Invalid inbound message type.');
   if (!Number.isSafeInteger(message.serverSeq) || message.serverSeq < 1) throw new Error('Invalid inbound server sequence.');
   if (!Number.isSafeInteger(message.createdAt) || message.createdAt < MIN_CREATED_AT || message.createdAt > now + MAX_FUTURE_CREATED_AT_MS) throw new Error('Invalid inbound createdAt.');
@@ -68,9 +68,9 @@ function validateMessage(message: InboundSyncMessage, now: number): void {
 }
 
 function validateDropped(message: DroppedInboundSyncMessage): void {
-  if (!/^[A-Za-z0-9_-]+$/.test(message.messageId) || message.messageId.length === 0 || message.messageId.length > 128) throw new Error('Invalid dropped inbound message ID.');
+  if (typeof message.messageId !== 'string' || !/^[A-Za-z0-9_-]+$/.test(message.messageId) || message.messageId.length === 0 || message.messageId.length > 128) throw new Error('Invalid dropped inbound message ID.');
   if (!Number.isSafeInteger(message.serverSeq) || message.serverSeq < 1) throw new Error('Invalid dropped inbound server sequence.');
-  if (message.reason.length === 0 || message.reason.length > 256) throw new Error('Invalid dropped inbound reason.');
+  if (typeof message.reason !== 'string' || message.reason.length === 0 || message.reason.length > 256) throw new Error('Invalid dropped inbound reason.');
 }
 
 export class SQLiteSyncStateStore {
@@ -238,7 +238,7 @@ export class SQLiteSyncStateStore {
       for (const message of existing) {
         if (message.createdAt <= cutoff) {
           await transaction.runAsync('DELETE FROM active_message_slots WHERE relationshipId = ? AND participant = ? AND messageId = ?', RELATIONSHIP_ID, 'ME', message.id);
-          await transaction.runAsync('DELETE FROM messages WHERE relationshipId = ? AND id = ? AND participant = ? AND syncState != \'SYNCED\'', RELATIONSHIP_ID, message.id, 'ME');
+          await transaction.runAsync("DELETE FROM messages WHERE relationshipId = ? AND id = ? AND participant = 'ME' AND syncState != 'SYNCED'", RELATIONSHIP_ID, message.id);
           continue;
         }
         const outbox = await transaction.getFirstAsync<{ messageId: string }>('SELECT messageId FROM sync_outbox WHERE relationshipId = ? AND messageId = ?', RELATIONSHIP_ID, message.id);
@@ -252,13 +252,5 @@ export class SQLiteSyncStateStore {
       }
     });
     return created;
-  }
-
-  async clear(): Promise<void> {
-    await this.database.withExclusiveTransactionAsync(async (transaction) => {
-      await transaction.runAsync('DELETE FROM sync_outbox WHERE relationshipId = ?', RELATIONSHIP_ID);
-      await transaction.runAsync('DELETE FROM sync_inbox WHERE relationshipId = ?', RELATIONSHIP_ID);
-      await transaction.runAsync('DELETE FROM sync_state WHERE relationshipId = ?', RELATIONSHIP_ID);
-    });
   }
 }
