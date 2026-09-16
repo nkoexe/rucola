@@ -5,6 +5,7 @@ import type { CloudPulledMessage, CloudMessageType } from '../cloud/protocol';
 import type { SQLiteSyncStateStore, InboundSyncMessage, DroppedInboundSyncMessage } from '../data/SQLiteSyncStateStore.ts';
 
 export interface SyncCodec { encryptionVersion: number; encrypt(message: Message): Promise<string>; decrypt(message: CloudPulledMessage): Promise<{ type: CloudMessageType; body: string; mediaReference?: string | null }>; }
+export class SyncDecryptionError extends Error { constructor(message = 'Unable to decrypt inbound message.') { super(message); this.name = 'SyncDecryptionError'; } }
 export interface SyncEngineOptions { cloud: CloudClient; state: SQLiteSyncStateStore; repository: RucolaRepository; codec: SyncCodec; now?: () => number; outboxBatchSize?: number; pullBatchSize?: number; }
 export interface SyncRunResult { pushed: number; pulled: number; acknowledged: number; failed: number; moreIncoming: boolean; }
 
@@ -116,15 +117,19 @@ export class SyncEngine {
         if (!isValidDeviceId(remote.senderDeviceId) || remote.senderParticipant !== 'PARTNER') throw new Error('Cloud returned a message from an invalid sender.');
         if (!isValidMessageId(remote.messageId)) throw new Error('Cloud returned an inbound message with an invalid message ID.');
         previousServerSeq = remote.serverSeq;
+        let decoded: Awaited<ReturnType<SyncCodec['decrypt']>>;
         try {
-          const decoded = await this.codec.decrypt(remote);
-          if (decoded.type !== remote.type) throw new Error('Sync codec changed the inbound message type.');
-          inbound.push({ id: remote.messageId, type: decoded.type, body: decoded.body, createdAt: remote.createdAt, serverSeq: remote.serverSeq, mediaReference: decoded.mediaReference });
-        } catch {
-          // A malformed/hostile ciphertext must not permanently block later messages.
-          // Do not persist ciphertext or plaintext for discarded messages.
+          decoded = await this.codec.decrypt(remote);
+        } catch (cause) {
+          if (!(cause instanceof SyncDecryptionError)) throw cause;
           dropped.push({ messageId: remote.messageId, serverSeq: remote.serverSeq, reason: DROPPED_DECRYPTION_REASON });
+          continue;
         }
+        if (decoded.type !== remote.type) {
+          dropped.push({ messageId: remote.messageId, serverSeq: remote.serverSeq, reason: DROPPED_DECRYPTION_REASON });
+          continue;
+        }
+        inbound.push({ id: remote.messageId, type: decoded.type, body: decoded.body, createdAt: remote.createdAt, serverSeq: remote.serverSeq, mediaReference: decoded.mediaReference });
       }
       if (response.nextCursor <= cursor) throw new Error('Cloud returned a non-advancing or inconsistent pull cursor.');
       if (inbound.length > 0 && response.nextCursor < (inbound.at(-1)?.serverSeq ?? 0)) throw new Error('Cloud returned a non-advancing or inconsistent pull cursor.');
