@@ -1,0 +1,21 @@
+{
+  "name": "rucola-cloud-worker",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev",
+    "typecheck": "wrangler types && tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "migrate:local": "wrangler d1 migrations apply rucola-local --local",
+    "render:deploy-config": "node scripts/render-deploy-config.mjs"
+  },
+  "devDependencies": {
+    "@cloudflare/vitest-plugin": "^1.1.5",
+    "@cloudflare/workers-types": "^5.20260911.1",
+    "typescript": "^5.9.2",
+    "vitest": "^4.1.0",
+    "wrangler": "^4.131.0"
+  }
+}

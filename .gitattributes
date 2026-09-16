@@ -1,0 +1,3 @@
+# Keep Cloudflare D1 migrations LF-only. Remote D1 migration parsing can
+# mis-handle CRLF trigger statements on Windows checkouts.
+cloud/worker/migrations/*.sql text eol=lf

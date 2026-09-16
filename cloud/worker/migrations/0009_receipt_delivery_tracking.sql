@@ -4,6 +4,8 @@ ALTER TABLE message_receipts ADD COLUMN delivered_at INTEGER;
 CREATE INDEX message_receipts_delivery
   ON message_receipts(relationship_id, delivered_to_device_id, server_seq);
 
+-- Keep delivery state internally consistent even if a future cleanup/backfill
+-- path updates receipts outside the HTTP pull handler.
 CREATE TRIGGER message_receipt_delivery_invariant
 BEFORE UPDATE OF delivered_to_device_id, delivered_at ON message_receipts
 BEGIN
