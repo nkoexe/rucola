@@ -40,37 +40,9 @@ async function getOwnedUpload(env: Env, device: AuthenticatedDevice, uploadId: s
 }
 function removeObjectBestEffort(env: Env, objectKey: string): Promise<void> { return env.MEDIA_BUCKET.delete(objectKey).catch(() => undefined); }
 function boundedMediaStream(body: ReadableStream<Uint8Array>, maxBytes: number): ReadableStream<Uint8Array> {
-  const reader = body.getReader();
-  let bytesSeen = 0;
-  let finished = false;
-  return new ReadableStream<Uint8Array>({
-    async pull(controller) {
-      try {
-        const { done, value } = await reader.read();
-        if (done) {
-          finished = true;
-          controller.close();
-          return;
-        }
-        bytesSeen += value.byteLength;
-        if (bytesSeen > maxBytes) {
-          await reader.cancel("media body exceeds reservation").catch(() => undefined);
-          finished = true;
-          controller.error(new Error("media body exceeds reservation"));
-          return;
-        }
-        controller.enqueue(value);
-      } catch (error) {
-        controller.error(error);
-      }
-    },
-    async cancel(reason) {
-      if (!finished) {
-        finished = true;
-        await reader.cancel(reason).catch(() => undefined);
-      }
-    },
-  });
+  const { readable, writable } = new FixedLengthStream(maxBytes);
+  void body.pipeTo(writable).catch(() => undefined);
+  return readable;
 }
 export async function createMediaReservation(env: Env, request: Request): Promise<Response> {
   const device = await authenticateDevice(env, request); if (!device) return errorResponse("UNAUTHENTICATED", "Valid device credentials are required", 401);
