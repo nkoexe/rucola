@@ -3,12 +3,13 @@ name: Cloud Worker
 on:
   push:
     branches:
-      - cloud/research
+      - main
     paths:
       - "cloud/worker/**"
       - ".github/workflows/cloud-worker.yml"
       - ".gitattributes"
   pull_request:
+    branches: [main]
     paths:
       - "cloud/worker/**"
       - ".github/workflows/cloud-worker.yml"
@@ -55,7 +56,7 @@ jobs:
         run: npm test
 
   deploy-dev:
-    if: github.event_name == 'push' && github.ref == 'refs/heads/cloud/research'
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     needs: test
     runs-on: ubuntu-latest
     timeout-minutes: 20
@@ -121,7 +122,7 @@ jobs:
           else
             DATABASE_NAME="rucola-prod"
           fi
-          npx wrangler d1 migrations apply "$DATABASE_NAME" --remote --config .wrangler.deploy.jsonc
+          npx wrangler d1 migrations apply "$DATABASE_NAME" --remote --config .wrangler.deploy-config.jsonc
       - name: Deploy Worker
         env:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
