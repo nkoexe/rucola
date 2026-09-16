@@ -2,11 +2,11 @@
 
 ## Purpose
 
-The cloud backend is the production synchronization service for exactly one two-person relationship. It is **not** a cloud message archive and must never become the application's permanent source of truth.
+The cloud backend is the synchronization service for exactly one two-person relationship. It is **not** a cloud message archive and must never become the application's permanent source of truth.
 
-The mobile device owns durable history in local SQLite. The cloud temporarily holds encrypted/opaque message payloads and temporary media until the receiving device has durably persisted them locally.
+The mobile device owns durable history in local SQLite. The cloud temporarily holds opaque message payloads and temporary media until the receiving device has durably persisted them locally.
 
-The initial transport/storage protocol is deliberately independent of the eventual end-to-end encryption design. E2E encryption will be added after the synchronization and media boundaries are stable.
+The transport/storage protocol is deliberately independent of the eventual end-to-end encryption design. E2E encryption will be added after synchronization and media boundaries are stable.
 
 ## Components
 
@@ -15,7 +15,9 @@ React Native app
       │
       ├── local SQLite + app-owned media
       │
-      └── sync engine
+      ├── CloudClient
+      │
+      └── SyncEngine
               │
               ▼
       Cloudflare Worker
@@ -27,52 +29,22 @@ React Native app
    + receipts
 ```
 
-### Worker
+The Worker authenticates devices and implements pairing, synchronization and media HTTP APIs. D1 holds authorization/lifecycle metadata; R2 holds temporary media bytes.
 
-The Worker authenticates devices and implements pairing and synchronization HTTP APIs. It orchestrates D1 state transitions but must not become a second application data store.
-
-### D1
-
-D1 stores synchronization metadata:
-
-- relationships and lifecycle state;
-- device credentials and participant roles;
-- pairing invitations;
-- temporary mailbox messages;
-- durable message receipts;
-- media upload metadata and lifecycle state.
-
-D1 must never require plaintext message content.
-
-### R2
-
-R2 stores temporary encrypted/opaque media objects associated with `media_uploads`. R2 object existence is not sufficient to make an upload attachable; D1 metadata controls lifecycle state.
-
-## Relationship model
+## Relationship and pairing
 
 A relationship has exactly two participants:
 
-- `ME` — the device that created/bootstraped the relationship;
-- `PARTNER` — the device that accepted the invitation.
+- `ME` — the bootstrap/creator device;
+- `PARTNER` — the device accepting the invitation.
 
-Relationship states are:
-
-- `PAIRING` — invitation/bootstrap phase;
-- `ACTIVE` — normal synchronization;
-- `ENDED` — synchronization is stopped.
+Relationship states are `PAIRING`, `ACTIVE`, and `ENDED`.
 
 Authentication is device-bound. Revoked devices cannot continue normal synchronization.
 
-## Pairing
+The **user-facing pairing mechanism is five emojis**. The backend uses a separate high-entropy invitation token plus a bounded confirmation mechanism. The token is an implementation credential and must not be exposed as the human-facing code.
 
-Bootstrap creates the relationship and the first device. The creator can create an invitation with:
-
-- a cryptographically random token;
-- a six-digit human confirmation code;
-- an expiry;
-- bounded confirmation attempts and lockout.
-
-The human-facing code is not a standalone credential. Token and code material are stored hashed server-side. Successful acceptance consumes the invitation and creates the partner device.
+The mobile `CloudClient` exposes bootstrap/create/accept transport, but onboarding has not yet integrated it.
 
 ## Message model
 
@@ -83,20 +55,13 @@ Supported synchronized message types are:
 - `PHOTO_VIDEO`
 - `DRAWING`
 
-Messages have two independent sequence concepts:
+`message_id` is stable and client-generated. `sender_seq` is durable per sending device. `server_seq` is allocated per relationship on acceptance.
 
-- `sender_seq` — monotonically assigned by a sending device;
-- `server_seq` — monotonically assigned within the relationship when the server accepts a message.
-
-`message_id` is the stable client identity of a message.
-
-The server treats message identity and immutable payload metadata as idempotent. Retrying an accepted message with the same identity and identical payload returns the original `server_seq`. Reusing the identity with different content is a conflict.
+The server enforces immutable payload identity for retries. A matching retry returns the original acceptance; conflicting reuse is rejected.
 
 ## Durable acceptance
 
-A successful push must atomically establish all state required to retry safely.
-
-For a normal message this means:
+For normal messages:
 
 ```text
 validate
@@ -110,74 +75,46 @@ create durable receipt
 commit
 ```
 
-The D1 acceptance invariants additionally require the mailbox insertion to advance the relationship sequence exactly once.
+For `PHOTO_VIDEO`, a valid `READY` media upload belonging to the authenticated sender and relationship must also be attached atomically with message acceptance.
 
-For `PHOTO_VIDEO`, acceptance additionally requires a valid `READY` media upload belonging to the authenticated sender and relationship. The upload transitions to `ATTACHED` atomically with message acceptance.
-
-If any acceptance invariant fails, the D1 transaction must roll back rather than leaving a partially accepted message.
+Database constraints/invariants are part of the acceptance boundary. A failed acceptance must not leave a partially accepted message.
 
 ## Mailbox semantics
 
-Mailbox rows are temporary synchronization copies.
+Mailbox rows are temporary synchronization copies. The server must preserve every accepted message until its finite delivery boundary and must never collapse a burst to only the newest message.
 
-The server must:
+**Current implementation:** mailbox retention is 7 days (`MAILBOX_RETENTION_MS` in the Worker). Older documentation described 14 days; that is no longer an accurate description of the current code and must not be treated as a final product decision until explicitly reconciled.
 
-- preserve every accepted message until its retention boundary;
-- preserve ordering by `server_seq`;
-- never collapse a sequence of messages to only the newest message;
-- never delete a message merely because it was pulled;
-- allow the recipient to retry pull without losing data.
+Expired mailbox rows are skipped rather than returned as tombstones. Pull cursors are high-water marks and can contain gaps.
 
-The mailbox provides a **14-day retry window** for unacknowledged messages. This is a generous but finite guarantee; the server does not retain mailbox messages indefinitely.
+## Pull and directional delivery
 
-Expired messages are skipped rather than returned as tombstones. Clients must therefore treat the pull cursor as a high-water mark that may contain gaps.
+Pull is authenticated and non-destructive. The intended two-device behavior is directional: a device pulls messages originating from its partner, not its own sent messages.
 
-## Pull protocol
+PR #15 (`fix/cloud-mailbox-direction`) is currently open against `cloud/research` to enforce that behavior and to ensure ACK only acknowledges/deletes partner-originated mailbox rows. Until it is merged and validated, the cloud branch should not be treated as having the final two-device mailbox semantics.
 
-Pull uses a relationship-wide high-water cursor:
-
-```text
-GET /v1/sync/pull?cursor=<server_seq>&limit=<n>
-```
-
-The cursor means "return messages with `server_seq` greater than this value". It is not a count of retained mailbox rows and therefore may contain gaps when messages expire.
-
-Pull is non-destructive.
-
-A client must persist returned messages idempotently using `message_id` before advancing its durable local synchronization state.
-
-## ACK protocol
+## ACK
 
 ACK is the destructive durability boundary:
 
 ```text
 POST /v1/sync/ack
-{
-  "throughServerSeq": <n>
-}
+{"throughServerSeq": <n>}
 ```
 
-The receiving client may ACK only after every message through that sequence has been durably persisted locally.
+The recipient may ACK only after every covered partner message has been durably persisted locally, including required media.
 
-For media messages this means the referenced media must also be durably persisted locally before the ACK covers that message.
+ACK is idempotent and must be safe to retry after a lost response. Durable receipt state survives mailbox deletion for the finite retry/idempotency window.
 
-The Worker validates that the cursor is not ahead of the relationship's known sequence, marks the corresponding durable receipts as acknowledged, and then deletes eligible mailbox rows in the same D1 batch. Repeated ACKs are idempotent. ACK does not delete media objects directly.
+The directional hardening changes the ACK interpretation from the older relationship-wide behavior to partner-originated deliveries for the authenticated recipient.
 
 ## Durable receipts
 
-Mailbox deletion cannot be the only source of message identity because a sender may retry after receiving no HTTP response even though acceptance committed.
+`message_receipts` survives mailbox deletion and stores synchronization metadata plus a ciphertext digest. It preserves message identity, sender sequence/device, original server sequence and lifecycle timestamps.
 
-`message_receipts` therefore survives mailbox deletion and stores only synchronization metadata plus a SHA-256 digest of the opaque ciphertext. It preserves the original `server_seq` and immutable message identity.
+The current protocol also tracks delivery-to-device metadata for directional acknowledgement. This is part of the PR #15 hardening and is not considered final until that PR is merged.
 
-Each receipt records:
-
-- `delivery_expires_at` — the end of the 14-day unacknowledged delivery guarantee;
-- `acknowledged_at` — whether the recipient crossed the local durability boundary;
-- `retention_expires_at` — the end of the finite receipt-retention period.
-
-A matching retry during the delivery window returns the original server sequence. Once an unacknowledged delivery window expires, the receipt becomes a retry-expired tombstone rather than silently creating a second acceptance. After ACK, the receipt remains available for the post-ACK idempotency window.
-
-Acknowledged receipts have a **30-day retention window after acceptance**. This is intentionally not indefinite. Receipt cleanup must be coordinated with media cleanup and must never remove a receipt while the protocol still promises retries for it.
+The intended receipt retention remains finite; the exact production contract must match the code and product decision before deployment.
 
 ## Media
 
@@ -189,51 +126,32 @@ PENDING → READY → ATTACHED
         ABANDONED
 ```
 
-See `docs/MEDIA_LIFECYCLE.md` for the detailed contract.
+Current Worker media endpoints support reservation, direct upload and completion. R2 stores the object while D1 controls lifecycle/authorization.
 
-Initial server-side media limits are:
-
-- images: **20 MB maximum**;
-- videos: **100 MB maximum**.
-
-These are transport/storage limits, not presentation constraints. The client may crop or display media using a 4:3, 1:1, or other UI-specific aspect ratio without changing the stored media object.
-
-The important boundaries are:
-
-1. R2 object existence;
-2. D1 upload readiness;
-3. atomic attachment to an accepted message;
-4. recipient local durability;
-5. eventual cleanup.
+Initial server-side limits currently implemented are 20 MB for images and 100 MB for videos. These are transport/storage limits, not presentation constraints.
 
 Pulling or ACKing a mailbox row is never, by itself, permission to delete the R2 object.
 
 ## Privacy boundary
 
-The Worker is designed to operate on opaque encrypted message/media payloads. Server-side synchronization logic may inspect metadata required for routing, authorization, sequencing and lifecycle enforcement, but it must not require plaintext application content.
+The Worker is designed to operate on opaque encrypted payloads. Server-side logic may inspect metadata needed for routing, authorization, sequencing and lifecycle enforcement, but must not require plaintext application content.
 
-The current implementation establishes this opaque-payload boundary without committing to a final E2E protocol. Cryptographic protocol selection and implementation belong to a later phase after transport/storage behavior is stable.
+The current mobile sync codec is an abstraction and does not implement final E2E cryptography yet.
 
 ## Failure model
 
-The protocol assumes requests can fail after the server has committed and before the client receives the response.
+Important operations must be safe to retry within their documented finite retention windows:
 
-Therefore every important operation must be safe to retry:
-
-- pairing operations are one-time/expiry constrained;
-- message push is idempotent by message identity and immutable payload;
-- media completion must be idempotent;
+- pairing is expiry/one-time constrained;
+- message push is idempotent by stable message identity and immutable payload;
+- media completion is idempotent;
 - pull is non-destructive;
 - ACK is idempotent;
-- cleanup is eventually consistent and retry-safe.
+- cleanup is bounded and retry-safe.
 
-The retry guarantees are intentionally finite: mailbox delivery is guaranteed for 14 days while unacknowledged, and durable message identity is retained for its documented finite receipt window. After those boundaries, the system makes no indefinite recovery guarantee.
+## Current Worker API surface
 
-The system should prefer a recoverable duplicate request over irreversible data loss within the defined retention windows.
-
-## Current API surface
-
-Implemented Worker routes:
+Implemented routes on `cloud/research` include:
 
 - `GET /health`
 - `GET /health/schema`
@@ -244,19 +162,10 @@ Implemented Worker routes:
 - `POST /v1/sync/push`
 - `GET /v1/sync/pull`
 - `POST /v1/sync/ack`
+- media reservation/upload/completion routes under `/v1/media/*`
 
-Media upload endpoints and R2 integration are intentionally not implemented yet.
+## Production boundary
 
-## Implementation rules
+The Worker implementation is substantially complete as a protocol foundation, but it is not yet the final production service. Remaining work includes final directional validation, retention-policy reconciliation, operational rate limiting/observability, migration/deployment safety, cleanup scheduling/recovery, and integration with the mobile pairing/sync lifecycle.
 
-When extending the cloud backend:
-
-- keep local SQLite authoritative;
-- keep the mailbox temporary;
-- make durability boundaries explicit;
-- prefer database-enforced invariants for critical state transitions;
-- make retries safe within their documented retention windows;
-- do not store plaintext application content;
-- do not add permanent cloud history without an explicit product decision;
-- do not let R2 cleanup race ahead of the message/receipt durability contract;
-- treat the Worker/D1/R2 stack as production infrastructure, including operational hardening, observability, rate limiting, migration safety and recovery planning.
+The mobile online prototype is **not complete** until two real devices can pair and exchange messages through this backend.
