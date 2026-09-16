@@ -1,5 +1,7 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
+  // Local/test configuration only. Remote deployments use the generated
+  // .wrangler.deploy.jsonc file from scripts/render-deploy-config.mjs.
   "name": "rucola-cloud-worker",
   "main": "src/index.ts",
   "compatibility_date": "2026-09-12",
@@ -10,20 +12,19 @@
     {
       "binding": "DB",
       "database_name": "rucola-local",
-      "database_id": "00000000-0000-4000-8000-000000000000",
-      "preview_database_id": "rucola-local"
+      "database_id": "00000000-0000-4000-8000-000000000000"
     }
   ],
   "r2_buckets": [
     {
       "binding": "MEDIA_BUCKET",
-      "bucket_name": "rucola-media"
+      "bucket_name": "rucola-media-local"
     }
   ],
   "ratelimits": [
     {
       "name": "PAIRING_BOOTSTRAP_LIMITER",
-      "namespace_id": "910001",
+      "namespace_id": "910000",
       "simple": {
         "limit": 10,
         "period": 60
