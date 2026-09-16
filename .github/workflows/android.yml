@@ -1,8 +1,6 @@
 name: Android
 
 on:
-  push:
-    branches: [main]
   pull_request:
     branches: [main]
 
@@ -15,30 +13,7 @@ env:
   ANDROID_BUILD_TOOLS: '36.0.0'
 
 jobs:
-  check-release:
-    name: Check for release commit
-    runs-on: ubuntu-latest
-    outputs:
-      is-release: ${{ steps.check.outputs.is-release }}
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-      - name: Detect release tag
-        id: check
-        shell: bash
-        run: |
-          if git tag --points-at HEAD | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$'; then
-            echo "Release tag points at HEAD; skipping debug build."
-            echo "is-release=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "No release tag points at HEAD; debug build is allowed."
-            echo "is-release=false" >> "$GITHUB_OUTPUT"
-          fi
-
   build:
-    needs: check-release
-    if: needs.check-release.outputs.is-release != 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
