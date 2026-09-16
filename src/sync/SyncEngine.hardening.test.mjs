@@ -38,11 +38,7 @@ function harness({ pullResponse, decrypt, now = 1_700_000_100_000, reconcileOutb
 }
 
 test('drops one undecryptable inbound message and still commits later messages', async () => {
-  const response = {
-    messages: [inbound('bad-1', 7), inbound('good-2', 8)],
-    nextCursor: 8,
-    hasMore: false,
-  };
+  const response = { messages: [inbound('bad-1', 7), inbound('good-2', 8)], nextCursor: 8, hasMore: false };
   const harness = harnessForDecryptFailure(response);
   const engine = new SyncEngine({ ...harness });
   const result = await engine.run();
@@ -96,12 +92,10 @@ test('does not ACK when local commit of accepted and dropped messages fails', as
 });
 
 function harnessForDecryptFailure(pullResponse, decryptOverride) {
-  let shouldFail = true;
   return harness({
     pullResponse,
     decrypt: decryptOverride ?? (async (remote) => {
-      if (shouldFail && remote.messageId.startsWith('bad-')) throw new Error('unable to decrypt');
-      shouldFail = false;
+      if (remote.messageId.startsWith('bad-')) throw new Error('unable to decrypt');
       return { type: remote.type, body: `decoded:${remote.ciphertext}` };
     }),
   });
