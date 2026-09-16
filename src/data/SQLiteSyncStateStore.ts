@@ -41,24 +41,23 @@ export class SQLiteSyncStateStore {
   async getPullCursor(): Promise<number> { const row = await this.database.getFirstAsync<{ pullCursor: number }>('SELECT pullCursor FROM sync_state WHERE relationshipId = ?', RELATIONSHIP_ID); return row?.pullCursor ?? DEFAULT_PULL_CURSOR; }
   async commitInbound(messages: InboundSyncMessage[], nextCursor: number, now = this.now()): Promise<void> {
     if (!Number.isSafeInteger(nextCursor) || nextCursor < 0) throw new Error('Invalid inbound cursor.');
-    const serverSequences = new Set<number>();
-    let previousServerSeq = 0;
-    for (const message of messages) {
-      validateMessage(message, now);
-      if (serverSequences.has(message.serverSeq) || message.serverSeq <= previousServerSeq) throw new Error('Inbound server sequences must be strictly increasing and unique.');
-      serverSequences.add(message.serverSeq);
-      previousServerSeq = message.serverSeq;
-    }
+    const serverSequences = new Set<number>(); let previousServerSeq = 0;
+    for (const message of messages) { validateMessage(message, now); if (serverSequences.has(message.serverSeq) || message.serverSeq <= previousServerSeq) throw new Error('Inbound server sequences must be strictly increasing and unique.'); serverSequences.add(message.serverSeq); previousServerSeq = message.serverSeq; }
     if (messages.length > 0 && messages[messages.length - 1]!.serverSeq !== nextCursor) throw new Error('Inbound cursor must equal the newest message server sequence.');
     await this.database.withExclusiveTransactionAsync(async (transaction) => {
       const current = await transaction.getFirstAsync<{ pullCursor: number }>('SELECT pullCursor FROM sync_state WHERE relationshipId = ?', RELATIONSHIP_ID); if (nextCursor < (current?.pullCursor ?? DEFAULT_PULL_CURSOR)) throw new Error('Inbound cursor moved backwards.');
       const relationship = await transaction.getFirstAsync<{ id: string }>('SELECT id FROM relationships WHERE id = ?', RELATIONSHIP_ID); if (!relationship) throw new Error('Relationship does not exist.');
       let newestPartner: InboundSyncMessage | null = null;
       for (const message of messages) {
-        const existing = await transaction.getFirstAsync<{ id: string; type: MessageType; body: string; createdAt: number; mediaReference: string | null }>('SELECT id, type, body, createdAt, mediaReference FROM messages WHERE id = ? AND relationshipId = ?', message.id, RELATIONSHIP_ID);
+        const existing = await transaction.getFirstAsync<{ id: string; participant: Participant; type: MessageType; body: string; createdAt: number; mediaReference: string | null }>('SELECT id, participant, type, body, createdAt, mediaReference FROM messages WHERE id = ? AND relationshipId = ?', message.id, RELATIONSHIP_ID);
         const receipt = await transaction.getFirstAsync<{ serverSeq: number }>('SELECT serverSeq FROM sync_inbox WHERE relationshipId = ? AND messageId = ?', RELATIONSHIP_ID, message.id);
-        if (existing || receipt) { if (!existing || !receipt || existing.type !== message.type || existing.body !== message.body || existing.createdAt !== message.createdAt || existing.mediaReference !== (message.mediaReference ?? null) || receipt.serverSeq !== message.serverSeq) throw new Error('Inbound message ID conflicts with existing local data.'); }
-        else { await transaction.runAsync('INSERT INTO messages (id, relationshipId, participant, type, body, createdAt, orderIndex, mediaReference, syncState) VALUES (?, ?, ?, ?, ?, ?, (SELECT COALESCE(MAX(orderIndex), 0) + 1 FROM messages WHERE relationshipId = ?), ?, ?)', message.id, RELATIONSHIP_ID, 'PARTNER', message.type, message.body, message.createdAt, RELATIONSHIP_ID, message.mediaReference ?? null, 'SYNCED'); await transaction.runAsync('INSERT INTO sync_inbox (relationshipId, messageId, serverSeq) VALUES (?, ?, ?)', RELATIONSHIP_ID, message.id, message.serverSeq); }
+        if (existing || receipt) {
+          if (receipt) { if (!existing || existing.participant !== 'PARTNER' || existing.type !== message.type || existing.body !== message.body || existing.createdAt !== message.createdAt || existing.mediaReference !== (message.mediaReference ?? null) || receipt.serverSeq !== message.serverSeq) throw new Error('Inbound message ID conflicts with existing local data.'); }
+          else { if (!existing || existing.participant !== 'PARTNER' || existing.type !== message.type || existing.body !== message.body || existing.createdAt !== message.createdAt || existing.mediaReference !== (message.mediaReference ?? null)) throw new Error('Inbound message ID conflicts with existing local data.'); await transaction.runAsync('INSERT INTO sync_inbox (relationshipId, messageId, serverSeq) VALUES (?, ?, ?)', RELATIONSHIP_ID, message.id, message.serverSeq); }
+        } else {
+          await transaction.runAsync('INSERT INTO messages (id, relationshipId, participant, type, body, createdAt, orderIndex, mediaReference, syncState) VALUES (?, ?, ?, ?, ?, ?, (SELECT COALESCE(MAX(orderIndex), 0) + 1 FROM messages WHERE relationshipId = ?), ?, ?)', message.id, RELATIONSHIP_ID, 'PARTNER', message.type, message.body, message.createdAt, RELATIONSHIP_ID, message.mediaReference ?? null, 'SYNCED');
+          await transaction.runAsync('INSERT INTO sync_inbox (relationshipId, messageId, serverSeq) VALUES (?, ?, ?)', RELATIONSHIP_ID, message.id, message.serverSeq);
+        }
         if (!newestPartner || message.serverSeq > newestPartner.serverSeq) newestPartner = message;
       }
       if (newestPartner) { const currentActive = await transaction.getFirstAsync<{ messageId: string }>('SELECT messageId FROM active_message_slots WHERE relationshipId = ? AND participant = ?', RELATIONSHIP_ID, 'PARTNER'); if (!currentActive) await transaction.runAsync('INSERT INTO active_message_slots (relationshipId, participant, messageId) VALUES (?, ?, ?)', RELATIONSHIP_ID, 'PARTNER', newestPartner.id); else { const currentReceipt = await transaction.getFirstAsync<{ serverSeq: number }>('SELECT serverSeq FROM sync_inbox WHERE relationshipId = ? AND messageId = ?', RELATIONSHIP_ID, currentActive.messageId); if (!currentReceipt || currentReceipt.serverSeq < newestPartner.serverSeq) await transaction.runAsync('UPDATE active_message_slots SET messageId = ? WHERE relationshipId = ? AND participant = ?', newestPartner.id, RELATIONSHIP_ID, 'PARTNER'); } }
