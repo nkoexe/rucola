@@ -17,12 +17,12 @@ Current foundation status:
 - Android CI build pipeline: complete
 - final navigation architecture: not complete
 - final Home UX: not complete
-- cloud backend foundation: **in progress on `cloud/research`**
+- cloud backend foundation: **implemented and hardened on `cloud/research` / `fix/cloud-mailbox-direction`**
 - real two-device pairing: backend primitives implemented; mobile integration not started
 - online synchronization: backend protocol implemented; mobile integration not started
 - final Figma implementation: not started
 
-The mobile and cloud workstreams are intentionally progressing in parallel. The cloud backend is no longer future work: its synchronization foundation is actively being implemented on `cloud/research` while the React Native client continues separately.
+The mobile and cloud workstreams intentionally progress in parallel. The cloud backend is no longer future work: its pairing, mailbox, ACK, media, cleanup, and hardening foundations are implemented while the React Native client continues separately.
 
 ## Phase 1 — Application structure and lifecycle hardening
 
@@ -119,7 +119,7 @@ A → B → C
 
 without losing history or incorrectly showing an old active message.
 
-## Phase 3 — Backend foundation in parallel
+## Phase 3 — Cloud backend in parallel
 
 Backend work proceeds in parallel with the local/mobile phases. It does **not** wait for pixel-perfect UI.
 
@@ -135,7 +135,7 @@ Production stack:
 
 The backend is a temporary mailbox, not permanent history storage. Local SQLite remains the durable source of truth.
 
-### Completed backend foundation on `cloud/research`
+### Completed backend foundation
 
 - device-bound authentication;
 - two-person relationship state machine;
@@ -144,24 +144,27 @@ The backend is a temporary mailbox, not permanent history storage. Local SQLite 
 - message push with stable message identity and idempotent retries;
 - sender sequence and server sequence handling;
 - durable message receipts;
+- per-device delivery tracking;
 - atomic database-level message acceptance invariants;
 - media attachment and message/media type invariants;
-- ordered non-destructive mailbox pull;
-- destructive ACK after local durability;
-- concurrent ACK and relationship termination hardening;
-- mailbox expiry/cursor-gap handling;
-- sender-device binding for legacy mailbox retries.
+- ordered non-destructive mailbox pull through `GET /v1/sync/pull`;
+- directional ACK through `POST /v1/sync/ack`;
+- concurrent push/pull/ACK hardening;
+- mailbox expiry and cursor-gap handling;
+- sender-device binding for legacy mailbox retries;
+- R2 upload reservation/completion and bounded streaming;
+- attachment lifecycle enforcement;
+- scheduled cleanup with crash/retry-safe media handling.
 
 ### Remaining backend work
 
-1. Finalize the media upload/completion API.
-2. Add R2 integration.
-3. Enforce 20 MB image / 100 MB video transport limits.
-4. Implement scheduled cleanup and the finite retention contract.
-5. Finish production operational hardening: rate limits, observability, migration safety and recovery.
-6. Remove obsolete protocol state after the client contract is finalized.
-7. Connect the React Native sync engine to the stable protocol.
-8. Add the final E2E encryption layer after transport/storage semantics are stable.
+1. Deeper production observability and structured metrics.
+2. Final migration/backfill procedure for any already-populated remote database, especially because early development versions used duplicate migration prefixes that were subsequently renumbered.
+3. Final decision on removal of legacy `mailbox_messages.acknowledged_at` after protocol history is confirmed.
+4. Production Cloudflare resource/secrets verification and operational readiness.
+5. Connect the React Native sync engine to the stable cloud protocol.
+6. Validate the complete two-device online flow on real Android devices.
+7. Add the final E2E encryption/key-management layer after transport/storage semantics are stable.
 
 ### Critical synchronization example
 
