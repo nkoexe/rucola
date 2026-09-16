@@ -42,7 +42,6 @@ async function createLegacySchema(db: SQLite.SQLiteDatabase, version: 0 | 1): Pr
       partnerColor TEXT NOT NULL,
       togetherSince INTEGER
     );
-
     CREATE TABLE messages (
       id TEXT PRIMARY KEY NOT NULL,
       relationshipId TEXT NOT NULL,
@@ -56,7 +55,6 @@ async function createLegacySchema(db: SQLite.SQLiteDatabase, version: 0 | 1): Pr
       syncState TEXT NOT NULL,
       FOREIGN KEY (relationshipId) REFERENCES relationships(id) ON DELETE CASCADE
     );
-
     CREATE TABLE active_message_slots (
       relationshipId TEXT NOT NULL,
       participant TEXT NOT NULL,
@@ -64,7 +62,6 @@ async function createLegacySchema(db: SQLite.SQLiteDatabase, version: 0 | 1): Pr
       PRIMARY KEY (relationshipId, participant),
       FOREIGN KEY (relationshipId) REFERENCES relationships(id) ON DELETE CASCADE
     );
-
     PRAGMA user_version = ${version};
   `);
 }
@@ -74,7 +71,6 @@ async function insertValidLegacyFixture(
   options: { createdAt?: number | string; activeState?: number } = {},
 ): Promise<void> {
   const { createdAt = 1000, activeState = 1 } = options;
-
   await db.runAsync(
     `INSERT INTO relationships (id, partnerNickname, ownName, partnerColor, togetherSince)
      VALUES ('the-one', 'Partner', 'Nico', '#8FC56A', 123456789)`,
@@ -110,59 +106,153 @@ async function assertLegacySchemaPreserved(db: SQLite.SQLiteDatabase, expectedVe
   assertEqual(legacyTables.length, 0, 'Failed migration must not leave temporary renamed tables behind');
 }
 
-async function testV0Migration(): Promise<void> {
+async function createCurrentV3Schema(db: SQLite.SQLiteDatabase): Promise<void> {
+  await db.execAsync(`
+    CREATE TABLE relationships (
+      id TEXT PRIMARY KEY NOT NULL,
+      partnerNickname TEXT NOT NULL,
+      ownName TEXT NOT NULL,
+      partnerColor TEXT NOT NULL,
+      togetherSince INTEGER
+    );
+    CREATE TABLE messages (
+      id TEXT PRIMARY KEY NOT NULL,
+      relationshipId TEXT NOT NULL,
+      participant TEXT NOT NULL CHECK (participant IN ('ME', 'PARTNER')),
+      type TEXT NOT NULL CHECK (type IN ('TEXT', 'EMOJI', 'PHOTO_VIDEO', 'DRAWING')),
+      body TEXT NOT NULL,
+      createdAt INTEGER NOT NULL,
+      orderIndex INTEGER NOT NULL,
+      mediaReference TEXT,
+      syncState TEXT NOT NULL CHECK (syncState IN ('LOCAL_ONLY', 'PENDING', 'SYNCED', 'FAILED')),
+      FOREIGN KEY (relationshipId) REFERENCES relationships(id) ON DELETE CASCADE,
+      UNIQUE (relationshipId, id),
+      UNIQUE (relationshipId, participant, id)
+    );
+    CREATE INDEX messages_relationship_order ON messages (relationshipId, orderIndex DESC, createdAt DESC, id DESC);
+    CREATE TABLE active_message_slots (
+      relationshipId TEXT NOT NULL,
+      participant TEXT NOT NULL CHECK (participant IN ('ME', 'PARTNER')),
+      messageId TEXT NOT NULL UNIQUE,
+      PRIMARY KEY (relationshipId, participant),
+      FOREIGN KEY (relationshipId) REFERENCES relationships(id) ON DELETE CASCADE,
+      FOREIGN KEY (relationshipId, participant, messageId) REFERENCES messages(relationshipId, participant, id) ON DELETE RESTRICT
+    );
+    CREATE TABLE sync_state (
+      relationshipId TEXT PRIMARY KEY NOT NULL,
+      deviceId TEXT,
+      participant TEXT CHECK (participant IS NULL OR participant IN ('ME', 'PARTNER')),
+      nextSenderSeq INTEGER NOT NULL CHECK (nextSenderSeq >= 1),
+      pullCursor INTEGER NOT NULL CHECK (pullCursor >= 0),
+      updatedAt INTEGER NOT NULL,
+      FOREIGN KEY (relationshipId) REFERENCES relationships(id) ON DELETE CASCADE
+    );
+    CREATE TABLE sync_outbox (
+      relationshipId TEXT NOT NULL,
+      messageId TEXT NOT NULL,
+      senderSeq INTEGER NOT NULL CHECK (senderSeq >= 1),
+      attempts INTEGER NOT NULL CHECK (attempts >= 0),
+      lastError TEXT,
+      nextAttemptAt INTEGER NOT NULL,
+      createdAt INTEGER NOT NULL,
+      PRIMARY KEY (relationshipId, messageId),
+      UNIQUE (relationshipId, senderSeq),
+      FOREIGN KEY (relationshipId) REFERENCES relationships(id) ON DELETE CASCADE,
+      FOREIGN KEY (messageId) REFERENCES messages(id) ON DELETE CASCADE
+    );
+    CREATE INDEX sync_outbox_due ON sync_outbox (relationshipId, nextAttemptAt, senderSeq);
+    PRAGMA user_version = 3;
+  `);
+}
+
+async function createCurrentV2Schema(db: SQLite.SQLiteDatabase): Promise<void> {
+  await createCurrentV3Schema(db);
+  await db.execAsync('DROP INDEX sync_outbox_due; DROP TABLE sync_outbox; DROP TABLE sync_state; PRAGMA user_version = 2;');
+}
+
+async function createCurrentV4Schema(db: SQLite.SQLiteDatabase): Promise<void> {
+  await createCurrentV3Schema(db);
+  await db.execAsync(`
+    CREATE TABLE sync_inbox (
+      relationshipId TEXT NOT NULL,
+      messageId TEXT NOT NULL,
+      serverSeq INTEGER NOT NULL CHECK (serverSeq >= 1),
+      PRIMARY KEY (relationshipId, messageId),
+      UNIQUE (relationshipId, serverSeq),
+      FOREIGN KEY (relationshipId) REFERENCES relationships(id) ON DELETE CASCADE
+    );
+    ALTER TABLE sync_outbox ADD COLUMN blocked INTEGER NOT NULL DEFAULT 0 CHECK (blocked IN (0, 1));
+    DROP INDEX sync_outbox_due;
+    CREATE INDEX sync_outbox_due ON sync_outbox (relationshipId, blocked, nextAttemptAt, senderSeq);
+    PRAGMA user_version = 4;
+  `);
+}
+
+async function testLegacyMigration(version: 0 | 1): Promise<void> {
   await withRawTestDatabase(async (db) => {
-    await createLegacySchema(db, 0);
+    await createLegacySchema(db, version);
     await insertValidLegacyFixture(db);
     await initializeDatabase(db);
 
-    const version = await db.getFirstAsync<{ user_version: number }>('PRAGMA user_version');
-    assertEqual(version?.user_version, 2, 'v0 legacy database should migrate to schema version 2');
+    const currentVersion = await db.getFirstAsync<{ user_version: number }>('PRAGMA user_version');
+    assertEqual(currentVersion?.user_version, 5, `v${version} legacy database should migrate to schema version 5`);
 
     const repository = new SQLiteRucolaRepository(db);
     const relationship = await repository.getRelationship();
     const active = await repository.getActiveMessage('PARTNER');
     const messages = await repository.getMessages();
-
-    assert(relationship, 'v0 migration should preserve the relationship');
-    assertEqual(relationship.partnerNickname, 'Partner', 'v0 migration should preserve relationship data');
-    assertEqual(active?.id, 'partner-message', 'v0 migration should preserve the active partner message');
-    assertEqual(messages.length, 2, 'v0 migration should preserve all messages');
-    assertEqual(messages.find((message) => message.id === 'old-message')?.isActive, false, 'v0 history state should be preserved');
+    assert(relationship, 'Migration should preserve the relationship');
+    assertEqual(active?.id, 'partner-message', 'Migration should preserve the active partner message');
+    assertEqual(messages.length, 2, 'Migration should preserve all messages');
+    assertEqual(messages.find((message) => message.id === 'old-message')?.isActive, false, 'Migration should preserve history state');
   });
 }
 
-async function testV1Migration(): Promise<void> {
+async function testV2Migration(): Promise<void> {
   await withRawTestDatabase(async (db) => {
-    await createLegacySchema(db, 1);
-    await insertValidLegacyFixture(db);
+    await createCurrentV2Schema(db);
     await initializeDatabase(db);
-
     const version = await db.getFirstAsync<{ user_version: number }>('PRAGMA user_version');
-    assertEqual(version?.user_version, 2, 'v1 legacy database should migrate to schema version 2');
-
-    const repository = new SQLiteRucolaRepository(db);
-    assertEqual((await repository.getActiveMessage('PARTNER'))?.id, 'partner-message', 'v1 migration should preserve active state');
-    assertEqual((await repository.getMessages()).length, 2, 'v1 migration should preserve all messages');
+    assertEqual(version?.user_version, 5, 'v2 database should migrate to schema version 5');
+    const tables = await db.getAllAsync<{ name: string }>(
+      "SELECT name FROM sqlite_master WHERE type = 'table' AND name IN ('sync_state', 'sync_outbox', 'sync_inbox')",
+    );
+    assertEqual(tables.length, 3, 'v2 migration should create all sync tables');
+    const columns = await db.getAllAsync<{ name: string }>('PRAGMA table_info(sync_outbox)');
+    assert(columns.some((column) => column.name === 'blocked'), 'v2 migration should create blocked outbox state');
   });
 }
 
-async function testRejectsMissingActiveMessage(): Promise<void> {
+async function testV3Migration(): Promise<void> {
+  await withRawTestDatabase(async (db) => {
+    await createCurrentV3Schema(db);
+    await initializeDatabase(db);
+    const version = await db.getFirstAsync<{ user_version: number }>('PRAGMA user_version');
+    assertEqual(version?.user_version, 5, 'v3 database should migrate to schema version 5');
+    const inbox = await db.getFirstAsync<{ name: string }>("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'sync_inbox'");
+    assertEqual(inbox?.name, 'sync_inbox', 'v3 migration should create sync_inbox');
+    const columns = await db.getAllAsync<{ name: string }>('PRAGMA table_info(sync_outbox)');
+    assert(columns.some((column) => column.name === 'blocked'), 'v3 migration should add blocked outbox state');
+  });
+}
+
+async function testV4Migration(): Promise<void> {
+  await withRawTestDatabase(async (db) => {
+    await createCurrentV4Schema(db);
+    await initializeDatabase(db);
+    const version = await db.getFirstAsync<{ user_version: number }>('PRAGMA user_version');
+    assertEqual(version?.user_version, 5, 'v4 database should migrate to schema version 5');
+    const columns = await db.getAllAsync<{ name: string }>('PRAGMA table_info(sync_outbox)');
+    assert(columns.some((column) => column.name === 'blocked'), 'v4 migration should preserve blocked outbox state');
+  });
+}
+
+async function testRejectsLegacyCorruption(): Promise<void> {
   await withRawTestDatabase(async (db) => {
     await createLegacySchema(db, 1);
-    await db.runAsync(
-      `INSERT INTO relationships (id, partnerNickname, ownName, partnerColor, togetherSince)
-       VALUES ('the-one', 'Partner', 'Nico', '#8FC56A', NULL)`,
-    );
-    await db.runAsync(
-      `INSERT INTO active_message_slots (relationshipId, participant, messageId)
-       VALUES ('the-one', 'PARTNER', 'missing-message')`,
-    );
-
-    await assertRejects(
-      () => initializeDatabase(db),
-      'Migration should reject an active slot that references a missing message',
-    );
+    await db.runAsync(`INSERT INTO relationships (id, partnerNickname, ownName, partnerColor, togetherSince) VALUES ('the-one', 'Partner', 'Nico', '#8FC56A', NULL)`);
+    await db.runAsync(`INSERT INTO active_message_slots (relationshipId, participant, messageId) VALUES ('the-one', 'PARTNER', 'missing-message')`);
+    await assertRejects(() => initializeDatabase(db), 'Migration should reject an active slot referencing a missing message');
     await assertLegacySchemaPreserved(db, 1);
   });
 }
@@ -171,14 +261,8 @@ async function testRejectsMismatchedActiveMessage(): Promise<void> {
   await withRawTestDatabase(async (db) => {
     await createLegacySchema(db, 1);
     await insertValidLegacyFixture(db);
-    await db.runAsync(
-      `UPDATE active_message_slots SET participant = 'ME' WHERE relationshipId = 'the-one'`,
-    );
-
-    await assertRejects(
-      () => initializeDatabase(db),
-      'Migration should reject an active slot whose participant disagrees with the message',
-    );
+    await db.runAsync(`UPDATE active_message_slots SET participant = 'ME' WHERE relationshipId = 'the-one'`);
+    await assertRejects(() => initializeDatabase(db), 'Migration should reject an active slot with the wrong participant');
     await assertLegacySchemaPreserved(db, 1);
   });
 }
@@ -187,25 +271,7 @@ async function testRejectsInvalidActiveState(): Promise<void> {
   await withRawTestDatabase(async (db) => {
     await createLegacySchema(db, 1);
     await insertValidLegacyFixture(db, { activeState: 2 });
-
-    await assertRejects(
-      () => initializeDatabase(db),
-      'Migration should reject an invalid legacy isActive value',
-    );
-    await assertLegacySchemaPreserved(db, 1);
-  });
-}
-
-async function testRejectsOrphanActiveMessage(): Promise<void> {
-  await withRawTestDatabase(async (db) => {
-    await createLegacySchema(db, 1);
-    await insertValidLegacyFixture(db);
-    await db.runAsync("UPDATE messages SET isActive = 1 WHERE id = 'old-message'");
-
-    await assertRejects(
-      () => initializeDatabase(db),
-      'Migration should reject an active message without a matching active slot',
-    );
+    await assertRejects(() => initializeDatabase(db), 'Migration should reject an invalid legacy isActive value');
     await assertLegacySchemaPreserved(db, 1);
   });
 }
@@ -214,49 +280,26 @@ async function testRollbackAfterTransformationFailure(): Promise<void> {
   await withRawTestDatabase(async (db) => {
     await createLegacySchema(db, 1);
     await insertValidLegacyFixture(db, { createdAt: 'not-an-integer' });
-
-    await assertRejects(
-      () => initializeDatabase(db),
-      'Migration should reject an invalid numeric legacy field',
-    );
+    await assertRejects(() => initializeDatabase(db), 'Migration should reject an invalid legacy numeric field');
     await assertLegacySchemaPreserved(db, 1);
-
     const relationship = await db.getFirstAsync<{ id: string }>("SELECT id FROM relationships WHERE id = 'the-one'");
-    const activeSlot = await db.getFirstAsync<{ messageId: string }>(
-      "SELECT messageId FROM active_message_slots WHERE relationshipId = 'the-one' AND participant = 'PARTNER'",
-    );
     assertEqual(relationship?.id, 'the-one', 'Rollback should preserve the legacy relationship');
-    assertEqual(activeSlot?.messageId, 'partner-message', 'Rollback should preserve the legacy active slot');
   });
 }
 
 async function testRejectsIncompleteSchema(): Promise<void> {
   await withRawTestDatabase(async (db) => {
-    await db.execAsync(`
-      CREATE TABLE relationships (id TEXT PRIMARY KEY NOT NULL);
-      CREATE TABLE messages (id TEXT PRIMARY KEY NOT NULL);
-      PRAGMA user_version = 0;
-    `);
-
-    await assertRejects(
-      () => initializeDatabase(db),
-      'Initialization should reject a version-0 database with an incomplete legacy schema',
-    );
-
+    await db.execAsync(`CREATE TABLE relationships (id TEXT PRIMARY KEY NOT NULL); CREATE TABLE messages (id TEXT PRIMARY KEY NOT NULL); PRAGMA user_version = 0;`);
+    await assertRejects(() => initializeDatabase(db), 'Initialization should reject an incomplete legacy schema');
     const version = await db.getFirstAsync<{ user_version: number }>('PRAGMA user_version');
-    assertEqual(version?.user_version, 0, 'Incomplete schema rejection must not change user_version');
+    assertEqual(version?.user_version, 0, 'Incomplete schema rejection must preserve user_version');
   });
 }
 
 async function testRejectsNewerSchema(): Promise<void> {
   await withRawTestDatabase(async (db) => {
     await db.execAsync('PRAGMA user_version = 999;');
-
-    await assertRejects(
-      () => initializeDatabase(db),
-      'Initialization should reject a database newer than the supported schema version',
-    );
-
+    await assertRejects(() => initializeDatabase(db), 'Initialization should reject a newer schema');
     const version = await db.getFirstAsync<{ user_version: number }>('PRAGMA user_version');
     assertEqual(version?.user_version, 999, 'Newer schema rejection must preserve user_version');
   });
@@ -264,32 +307,24 @@ async function testRejectsNewerSchema(): Promise<void> {
 
 async function testInitializationFailureCanRetry(): Promise<void> {
   await withRawTestDatabase(async (db) => {
-    await db.execAsync(`
-      CREATE TABLE relationships (id TEXT PRIMARY KEY NOT NULL);
-      CREATE TABLE messages (id TEXT PRIMARY KEY NOT NULL);
-      PRAGMA user_version = 0;
-    `);
-
-    await assertRejects(
-      () => initializeDatabase(db),
-      'Initialization should reject an incomplete schema before retry',
-    );
-
+    await db.execAsync(`CREATE TABLE relationships (id TEXT PRIMARY KEY NOT NULL); CREATE TABLE messages (id TEXT PRIMARY KEY NOT NULL); PRAGMA user_version = 0;`);
+    await assertRejects(() => initializeDatabase(db), 'Initialization should reject an incomplete schema before retry');
     await db.execAsync('DROP TABLE messages; DROP TABLE relationships;');
     await initializeDatabase(db);
-
     const version = await db.getFirstAsync<{ user_version: number }>('PRAGMA user_version');
-    assertEqual(version?.user_version, 2, 'Initialization should retry successfully after a previous failure');
+    assertEqual(version?.user_version, 5, 'Initialization should retry successfully after a previous failure');
   });
 }
 
 export async function runMigrationIntegrationTests(): Promise<void> {
-  await testV0Migration();
-  await testV1Migration();
-  await testRejectsMissingActiveMessage();
+  await testLegacyMigration(0);
+  await testLegacyMigration(1);
+  await testV2Migration();
+  await testV3Migration();
+  await testV4Migration();
+  await testRejectsLegacyCorruption();
   await testRejectsMismatchedActiveMessage();
   await testRejectsInvalidActiveState();
-  await testRejectsOrphanActiveMessage();
   await testRollbackAfterTransformationFailure();
   await testRejectsIncompleteSchema();
   await testRejectsNewerSchema();

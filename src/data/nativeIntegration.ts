@@ -6,6 +6,7 @@ import { runMigrationIntegrationTests } from './migrationIntegration';
 import { runRepositoryIntegrationTests } from './repositoryIntegration';
 import { deleteOwnedMedia, persistPickedMedia, reconcileOwnedMedia } from './media';
 import { runMediaRobustnessIntegrationTests } from './mediaRobustnessIntegration';
+import { runSyncStateIntegrationTests } from './syncStateIntegration';
 
 export type NativeIntegrationResult = {
   name: string;
@@ -46,43 +47,36 @@ async function withTestDatabase<T>(test: (db: SQLite.SQLiteDatabase) => Promise<
 
 async function testFreshDatabase(db: SQLite.SQLiteDatabase): Promise<void> {
   const version = await db.getFirstAsync<{ user_version: number }>('PRAGMA user_version');
-  assertEqual(version?.user_version, 2, 'Fresh database should use schema version 2');
+  assertEqual(version?.user_version, 5, 'Fresh database should use schema version 5');
 
   const tables = await db.getAllAsync<{ name: string }>(
-    "SELECT name FROM sqlite_master WHERE type = 'table' AND name IN ('relationships', 'messages', 'active_message_slots')",
+    "SELECT name FROM sqlite_master WHERE type = 'table' AND name IN ('relationships', 'messages', 'active_message_slots', 'sync_state', 'sync_outbox', 'sync_inbox')",
   );
-  assertEqual(tables.length, 3, 'Fresh database should create all core tables');
+  assertEqual(tables.length, 6, 'Fresh database should create all core and sync tables');
 
   const foreignKeys = await db.getFirstAsync<{ foreign_keys: number }>('PRAGMA foreign_keys');
   assertEqual(foreignKeys?.foreign_keys, 1, 'Foreign keys must be enabled');
 }
 
 async function testConcurrentInitialization(db: SQLite.SQLiteDatabase): Promise<void> {
-  const results = await Promise.all(
-    Array.from({ length: 10 }, () => initializeDatabase(db)),
-  );
+  const results = await Promise.all(Array.from({ length: 10 }, () => initializeDatabase(db)));
 
   for (const result of results) {
     assertEqual(result, db, 'Concurrent initialization should resolve to the same database');
   }
 
   const version = await db.getFirstAsync<{ user_version: number }>('PRAGMA user_version');
-  assertEqual(version?.user_version, 2, 'Concurrent initialization should leave a valid schema');
+  assertEqual(version?.user_version, 5, 'Concurrent initialization should leave a valid schema');
 
   const tables = await db.getAllAsync<{ name: string }>(
-    "SELECT name FROM sqlite_master WHERE type = 'table' AND name IN ('relationships', 'messages', 'active_message_slots')",
+    "SELECT name FROM sqlite_master WHERE type = 'table' AND name IN ('relationships', 'messages', 'active_message_slots', 'sync_state', 'sync_outbox', 'sync_inbox')",
   );
-  assertEqual(tables.length, 3, 'Concurrent initialization should create each core table exactly once');
+  assertEqual(tables.length, 6, 'Concurrent initialization should create each core and sync table exactly once');
 }
 
 async function testMessageLifecycle(db: SQLite.SQLiteDatabase): Promise<void> {
   const repository = new SQLiteRucolaRepository(db);
-  await repository.saveSetup({
-    partnerNickname: 'Partner',
-    ownName: 'Nico',
-    partnerColor: '#8FC56A',
-    togetherSince: null,
-  });
+  await repository.saveSetup({ partnerNickname: 'Partner', ownName: 'Nico', partnerColor: '#8FC56A', togetherSince: null });
 
   const seeded = await repository.getActiveMessage('PARTNER');
   assert(seeded, 'Setup should seed an active partner message');
@@ -104,15 +98,13 @@ async function testMessageLifecycle(db: SQLite.SQLiteDatabase): Promise<void> {
 
 async function testConcurrentMessageOrdering(db: SQLite.SQLiteDatabase): Promise<void> {
   const repository = new SQLiteRucolaRepository(db);
-  await repository.saveSetup({ partnerNickname: 'Partner', ownName: 'Nico', togetherSince: null });
+  await repository.saveSetup({ partnerNickname: 'Partner', ownName: 'Nico', partnerColor: '#8FC56A', togetherSince: null });
 
   const sent = await Promise.all(
     Array.from({ length: 20 }, (_, index) => repository.sendMessage({ type: 'TEXT', body: `concurrent-${index}` })),
   );
   const messages = await repository.getMessages();
-  const ownMessages = messages
-    .filter((message) => message.participant === 'ME')
-    .sort((a, b) => a.orderIndex - b.orderIndex);
+  const ownMessages = messages.filter((message) => message.participant === 'ME').sort((a, b) => a.orderIndex - b.orderIndex);
 
   assertEqual(ownMessages.length, 20, 'Concurrent sends should persist every message');
   assertEqual(new Set(sent.map((message) => message.id)).size, 20, 'Concurrent sends should generate unique message IDs');
@@ -129,7 +121,7 @@ async function testConcurrentMessageOrdering(db: SQLite.SQLiteDatabase): Promise
 async function testConcurrentRepositoryInstances(db: SQLite.SQLiteDatabase): Promise<void> {
   const firstRepository = new SQLiteRucolaRepository(db);
   const secondRepository = new SQLiteRucolaRepository(db);
-  await firstRepository.saveSetup({ partnerNickname: 'Partner', ownName: 'Nico', togetherSince: null });
+  await firstRepository.saveSetup({ partnerNickname: 'Partner', ownName: 'Nico', partnerColor: '#8FC56A', togetherSince: null });
 
   const sent = await Promise.all([
     ...Array.from({ length: 10 }, (_, index) => firstRepository.sendMessage({ type: 'TEXT', body: `repo-a-${index}` })),
@@ -137,9 +129,7 @@ async function testConcurrentRepositoryInstances(db: SQLite.SQLiteDatabase): Pro
   ]);
 
   const messages = await firstRepository.getMessages();
-  const ownMessages = messages
-    .filter((message) => message.participant === 'ME')
-    .sort((a, b) => a.orderIndex - b.orderIndex);
+  const ownMessages = messages.filter((message) => message.participant === 'ME').sort((a, b) => a.orderIndex - b.orderIndex);
 
   assertEqual(ownMessages.length, 20, 'Concurrent repository instances should persist every message');
   assertEqual(new Set(sent.map((message) => message.id)).size, 20, 'Concurrent repository instances should generate unique message IDs');
@@ -156,11 +146,7 @@ async function testConcurrentRepositoryInstances(db: SQLite.SQLiteDatabase): Pro
 
 async function testPersistenceAcrossRepositoryInstances(db: SQLite.SQLiteDatabase): Promise<void> {
   const firstRepository = new SQLiteRucolaRepository(db);
-  await firstRepository.saveSetup({
-    partnerNickname: 'Partner',
-    ownName: 'Nico',
-    togetherSince: 123456789,
-  });
+  await firstRepository.saveSetup({ partnerNickname: 'Partner', ownName: 'Nico', partnerColor: '#8FC56A', togetherSince: 123456789 });
   const sent = await firstRepository.sendMessage({ type: 'EMOJI', body: '♡' });
 
   const secondRepository = new SQLiteRucolaRepository(db);
@@ -187,7 +173,7 @@ async function testForeignKeyInvariant(db: SQLite.SQLiteDatabase): Promise<void>
 
 async function testReset(db: SQLite.SQLiteDatabase): Promise<void> {
   const repository = new SQLiteRucolaRepository(db);
-  await repository.saveSetup({ partnerNickname: 'Partner', ownName: 'Nico', togetherSince: null });
+  await repository.saveSetup({ partnerNickname: 'Partner', ownName: 'Nico', partnerColor: '#8FC56A', togetherSince: null });
   await repository.sendMessage({ type: 'TEXT', body: 'temporary' });
   await repository.deleteRelationship();
 
@@ -209,28 +195,13 @@ async function testMediaLifecycle(): Promise<void> {
       'Media persistence should reject an empty source URI',
     );
 
-    const persisted = await persistPickedMedia({
-      uri: source,
-      fileName: 'test-photo.jpg',
-      mimeType: 'image/jpeg',
-      type: 'image',
-      width: 1,
-      height: 1,
-    });
+    const persisted = await persistPickedMedia({ uri: source, fileName: 'test-photo.jpg', mimeType: 'image/jpeg', type: 'image', width: 1, height: 1 });
     persistedUris.push(persisted);
 
     assert(persisted.startsWith(`${documentDirectory}media/`), 'Persisted media must live under the app media directory');
     assert(await FileSystem.getInfoAsync(persisted).then((info) => info.exists), 'Persisted media file should exist');
 
-    const videoPersisted = await persistPickedMedia({
-      uri: source,
-      fileName: 'video.jpg',
-      mimeType: 'video/mp4',
-      type: 'video',
-      duration: 1,
-      width: 1,
-      height: 1,
-    });
+    const videoPersisted = await persistPickedMedia({ uri: source, fileName: 'video.jpg', mimeType: 'video/mp4', type: 'video', duration: 1, width: 1, height: 1 });
     persistedUris.push(videoPersisted);
     assert(videoPersisted.endsWith('.mp4'), 'Video MIME type should determine the stored extension');
 
@@ -259,9 +230,7 @@ async function testMediaLifecycle(): Promise<void> {
       await FileSystem.deleteAsync(outside, { idempotent: true });
     }
   } finally {
-    for (const uri of persistedUris) {
-      await FileSystem.deleteAsync(uri, { idempotent: true }).catch(() => undefined);
-    }
+    for (const uri of persistedUris) await FileSystem.deleteAsync(uri, { idempotent: true }).catch(() => undefined);
     await FileSystem.deleteAsync(source, { idempotent: true }).catch(() => undefined);
   }
 }
@@ -285,11 +254,7 @@ export async function runNativeIntegrationTests(): Promise<NativeIntegrationResu
       await withTestDatabase(test);
       results.push({ name, passed: true });
     } catch (cause) {
-      results.push({
-        name,
-        passed: false,
-        error: cause instanceof Error ? cause.message : String(cause),
-      });
+      results.push({ name, passed: false, error: cause instanceof Error ? cause.message : String(cause) });
     }
   }
 
@@ -297,44 +262,35 @@ export async function runNativeIntegrationTests(): Promise<NativeIntegrationResu
     await withTestDatabase(runRepositoryIntegrationTests);
     results.push({ name: 'real SQLite repository integration suite', passed: true });
   } catch (cause) {
-    results.push({
-      name: 'real SQLite repository integration suite',
-      passed: false,
-      error: cause instanceof Error ? cause.message : String(cause),
-    });
+    results.push({ name: 'real SQLite repository integration suite', passed: false, error: cause instanceof Error ? cause.message : String(cause) });
+  }
+
+  try {
+    await withTestDatabase(runSyncStateIntegrationTests);
+    results.push({ name: 'durable local sync state integration suite', passed: true });
+  } catch (cause) {
+    results.push({ name: 'durable local sync state integration suite', passed: false, error: cause instanceof Error ? cause.message : String(cause) });
   }
 
   try {
     await testMediaLifecycle();
     results.push({ name: 'media persistence, validation, reconciliation and cleanup', passed: true });
   } catch (cause) {
-    results.push({
-      name: 'media persistence, validation, reconciliation and cleanup',
-      passed: false,
-      error: cause instanceof Error ? cause.message : String(cause),
-    });
+    results.push({ name: 'media persistence, validation, reconciliation and cleanup', passed: false, error: cause instanceof Error ? cause.message : String(cause) });
   }
 
   try {
     await runMediaRobustnessIntegrationTests();
     results.push({ name: 'media robustness edge cases', passed: true });
   } catch (cause) {
-    results.push({
-      name: 'media robustness edge cases',
-      passed: false,
-      error: cause instanceof Error ? cause.message : String(cause),
-    });
+    results.push({ name: 'media robustness edge cases', passed: false, error: cause instanceof Error ? cause.message : String(cause) });
   }
 
   try {
     await runMigrationIntegrationTests();
     results.push({ name: 'migration fixtures and rollback', passed: true });
   } catch (cause) {
-    results.push({
-      name: 'migration fixtures and rollback',
-      passed: false,
-      error: cause instanceof Error ? cause.message : String(cause),
-    });
+    results.push({ name: 'migration fixtures and rollback', passed: false, error: cause instanceof Error ? cause.message : String(cause) });
   }
 
   return results;

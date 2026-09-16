@@ -9,7 +9,9 @@
     "ios": "expo run:ios",
     "prebuild": "expo prebuild",
     "typecheck": "tsc --noEmit",
-    "test:domain": "node --experimental-strip-types --test src/domain/__tests__/*.test.mjs"
+    "test:domain": "node --experimental-strip-types --test src/domain/__tests__/*.test.mjs",
+    "test:cloud-client": "node --experimental-strip-types --test src/cloud/__tests__/*.test.mjs",
+    "test:sync-engine": "node --experimental-strip-types --test src/sync/SyncEngine.test.mjs"
   },
   "dependencies": {
     "expo": "^57.0.0",
@@ -20,7 +22,6 @@
     "expo-status-bar": "~57.0.1",
     "expo-video": "~57.0.3",
     "react": "19.2.3",
-    "react-native": "0.86.3",
     "react-native-safe-area-context": "~5.7.0",
     "react-native-screens": "~4.26.0"
   },
