@@ -90,8 +90,8 @@ async function cleanupExpiredMailbox(env: Env, now: number): Promise<number> {
 export interface CleanupResult { expiredMailbox: number; expiredReceipts: number; mediaObjectsDeleted: number; }
 
 export async function runCleanup(env: Env, now = Date.now()): Promise<CleanupResult> {
-  // Mailbox rows currently retain for 7 days. Receipts are retained independently
-  // for idempotency, so mailbox deletion must not be coupled to receipt deletion.
+  // Mailbox rows retain for 14 days. Receipts are retained independently for
+  // idempotency and recovery, so mailbox deletion must not be coupled to receipt deletion.
   const expiredMailbox = await cleanupExpiredMailbox(env, now);
   const expiredReceipts = await cleanupExpiredReceipts(env, now);
   const expiredMedia = await claimMediaForCleanup(env, now);
