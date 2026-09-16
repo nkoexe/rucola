@@ -28,6 +28,18 @@ def releaseKeystoreFile = System.getenv('RUCOLA_RELEASE_KEYSTORE_FILE')
 def releaseKeystorePassword = System.getenv('RUCOLA_RELEASE_KEYSTORE_PASSWORD')
 def releaseKeyAlias = System.getenv('RUCOLA_RELEASE_KEY_ALIAS')
 def releaseKeyPassword = System.getenv('RUCOLA_RELEASE_KEY_PASSWORD')
+def configuredVersionName = System.getenv('RUCOLA_VERSION_NAME') ?: '0.1.0'
+def configuredVersionCode = System.getenv('RUCOLA_VERSION_CODE') ?: '1'
+
+def parsedVersionCode
+try {
+    parsedVersionCode = Integer.parseInt(configuredVersionCode)
+} catch (NumberFormatException ignored) {
+    throw new GradleException("RUCOLA_VERSION_CODE must be a positive integer; got '${configuredVersionCode}'.")
+}
+if (parsedVersionCode < 1) {
+    throw new GradleException("RUCOLA_VERSION_CODE must be a positive integer; got '${configuredVersionCode}'.")
+}
 
 if (releaseSigningEnabled && (!releaseKeystoreFile || !releaseKeystorePassword || !releaseKeyAlias || !releaseKeyPassword)) {
     throw new GradleException('Rucola release signing is enabled, but signing environment variables are incomplete.')
@@ -43,8 +55,8 @@ android {
         applicationId 'com.rucola.app'
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 1
-        versionName "0.1.0"
+        versionCode parsedVersionCode
+        versionName configuredVersionName
         buildConfigField "String", "REACT_NATIVE_RELEASE_LEVEL", "\"${findProperty('reactNativeReleaseLevel') ?: 'stable'}\""
     }
     signingConfigs {
