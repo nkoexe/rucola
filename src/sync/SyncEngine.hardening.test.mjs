@@ -34,7 +34,7 @@ function harness({ pullResponse, decrypt, now = 1_700_000_100_000, reconcileOutb
     encrypt: async (message) => `cipher:${message.body}`,
     decrypt: decrypt ?? (async (remote) => ({ type: remote.type, body: `decoded:${remote.ciphertext}` })),
   };
-  return { calls, state, repository, cloud, codec, now };
+  return { calls, state, repository, cloud, codec, now: () => now };
 }
 
 test('drops one undecryptable inbound message and still commits later messages', async () => {
