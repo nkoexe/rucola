@@ -7,36 +7,38 @@ The product-level source of truth is `docs/PRODUCT_SPEC.md`; the phased implemen
 ## 1. High-level model
 
 ```text
-             future backend
-       pairing / sync / mailbox
-                  ↕
+                  cloud backend
+          pairing / sync / mailbox
+                    ↕
    ┌──────────────────────────┐
    │        Phone A           │
-   │ React Native presentation│
+   │ Expo Router / RN         │
+   │ application state        │
    │ domain use cases         │
-   │ repository               │
+   │ repository + sync engine │
    │ local SQLite + media     │
    └──────────────────────────┘
-                  ↕
+                    ↕
    ┌──────────────────────────┐
    │        Phone B           │
-   │ React Native presentation│
+   │ Expo Router / RN         │
+   │ application state        │
    │ domain use cases         │
-   │ repository               │
+   │ repository + sync engine │
    │ local SQLite + media     │
    └──────────────────────────┘
 ```
 
 The server is a temporary mailbox, not a cloud archive. Once a recipient has durably persisted an item locally and acknowledged it, the server may remove its temporary copy.
 
-Backend development should progress alongside application development once the application structure is stable. The goal is an early rough but genuinely online two-device prototype, not a fully polished local app followed by a late networking project.
+The cloud Worker is implemented on the separate `cloud/research` branch. The mobile client transport and local sync state are now merged into `main`, but the app does not yet run an integrated online lifecycle.
 
 ## 2. Current local application architecture
 
 ```text
-Expo Router / React Native screens
+React Native screens
         ↓
-application bootstrap + presentation state
+current presentation/application state
         ↓
 domain use cases
         ↓
@@ -45,13 +47,15 @@ RucolaRepository interface
 SQLiteRucolaRepository
         ↓
 expo-sqlite
+
+CloudClient ← SyncEngine → SQLiteSyncStateStore
 ```
 
 The current screens use domain use cases for relationship loading, setup, message creation, history, calendar data, and local reset. Domain code does not import React Native or SQLite.
 
-The current application still contains hand-rolled screen state and is scheduled for an Expo Router/application-state cleanup before more presentation complexity is added.
+The application still contains hand-rolled screen state/navigation and is scheduled for an Expo Router/application-state cleanup before more presentation complexity is added.
 
-`SQLiteRucolaRepository` is the local implementation and can later be accompanied by synchronization without forcing the UI to call a network API directly.
+`SQLiteRucolaRepository` is the local implementation. `CloudClient` isolates HTTP transport, while `SyncEngine` coordinates ordered outgoing sync and inbound pull/commit/ACK using durable SQLite sync state. The UI is not intended to call HTTP directly.
 
 ## 3. Local data is authoritative for history
 
@@ -73,7 +77,7 @@ Messages contain:
 - message type;
 - body;
 - creation timestamp;
-- deterministic order index;
+- deterministic local order index;
 - optional media reference;
 - synchronization state.
 
@@ -92,53 +96,52 @@ The previous message is never deleted, so it becomes immutable history automatic
 
 This same semantic must hold when synchronization later delivers several messages while a recipient was offline.
 
-The Home screen should present the latest partner message as the central relationship state. Home is not a conventional chat transcript.
-
 ## 6. Three-day Home state
 
-The Home presentation has an explicit product rule in addition to active-message state:
+The three-day stale/waiting rule is a product requirement but is **not yet implemented in the current application**. Once implemented, it belongs in testable application/domain state rather than arbitrary screen decoration.
+
+Target behavior:
 
 - a recent partner message is shown normally;
-- after three days without a newer partner message, Home should transition to a gentle stale/waiting prompt encouraging the user to send something;
+- after three days without a newer partner message, Home transitions to a gentle stale/waiting prompt encouraging the user to send something;
 - the old message remains in immutable History.
-
-The exact copy and visual treatment belong to the product/UX layer. The time-based rule must not be implemented only as arbitrary screen decoration.
 
 ## 7. Offline synchronization model
 
-Example:
+The mobile sync foundation now has durable state for sender sequence, pull cursor, outbox and inbound receipts. `SyncEngine` performs:
 
 ```text
-A sends A
-A sends B
-A sends C
-
-Recipient is offline.
-
-Server temporarily queues A, B, C.
-
-Recipient persists A, B, C locally in order.
-
-Local result:
-  A = history
-  B = history
-  C = active
-
-Only after durable persistence may the recipient acknowledge them.
+push due local outbox
+        ↓
+pull after durable cursor
+        ↓
+validate/decrypt inbound payloads
+        ↓
+SQLite transaction
+  ├─ insert/idempotently apply inbound message
+  ├─ update partner active slot
+  └─ advance durable pull cursor
+        ↓
+COMMIT
+        ↓
+ACK server high-water mark
 ```
 
-The server must not collapse A/B/C to only C because the recipient needs complete history.
+Outgoing messages retain stable IDs and durable sender sequences across retries. Retryable failures use persisted backoff; permanently blocked items are not silently requeued. The engine coalesces concurrent runs so multiple triggers do not execute overlapping sync passes.
 
-There is deliberately no read/seen state in MVP.
+The current mobile engine intentionally blocks media synchronization until the end-to-end media path exists. The encryption codec is an abstraction only; there is no real E2E implementation yet.
+
+The server implementation is being hardened independently. Current cloud work includes directional mailbox ownership fixes in open PR #15; that change is important because a sender must not pull or ACK its own mailbox copies as if they were partner deliveries.
 
 ## 8. Sync state vs read state
 
 These concepts remain separate:
 
 - `PENDING`: local item still needs synchronization;
-- `SYNCED`: synchronization has completed according to the eventual protocol;
+- `SYNCED`: synchronization has completed according to the current client path;
 - `FAILED`: synchronization needs retry/recovery;
 - `LOCAL_ONLY`: item exists only locally so far;
+- `blocked` outbox state: a durable protocol/media failure prevents automatic retry;
 - **seen/read**: not represented in the MVP.
 
 Never use synchronization state as a disguised read receipt.
@@ -146,6 +149,8 @@ Never use synchronization state as a disguised read receipt.
 ## 9. Media lifecycle
 
 Photo/video messages use the real device picker/camera path. Selected or captured media is copied into an app-owned document `media/` directory before the message is persisted. Message history stores the durable local URI and can render images or videos from that URI.
+
+The local cloud client has media reservation/upload/completion transport, but `SyncEngine` currently treats media synchronization as blocked. Cloud-side media lifecycle is implemented separately on `cloud/research` and still requires final integration/production hardening.
 
 Drawing remains a declared message type but is intentionally not implemented yet.
 
@@ -155,11 +160,9 @@ Media deletion only accepts direct children of the app-owned media directory, pr
 
 ## 10. Database migrations
 
-SQLite uses `PRAGMA user_version` for schema versioning. The current schema is version 2.
+SQLite currently uses `PRAGMA user_version` with schema version **5**. Fresh databases are created directly at v5. Existing legacy databases are migrated through the supported v0/v1 → v2 path and v2 → v3 → v4 → v5 sync-schema migrations.
 
-Fresh databases are created directly at the latest schema. Existing version-0 databases that contain the original tables and version-1 databases both use the legacy schema and are migrated transactionally to version 2.
-
-The migration validates legacy active-message slots before changing the schema. It rejects mismatched slots, missing messages, invalid active flags, duplicate active slots, and values that cannot be represented safely as integers. After migration, `PRAGMA foreign_key_check` is run and the database must report exactly the supported schema version.
+Current v5 adds durable sync state, inbox records, and a `blocked` outbox state. The database verification checks the required six core/sync tables, the blocked outbox column, foreign-key integrity, and the final supported version.
 
 A database newer than the application is rejected rather than downgraded. Migration failures are allowed to abort the transaction so the old database is not partially replaced.
 
@@ -169,28 +172,21 @@ Fresh installations eventually receive anonymous device identities. There is no 
 
 The **user-facing pairing mechanism is exactly five emojis**. Technical pairing credentials must remain implementation details.
 
-Behind the five-emoji experience, the eventual protocol should use:
+The mobile `CloudClient` now exposes bootstrap/create/accept pairing transport, but the application has not yet integrated those operations into onboarding. Real two-device pairing is therefore not complete.
 
-- a secure invitation token with real entropy;
-- invitation expiry, currently targeted at 24 hours;
-- immediate invalidation after successful pairing;
-- a real network/deep-link transport where appropriate.
+The cloud protocol uses secure invitation credentials behind the human-facing five-emoji flow, with expiry and bounded confirmation attempts. Device authentication and future encryption identity remain separate.
 
-The five-emoji sequence is a usability mechanism, not the security credential itself.
+## 12. Future backend / current cloud implementation
 
-Real two-device pairing must not be simulated as local communication. The UI can be prepared behind a pairing abstraction before the backend exists, but pairing is not considered complete until two installations can actually establish the relationship through a real transport.
-
-## 12. Future backend
-
-The current preferred direction is:
+The production direction remains:
 
 - Cloudflare Workers — API, pairing, synchronization orchestration;
-- D1 — small relationship/metadata state;
-- R2 — temporary media mailbox.
+- D1 — relationship/metadata and temporary mailbox/receipts;
+- R2 — temporary media storage.
 
-The backend is a temporary transport/mailbox layer. Local devices remain authoritative for permanent message history.
+Substantial Worker implementation exists on `cloud/research`, including pairing, authenticated push/pull/ACK, durable message receipts, media reservation/upload/completion, cleanup and database invariants. PR #15 is an open hardening change that corrects mailbox directionality for two-device behavior.
 
-The backend contract should be designed and implemented in parallel with the local product once Phase 1 application structure is stable.
+The cloud branch is not yet the stable mobile integration. Do not describe the overall system as an end-to-end online prototype until pairing, credential persistence, sync lifecycle, and real two-device message exchange are integrated and tested.
 
 ## 13. Widgets and notifications
 
@@ -232,16 +228,19 @@ Tests should protect at least:
 10. invalid message input is rejected before persistence;
 11. photo/video media-only messages remain valid with durable app-owned media;
 12. drawing remains intentionally unimplemented until a real editor exists;
-13. version-1 legacy databases migrate to the current schema without losing data;
+13. supported legacy databases migrate to v5 without losing data;
 14. malformed legacy data causes migration to fail without a partial migration;
 15. synchronization preserves bursts while a recipient is offline;
 16. synchronization acknowledgment occurs only after durable local persistence;
-17. the three-day stale Home state does not delete or alter history.
+17. inbound cursor cannot regress or advance inconsistently;
+18. permanently blocked outbox items do not resurrect automatically;
+19. the three-day stale Home state does not delete or alter history once implemented;
+20. mailbox directionality prevents a sender from treating its own messages as partner deliveries.
 
 ## 16. Technology rule
 
 Use the current Expo/React Native stack and stable Expo-compatible packages. Do not add dependencies merely to make a small feature look architectural.
 
-The owner is deliberately postponing detailed visual implementation. Functional behavior, local correctness, coherent navigation/interaction order, and clean boundaries take priority until the feature set is complete.
+The owner is deliberately postponing detailed visual implementation. Functional behavior, local correctness, coherent navigation/interaction order, clean sync boundaries, and reliable two-device behavior take priority until the feature set is complete.
 
 The product is Android-first. Do not introduce platform abstractions merely for theoretical iOS support unless they simplify the current architecture without compromising Android delivery.
