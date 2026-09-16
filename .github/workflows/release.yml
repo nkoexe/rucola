@@ -22,6 +22,7 @@ env:
   ANDROID_KEYSTORE_PATH: android/app/rucola-release.keystore
   ANDROID_API_LEVEL: '36'
   ANDROID_BUILD_TOOLS: '36.0.0'
+  ANDROID_NDK_VERSION: '27.1.12297006'
   ANDROID_SDK_ROOT: ${{ runner.temp }}/android-sdk
   ANDROID_HOME: ${{ runner.temp }}/android-sdk
 
@@ -66,7 +67,7 @@ jobs:
         id: android-sdk-cache
         with:
           path: ${{ env.ANDROID_SDK_ROOT }}
-          key: android-sdk-${{ runner.os }}-api${{ env.ANDROID_API_LEVEL }}-build${{ env.ANDROID_BUILD_TOOLS }}-v2
+          key: android-sdk-${{ runner.os }}-api${{ env.ANDROID_API_LEVEL }}-build${{ env.ANDROID_BUILD_TOOLS }}-ndk${{ env.ANDROID_NDK_VERSION }}-v3
 
       - uses: android-actions/setup-android@v4
         with:
@@ -76,7 +77,8 @@ jobs:
         run: |
           sdkmanager --sdk_root="$ANDROID_SDK_ROOT" \
             "platforms;android-${ANDROID_API_LEVEL}" \
-            "build-tools;${ANDROID_BUILD_TOOLS}"
+            "build-tools;${ANDROID_BUILD_TOOLS}" \
+            "ndk;${ANDROID_NDK_VERSION}"
 
       - run: yes | sdkmanager --sdk_root="$ANDROID_SDK_ROOT" --licenses >/dev/null || true
 
@@ -84,6 +86,7 @@ jobs:
         run: |
           test -d "$ANDROID_SDK_ROOT/platforms/android-${ANDROID_API_LEVEL}"
           test -d "$ANDROID_SDK_ROOT/build-tools/${ANDROID_BUILD_TOOLS}"
+          test -d "$ANDROID_SDK_ROOT/ndk/${ANDROID_NDK_VERSION}"
 
       - name: Restore release keystore
         env:
