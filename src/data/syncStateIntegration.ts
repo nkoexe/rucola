@@ -56,6 +56,10 @@ export async function runSyncStateIntegrationTests(db: SQLite.SQLiteDatabase): P
   assertEqual((await repository.getMessages()).find((message) => message.id === 'remote-1')?.body, 'hello', 'Conflicting inbound data must not overwrite local data');
   assertEqual(await store.getPullCursor(), 2, 'Pull cursor should remain unchanged after rejected inbound data');
   await assertRejects(() => store.commitInbound([{ id: 'remote-1', type: 'TEXT', body: 'hello', createdAt, serverSeq: 1 }], 1, createdAt + 4_000), 'Inbound cursor must never move backwards');
+  await db.runAsync("INSERT INTO messages (id, relationshipId, participant, type, body, createdAt, orderIndex, mediaReference, syncState) VALUES (?, ?, 'PARTNER', 'TEXT', ?, ?, (SELECT COALESCE(MAX(orderIndex), 0) + 1 FROM messages WHERE relationshipId = ?), NULL, 'SYNCED')", 'legacy-remote', 'the-one', 'legacy replay', createdAt + 5, 'the-one');
+  await store.commitInbound([{ id: 'legacy-remote', type: 'TEXT', body: 'legacy replay', createdAt: createdAt + 5, serverSeq: 3 }], 3, createdAt + 6_000);
+  const legacyReceipt = await db.getFirstAsync<{ serverSeq: number }>('SELECT serverSeq FROM sync_inbox WHERE relationshipId = ? AND messageId = ?', 'the-one', 'legacy-remote');
+  assertEqual(legacyReceipt?.serverSeq, 3, 'Replay of a legacy inbound message must reconstruct its durable receipt');
   const beforeDeviceRefresh = await store.getState();
   await store.setDevice('device-a', 'ME');
   const afterDeviceRefresh = await store.getState();
