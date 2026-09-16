@@ -39,6 +39,19 @@ async function getOwnedUpload(env: Env, device: AuthenticatedDevice, uploadId: s
   return env.DB.prepare(`SELECT media_uploads.id, media_uploads.relationship_id, media_uploads.created_by_device_id, media_uploads.object_key, media_uploads.media_type, media_uploads.declared_mime, media_uploads.size_bytes, media_uploads.checksum, media_uploads.status, media_uploads.expires_at FROM media_uploads JOIN relationships ON relationships.id = media_uploads.relationship_id WHERE media_uploads.id = ?1 AND media_uploads.relationship_id = ?2 AND media_uploads.created_by_device_id = ?3 AND relationships.status = 'ACTIVE'`).bind(uploadId, device.relationshipId, device.id).first<MediaUploadRow>();
 }
 function removeObjectBestEffort(env: Env, objectKey: string): Promise<void> { return env.MEDIA_BUCKET.delete(objectKey).catch(() => undefined); }
+function boundedMediaStream(body: ReadableStream<Uint8Array>, maxBytes: number): ReadableStream<Uint8Array> {
+  let bytesSeen = 0;
+  return body.pipeThrough(new TransformStream<Uint8Array, Uint8Array>({
+    transform(chunk, controller) {
+      bytesSeen += chunk.byteLength;
+      if (bytesSeen > maxBytes) {
+        controller.error(new Error("media body exceeds reservation"));
+        return;
+      }
+      controller.enqueue(chunk);
+    },
+  }));
+}
 export async function createMediaReservation(env: Env, request: Request): Promise<Response> {
   const device = await authenticateDevice(env, request); if (!device) return errorResponse("UNAUTHENTICATED", "Valid device credentials are required", 401);
   const body = await readJson(request); if (!body) return errorResponse("INVALID_REQUEST", "JSON request body required", 400);
@@ -61,7 +74,7 @@ export async function uploadMedia(env: Env, request: Request, uploadId: string):
   const contentLength = Number(contentLengthHeader); if (!Number.isSafeInteger(contentLength) || contentLength !== upload.size_bytes) return errorResponse("MEDIA_SIZE_MISMATCH", "Content-Length does not match the reservation", 400);
   if (!request.body) return errorResponse("INVALID_REQUEST", "Media request body required", 400);
   let stored: R2Object | null = null;
-  try { stored = await env.MEDIA_BUCKET.put(upload.object_key, request.body, { httpMetadata: { contentType: upload.declared_mime }, customMetadata: { uploadId: upload.id }, ...(upload.checksum === null ? {} : { sha256: checksumBytes(upload.checksum) }) }); } catch { return errorResponse("MEDIA_UPLOAD_FAILED", "Media upload could not be stored", 502); }
+  try { stored = await env.MEDIA_BUCKET.put(upload.object_key, boundedMediaStream(request.body, upload.size_bytes), { httpMetadata: { contentType: upload.declared_mime }, customMetadata: { uploadId: upload.id }, ...(upload.checksum === null ? {} : { sha256: checksumBytes(upload.checksum) }) }); } catch { return errorResponse("MEDIA_UPLOAD_FAILED", "Media upload could not be stored", 502); }
   if (!stored || stored.size !== upload.size_bytes || stored.httpMetadata?.contentType !== upload.declared_mime) { await removeObjectBestEffort(env, upload.object_key); return errorResponse("MEDIA_STORAGE_MISMATCH", "Stored media does not match the reservation", 502); }
   if (upload.checksum !== null && !sameSha256(stored, upload.checksum)) { await removeObjectBestEffort(env, upload.object_key); return errorResponse("MEDIA_CHECKSUM_MISMATCH", "Stored media checksum does not match the reservation", 400); }
   return json({ uploadId: upload.id, status: "UPLOADED" });
