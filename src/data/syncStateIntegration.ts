@@ -60,11 +60,14 @@ export async function runSyncStateIntegrationTests(db: SQLite.SQLiteDatabase): P
   await store.commitInbound([{ id: 'legacy-remote', type: 'TEXT', body: 'legacy replay', createdAt: createdAt + 5, serverSeq: 3 }], 3, createdAt + 6_000);
   const legacyReceipt = await db.getFirstAsync<{ serverSeq: number }>('SELECT serverSeq FROM sync_inbox WHERE relationshipId = ? AND messageId = ?', 'the-one', 'legacy-remote');
   assertEqual(legacyReceipt?.serverSeq, 3, 'Replay of a legacy inbound message must reconstruct its durable receipt');
+  await assertRejects(() => store.replaceDevice('device-b', 'ME'), 'Device replacement must reject pending outbound messages');
+  await store.markSynced(first.id);
   const beforeDeviceRefresh = await store.getState();
-  await store.setDevice('device-a', 'ME');
+  await store.replaceDevice('device-b', 'ME');
   const afterDeviceRefresh = await store.getState();
-  assertEqual(afterDeviceRefresh.nextSenderSeq, beforeDeviceRefresh.nextSenderSeq, 'Refreshing device identity must not reset sender sequence');
-  assertEqual(afterDeviceRefresh.pullCursor, beforeDeviceRefresh.pullCursor, 'Refreshing device identity must not reset pull cursor');
+  assertEqual(afterDeviceRefresh.deviceId, 'device-b', 'Device replacement should persist the new device identity');
+  assertEqual(afterDeviceRefresh.nextSenderSeq, 1, 'Device replacement should reset sender sequence for the new device');
+  assertEqual(afterDeviceRefresh.pullCursor, beforeDeviceRefresh.pullCursor, 'Device replacement must preserve the pull cursor');
   await store.clear();
   const cleared = await store.getState();
   assertEqual(cleared.deviceId, null, 'Clearing sync state must remove device identity');
