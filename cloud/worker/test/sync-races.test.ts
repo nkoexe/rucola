@@ -156,7 +156,7 @@ describe("Rucola sync race hardening", () => {
       .bind(me.relationshipId)
       .all<{ message_id: string; sender_seq: number; server_seq: number }>();
     expect(rows.results).toHaveLength(1);
-    expect(rows.results[0]?.senderSeq ?? rows.results[0]?.sender_seq).toBe(7);
+    expect(rows.results[0]?.sender_seq).toBe(7);
     expect([first.messageId, second.messageId]).toContain(rows.results[0]?.message_id);
 
     const relationship = await env.DB
