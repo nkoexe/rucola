@@ -10,6 +10,10 @@ coverage/
 android/
 ios/
 
+# Cloudflare / Wrangler local state
+**/.wrangler/
+cloud/worker/.wrangler.deploy.jsonc
+
 # Environment / secrets
 .env
 .env.*
