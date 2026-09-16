@@ -122,7 +122,7 @@ jobs:
           else
             DATABASE_NAME="rucola-prod"
           fi
-          npx wrangler d1 migrations apply "$DATABASE_NAME" --remote --config .wrangler.deploy-config.jsonc
+          npx wrangler d1 migrations apply "$DATABASE_NAME" --remote --config .wrangler.deploy.jsonc
       - name: Deploy Worker
         env:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
