@@ -113,13 +113,15 @@ test('transient cloud failures remain retryable and preserve sender ordering', a
     { messageId: 'local-1', senderSeq: 1, attempts: 0, lastError: null, nextAttemptAt: 0, createdAt: 1 },
     { messageId: 'local-2', senderSeq: 2, attempts: 0, lastError: null, nextAttemptAt: 0, createdAt: 2 },
   ];
-  harness.cloud.pushMessage = async () => { throw new CloudClientError({ code: 'CLIENT_TIMEOUT', message: 'timeout', status: 0 }); };
+  harness.cloud.pushMessage = async (payload) => { harness.calls.push(['push', payload]); throw new CloudClientError({ code: 'CLIENT_TIMEOUT', message: 'timeout', status: 0 }); };
   const engine = new SyncEngine({ ...harness });
   const result = await engine.run();
   assert.equal(result.failed, 1);
   assert.equal(harness.calls.filter(([name]) => name === 'push').length, 1);
+  assert.deepEqual(harness.calls.find(([name]) => name === 'push')?.[1]?.messageId, 'local-1');
   assert.equal(harness.calls.some(([name, id]) => name === 'markAttemptFailed' && id === 'local-1'), true);
   assert.equal(harness.calls.some(([name, id]) => name === 'markAttemptFailed' && id === 'local-2'), false);
+  assert.equal(harness.calls.some(([name, payload]) => name === 'push' && payload?.messageId === 'local-2'), false);
 });
 
 test('permanent cloud failures are blocked instead of retried forever', async () => {
