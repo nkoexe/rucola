@@ -48,7 +48,7 @@ async function push(credential: string, senderSeq: number): Promise<Response> {
       messageId: crypto.randomUUID(),
       senderSeq,
       type: "TEXT",
-      ciphertext: `ciphertext-${senderSeq}`,
+      ciphertext: `ciphertext-${senderSeq}-${crypto.randomUUID()}`,
       encryptionVersion: 1,
       createdAt: Date.now(),
     }),
@@ -73,35 +73,35 @@ async function ack(credential: string, throughServerSeq: number): Promise<Respon
 }
 
 describe("Rucola expired cursor gaps", () => {
-  it("allows an ACK past an expired earlier partner message when the later message was delivered", async () => {
+  it("allows an ACK past an expired earlier partner message when a later partner message was delivered", async () => {
     const { me, partner } = await bootstrapAndAccept();
-    expect((await push(me.credential, 1)).status).toBe(200);
-    expect((await push(me.credential, 2)).status).toBe(200);
     expect((await push(partner.credential, 1)).status).toBe(200);
+    expect((await push(me.credential, 1)).status).toBe(200);
+    expect((await push(partner.credential, 2)).status).toBe(200);
 
     await env.DB.prepare(
       "UPDATE mailbox_messages SET expires_at = ?1 WHERE relationship_id = ?2 AND server_seq = 1",
     ).bind(Date.now() - 1, me.relationshipId).run();
 
-    const response = await pull(partner.credential, "?after=0&limit=10");
+    const response = await pull(me.credential, "?after=0&limit=10");
     expect(response.status).toBe(200);
     const body = await json(response);
-    expect((body.messages as Array<Record<string, unknown>>).map((message) => message.serverSeq)).toEqual([2]);
-    expect(body.nextCursor).toBe(2);
+    expect((body.messages as Array<Record<string, unknown>>).map((message) => message.serverSeq)).toEqual([3]);
+    expect(body.nextCursor).toBe(3);
     expect(body.hasMore).toBe(false);
 
-    const acknowledgement = await ack(partner.credential, 2);
+    const acknowledgement = await ack(me.credential, 3);
     expect(acknowledgement.status).toBe(200);
     await expect(acknowledgement.json()).resolves.toMatchObject({
-      acknowledgedThrough: 2,
+      acknowledgedThrough: 3,
       deleted: 1,
     });
 
     const remaining = await env.DB.prepare(
       "SELECT server_seq, sender_device_id FROM mailbox_messages WHERE relationship_id = ?1 ORDER BY server_seq",
     ).bind(me.relationshipId).all<{ server_seq: number; sender_device_id: string }>();
-    expect(remaining.results.map((row) => row.server_seq)).toEqual([1, 3]);
-    expect(remaining.results[0]?.sender_device_id).toBe(me.deviceId);
-    expect(remaining.results[1]?.sender_device_id).toBe(partner.deviceId);
+    expect(remaining.results.map((row) => row.server_seq)).toEqual([1, 2]);
+    expect(remaining.results[0]?.sender_device_id).toBe(partner.deviceId);
+    expect(remaining.results[1]?.sender_device_id).toBe(me.deviceId);
   });
 });
