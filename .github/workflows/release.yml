@@ -22,6 +22,8 @@ env:
   ANDROID_KEYSTORE_PATH: android/app/rucola-release.keystore
   ANDROID_API_LEVEL: '36'
   ANDROID_BUILD_TOOLS: '36.0.0'
+  ANDROID_SDK_ROOT: ${{ runner.temp }}/android-sdk
+  ANDROID_HOME: ${{ runner.temp }}/android-sdk
 
 jobs:
   build-release:
@@ -37,12 +39,12 @@ jobs:
             exit 1
           fi
 
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref }}
-          fetch-depth: 0
+          fetch-depth: 1
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: 22.13.x
           cache: npm
@@ -55,35 +57,33 @@ jobs:
           npm run test:cloud-client
           npm run test:sync-engine
 
-      - uses: actions/setup-java@v4
+      - uses: actions/setup-java@v6
         with:
           distribution: temurin
           java-version: '17'
-          cache: gradle
 
-      - uses: android-actions/setup-android@v3
+      - uses: actions/cache@v6
+        id: android-sdk-cache
+        with:
+          path: ${{ env.ANDROID_SDK_ROOT }}
+          key: android-sdk-${{ runner.os }}-api${{ env.ANDROID_API_LEVEL }}-build${{ env.ANDROID_BUILD_TOOLS }}-v2
+
+      - uses: android-actions/setup-android@v4
         with:
           packages: platform-tools
 
-      - uses: actions/cache@v4
-        id: android-sdk-cache
-        with:
-          path: |
-            ${{ env.ANDROID_HOME }}/platforms/android-${{ env.ANDROID_API_LEVEL }}
-            ${{ env.ANDROID_HOME }}/build-tools/${{ env.ANDROID_BUILD_TOOLS }}
-          key: android-sdk-${{ runner.os }}-api${{ env.ANDROID_API_LEVEL }}-build${{ env.ANDROID_BUILD_TOOLS }}-v1
-
       - name: Install Android SDK components
-        if: steps.android-sdk-cache.outputs.cache-hit != 'true'
         run: |
-          sdkmanager "platforms;android-${ANDROID_API_LEVEL}" "build-tools;${ANDROID_BUILD_TOOLS}"
+          sdkmanager --sdk_root="$ANDROID_SDK_ROOT" \
+            "platforms;android-${ANDROID_API_LEVEL}" \
+            "build-tools;${ANDROID_BUILD_TOOLS}"
 
-      - run: yes | sdkmanager --licenses >/dev/null || true
+      - run: yes | sdkmanager --sdk_root="$ANDROID_SDK_ROOT" --licenses >/dev/null || true
 
       - name: Verify Android SDK components
         run: |
-          test -d "$ANDROID_HOME/platforms/android-${ANDROID_API_LEVEL}"
-          test -d "$ANDROID_HOME/build-tools/${ANDROID_BUILD_TOOLS}"
+          test -d "$ANDROID_SDK_ROOT/platforms/android-${ANDROID_API_LEVEL}"
+          test -d "$ANDROID_SDK_ROOT/build-tools/${ANDROID_BUILD_TOOLS}"
 
       - name: Restore release keystore
         env:
@@ -113,7 +113,7 @@ jobs:
             echo "RUCOLA_VERSION_CODE=$RELEASE_RUN_NUMBER"
           } >> "$GITHUB_ENV"
 
-      - uses: gradle/actions/setup-gradle@v4
+      - uses: gradle/actions/setup-gradle@v5
       - name: Build signed release APK
         working-directory: android
         env:
@@ -138,8 +138,11 @@ jobs:
         env:
           RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
         run: |
-          test -s "rucola-${RELEASE_TAG}.apk"
-          apksigner verify --verbose "rucola-${RELEASE_TAG}.apk"
+          APK_PATH="rucola-${RELEASE_TAG}.apk"
+          APKSIGNER="$ANDROID_SDK_ROOT/build-tools/${ANDROID_BUILD_TOOLS}/apksigner"
+          test -s "$APK_PATH"
+          test -x "$APKSIGNER"
+          "$APKSIGNER" verify --verbose "$APK_PATH"
 
       - name: Create or update GitHub Release
         env:

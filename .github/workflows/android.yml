@@ -4,6 +4,9 @@ on:
   pull_request:
     branches: [main]
 
+permissions:
+  contents: read
+
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
@@ -11,13 +14,16 @@ concurrency:
 env:
   ANDROID_API_LEVEL: '36'
   ANDROID_BUILD_TOOLS: '36.0.0'
+  ANDROID_NDK_VERSION: '27.1.12297006'
+  ANDROID_SDK_ROOT: ${{ runner.temp }}/android-sdk
+  ANDROID_HOME: ${{ runner.temp }}/android-sdk
 
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
           node-version: 22.13.x
           cache: npm
@@ -26,30 +32,30 @@ jobs:
       - run: npm run test:domain
       - run: npm run test:cloud-client
       - run: npm run test:sync-engine
-      - uses: actions/setup-java@v4
+      - uses: actions/setup-java@v6
         with:
           distribution: temurin
           java-version: '17'
-          cache: gradle
-      - uses: android-actions/setup-android@v3
-        with:
-          packages: platform-tools
-      - uses: actions/cache@v4
+      - uses: actions/cache@v6
         id: android-sdk-cache
         with:
-          path: |
-            ${{ env.ANDROID_HOME }}/platforms/android-${{ env.ANDROID_API_LEVEL }}
-            ${{ env.ANDROID_HOME }}/build-tools/${{ env.ANDROID_BUILD_TOOLS }}
-          key: android-sdk-${{ runner.os }}-api${{ env.ANDROID_API_LEVEL }}-build${{ env.ANDROID_BUILD_TOOLS }}-v1
+          path: ${{ env.ANDROID_SDK_ROOT }}
+          key: android-sdk-${{ runner.os }}-api${{ env.ANDROID_API_LEVEL }}-build${{ env.ANDROID_BUILD_TOOLS }}-ndk${{ env.ANDROID_NDK_VERSION }}-v3
+      - uses: android-actions/setup-android@v4
+        with:
+          packages: platform-tools
       - name: Install Android SDK components
-        if: steps.android-sdk-cache.outputs.cache-hit != 'true'
         run: |
-          sdkmanager "platforms;android-${ANDROID_API_LEVEL}" "build-tools;${ANDROID_BUILD_TOOLS}"
-      - run: yes | sdkmanager --licenses >/dev/null || true
+          sdkmanager --sdk_root="$ANDROID_SDK_ROOT" \
+            "platforms;android-${ANDROID_API_LEVEL}" \
+            "build-tools;${ANDROID_BUILD_TOOLS}" \
+            "ndk;${ANDROID_NDK_VERSION}"
+      - run: yes | sdkmanager --sdk_root="$ANDROID_SDK_ROOT" --licenses >/dev/null || true
       - name: Verify Android SDK components
         run: |
-          test -d "$ANDROID_HOME/platforms/android-${ANDROID_API_LEVEL}"
-          test -d "$ANDROID_HOME/build-tools/${ANDROID_BUILD_TOOLS}"
+          test -d "$ANDROID_SDK_ROOT/platforms/android-${ANDROID_API_LEVEL}"
+          test -d "$ANDROID_SDK_ROOT/build-tools/${ANDROID_BUILD_TOOLS}"
+          test -d "$ANDROID_SDK_ROOT/ndk/${ANDROID_NDK_VERSION}"
       - name: Create Android debug keystore
         working-directory: android
         run: |
@@ -66,11 +72,12 @@ jobs:
               -validity 10000 \
               -dname "CN=Android Debug,O=Android,C=US"
           fi
-      - uses: gradle/actions/setup-gradle@v4
+      - uses: gradle/actions/setup-gradle@v5
       - name: Build debug APK
         working-directory: android
         run: bash ./gradlew assembleDebug
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: rucola-development-apk
           path: android/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
