@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { SyncEngine } from './SyncEngine.ts';
+import { SyncDecryptionError, SyncEngine } from './SyncEngine.ts';
 
 function localMessage(id = 'local-1', overrides = {}) {
   return { id, relationshipId: 'the-one', participant: 'ME', type: 'TEXT', body: id, createdAt: 1_700_000_000_000, isActive: true, syncState: 'PENDING', orderIndex: 1, mediaReference: null, ...overrides };
@@ -82,6 +82,15 @@ test('treats a codec type mismatch as a dropped inbound message', async () => {
   assert.deepEqual(commit[4], [{ messageId: 'bad-type', serverSeq: 3, reason: 'DECRYPTION_FAILED' }]);
 });
 
+test('propagates unexpected codec errors instead of dropping the message', async () => {
+  const response = { messages: [inbound('runtime-failure', 4)], nextCursor: 4, hasMore: false };
+  const harness = harness({ pullResponse: response, decrypt: async () => { throw new Error('codec runtime failure'); } });
+  const engine = new SyncEngine({ ...harness });
+  await assert.rejects(() => engine.run(), /codec runtime failure/);
+  assert.equal(harness.calls.some(([name]) => name === 'commitInbound'), false);
+  assert.equal(harness.calls.some(([name]) => name === 'ack'), false);
+});
+
 test('does not ACK when local commit of accepted and dropped messages fails', async () => {
   const response = { messages: [inbound('bad-1', 2)], nextCursor: 2, hasMore: false };
   const harness = harnessForDecryptFailure(response);
@@ -95,7 +104,7 @@ function harnessForDecryptFailure(pullResponse, decryptOverride) {
   return harness({
     pullResponse,
     decrypt: decryptOverride ?? (async (remote) => {
-      if (remote.messageId.startsWith('bad-')) throw new Error('unable to decrypt');
+      if (remote.messageId.startsWith('bad-')) throw new SyncDecryptionError('unable to decrypt');
       return { type: remote.type, body: `decoded:${remote.ciphertext}` };
     }),
   });
