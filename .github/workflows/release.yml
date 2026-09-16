@@ -37,12 +37,12 @@ jobs:
             exit 1
           fi
 
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref }}
-          fetch-depth: 0
+          fetch-depth: 1
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: 22.13.x
           cache: npm
@@ -55,24 +55,23 @@ jobs:
           npm run test:cloud-client
           npm run test:sync-engine
 
-      - uses: actions/setup-java@v4
+      - uses: actions/setup-java@v6
         with:
           distribution: temurin
           java-version: '17'
           cache: gradle
 
-      - uses: android-actions/setup-android@v3
+      - uses: android-actions/setup-android@v4
         with:
           packages: platform-tools
 
-      - uses: actions/cache@v4
+      - uses: actions/cache@v6
         id: android-sdk-cache
         with:
           path: |
             ${{ env.ANDROID_HOME }}/platforms/android-${{ env.ANDROID_API_LEVEL }}
             ${{ env.ANDROID_HOME }}/build-tools/${{ env.ANDROID_BUILD_TOOLS }}
           key: android-sdk-${{ runner.os }}-api${{ env.ANDROID_API_LEVEL }}-build${{ env.ANDROID_BUILD_TOOLS }}-v1
-
       - name: Install Android SDK components
         if: steps.android-sdk-cache.outputs.cache-hit != 'true'
         run: |
@@ -113,7 +112,7 @@ jobs:
             echo "RUCOLA_VERSION_CODE=$RELEASE_RUN_NUMBER"
           } >> "$GITHUB_ENV"
 
-      - uses: gradle/actions/setup-gradle@v4
+      - uses: gradle/actions/setup-gradle@v5
       - name: Build signed release APK
         working-directory: android
         env:
