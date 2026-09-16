@@ -1,6 +1,6 @@
 # Cloud Sync Hardening
 
-This document records security, correctness and operational hardening for the production cloud synchronization backend. Current protocol behavior belongs in `docs/CLOUD_ARCHITECTURE.md`; this file tracks hardening status and remaining implementation work.
+This document records security, correctness and operational hardening for the cloud synchronization backend. Current protocol behavior belongs in `docs/CLOUD_ARCHITECTURE.md`; this file tracks hardening status and remaining work.
 
 ## Current status
 
@@ -10,7 +10,7 @@ This document records security, correctness and operational hardening for the pr
 - bounded confirmation-code attempts and lockout
 - device-bound authentication
 - durable message receipts
-- explicit receipt delivery/ACK state
+- per-device receipt delivery/ACK state
 - database-enforced message acceptance sequence invariant
 - database-enforced media attachment invariant
 - database-enforced media/message type compatibility
@@ -18,6 +18,9 @@ This document records security, correctness and operational hardening for the pr
 - relationship termination guards for pull and ACK
 - expiry/cursor-gap coverage
 - sender-device binding for legacy mailbox retry classification
+- bounded streamed media uploads
+- scheduled mailbox/receipt/media cleanup
+- exact ciphertext-view hashing regression coverage
 
 ### Locked decisions
 
@@ -26,7 +29,7 @@ This document records security, correctness and operational hardening for the pr
 The production cloud deliberately has finite retention:
 
 - unacknowledged mailbox messages: **14-day delivery/retry window**;
-- acknowledged durable message receipts: **30 days after acceptance**;
+- durable message receipts: **30-day retention after acceptance**;
 - no indefinite message-idempotency guarantee.
 
 An unacknowledged receipt records the mailbox delivery expiry and becomes a retry-expired tombstone after that point. It must not silently resurrect an expired mailbox message as a new acceptance.
@@ -48,19 +51,16 @@ The backend currently operates on opaque payloads and deliberately does not fina
 
 #### Production posture
 
-`cloud/research` is the implementation branch for the actual production backend. Hardening therefore includes operational concerns rather than only prototype correctness: abuse/rate limiting, observability, migration safety, secret handling, cleanup/recovery and bounded resource usage.
+`cloud/research` contains the cloud backend work, with `fix/cloud-mailbox-direction` carrying the current hardening changes. Operational hardening includes abuse/rate limiting, migration safety, secret handling, cleanup/recovery and bounded resource usage.
 
 ## Remaining implementation / hardening
 
-- final media upload/completion API;
-- R2 integration;
-- scheduled receipt/media cleanup;
-- production rate limits beyond pairing bootstrap;
-- operational metrics and structured error visibility;
-- migration/backfill policy for pre-receipt mailbox data;
-- obsolete `mailbox_messages.acknowledged_at` removal after protocol confirmation;
-- legacy `sync.ts` removal once the durable path is fully validated;
-- final full worker validation after media/R2 implementation.
+- deeper production observability and structured metrics;
+- explicit migration/backfill procedure for any already-populated remote database before deploying the renumbered migration history;
+- final decision on removal of legacy `mailbox_messages.acknowledged_at` after protocol history is confirmed;
+- production resource/secrets verification;
+- end-to-end React Native integration and real two-device validation;
+- final E2E encryption/key-management implementation.
 
 ## Durable message receipts
 
@@ -69,16 +69,17 @@ The mailbox is intentionally temporary, but message identity must survive mailbo
 It preserves relationship/message identity, sender device/sequence, immutable message metadata, ciphertext digest, the original server sequence and acceptance timestamp, plus:
 
 - `delivery_expires_at` — the end of the 14-day mailbox delivery guarantee;
-- `acknowledged_at` — set atomically with mailbox deletion when the recipient crosses the durability boundary;
+- `delivered_to_device_id` / `delivered_at` — the receiving-device delivery record used to validate ACK eligibility;
+- `acknowledged_at` — set when the recipient crosses the durability boundary;
 - `retention_expires_at` — the end of the 30-day post-acceptance receipt retention period.
 
-Push acceptance creates the receipt and mailbox row in the same D1 transaction. A retry while delivery is still possible returns the original server sequence. A retry after an unacknowledged delivery window has expired returns `MESSAGE_RETRY_EXPIRED` rather than creating a second acceptance. A retry after ACK returns the original server sequence from the acknowledged receipt.
+Push acceptance creates the receipt and mailbox row in the same D1 transaction. A retry while delivery is still possible returns the original server sequence. A retry after an unacknowledged delivery window has expired returns `MESSAGE_RETRY_EXPIRED` rather than creating a second acceptance. A retry after ACK returns the original server sequence from the retained receipt.
 
-Receipt cleanup must respect both delivery and retention semantics and coordinate with media cleanup.
+Receipt cleanup respects both delivery and retention semantics and coordinates with media cleanup.
 
 ## Database acceptance invariants
 
-Critical acceptance invariants are enforced at the SQLite boundary:
+Critical acceptance invariants are enforced at the SQLite/D1 boundary:
 
 - inserting a mailbox row must advance `relationships.next_server_seq` exactly once;
 - a media-backed mailbox row must consume the referenced `READY` upload and mark it `ATTACHED`;
@@ -90,33 +91,33 @@ This prevents application-level success from diverging from database state if an
 
 ## Pull and ACK
 
-Pull is non-destructive and authenticated. It uses a relationship-wide high-water cursor, so expired messages may create gaps.
+Pull is non-destructive and authenticated. It uses a relationship-wide high-water cursor and filters the caller's own outbound mailbox rows, so expired messages may create gaps.
 
 ACK is the recipient's durability boundary. A client must persist messages locally before acknowledging them. For media messages, the referenced media must also be locally durable.
 
-Receipt acknowledgement and mailbox deletion are committed in the same D1 batch. This means a lost ACK response cannot lose the idempotency record, while a failed ACK cannot leave the receipt marked acknowledged without the mailbox deletion completing. Repeated ACKs remain idempotent and concurrent ACKs are tested.
+Receipt acknowledgement and mailbox deletion are committed in the same D1 batch. The ACK path is directional: a device may acknowledge only partner-originated messages that were recorded as delivered to that device. Repeated ACKs remain idempotent and concurrent ACKs are tested.
 
 ## Cursor and expiry semantics
 
 Expired mailbox rows are skipped rather than returned as tombstones. Server sequence cursors are therefore high-water marks, not contiguous retained-row counts.
 
-A client must tolerate gaps and advance using the highest returned server sequence only after local persistence.
+A client must tolerate gaps and advance using the highest returned server sequence only after local persistence. Expired gaps do not block ACK advancement when all live partner messages through the requested cursor have been delivered.
 
 ## Media lifecycle
 
 The current media lifecycle contract is documented separately in `docs/MEDIA_LIFECYCLE.md`.
 
-The important invariant is that mailbox pull and ACK are not media deletion events. Media cleanup must follow the sender retry and recipient durability guarantees and be safe to retry after crashes.
+The important invariant is that mailbox pull and ACK are not media deletion events. Media cleanup follows the sender retry and recipient durability guarantees and is safe to retry after crashes.
 
 ## Migration/backfill note
 
-Durable receipts were introduced after the initial mailbox schema. Existing pre-migration mailbox rows do not have receipts. The push path therefore retains a legacy mailbox conflict check while such rows remain.
+Durable receipts were introduced after the initial mailbox schema. Existing pre-receipt mailbox rows do not have receipts, so the push path retains a legacy mailbox conflict check while such rows remain.
 
-Migration `0005_receipt_delivery_state.sql` backfills delivery and retention timestamps for existing receipts. Production deployment must either occur before real mailbox data exists or define an explicit backfill strategy for any older mailbox rows.
+The receipt delivery-state migration is now `cloud/worker/migrations/0006_receipt_delivery_state.sql`; production deployment must verify the existing remote migration history before applying this branch because earlier development versions used duplicate migration prefixes that were subsequently renumbered.
 
 ## Obsolete state
 
-`mailbox_messages.acknowledged_at` remains in the schema for now, although the current ACK implementation deletes acknowledged rows immediately. It should be removed only after the protocol and migration history no longer require it.
+`mailbox_messages.acknowledged_at` remains in the schema for now, although the current ACK implementation deletes acknowledged partner-originated rows immediately. It should be removed only after the protocol and migration history no longer require it.
 
 ## Audit principle
 
