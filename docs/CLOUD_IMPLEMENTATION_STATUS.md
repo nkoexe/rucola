@@ -36,7 +36,7 @@ The current protocol uses:
 - destructive ACK after recipient durability;
 - bounded mailbox retention and finite receipt retention.
 
-The current Worker code uses a **7-day mailbox retention constant**. This supersedes older cloud documents that described a 14-day mailbox guarantee. The 30-day post-acceptance receipt-retention decision remains documented separately, but deployment should be treated as pending until the final retention contract is explicitly reconciled across code, migrations, tests and product requirements.
+The product decision is a **14-day mailbox delivery/retry window** for unacknowledged messages. The Worker retention constant has been restored to 14 days on the current `fix/cloud-mailbox-direction` hardening branch. This must remain aligned in future cloud changes, migrations, tests and cleanup logic.
 
 ## Phase history
 
@@ -58,7 +58,7 @@ Reservation, direct upload, completion and message attachment invariants are imp
 
 ### Cleanup
 
-Mailbox, receipt and media cleanup paths are implemented with bounded batches and restart-safe media cleanup state. The exact retention contract still needs reconciliation as noted above.
+Mailbox, receipt and media cleanup paths are implemented with bounded batches and restart-safe media cleanup state. Mailbox retention is 14 days; receipt retention remains a separate finite window.
 
 ## Mobile integration boundary
 
@@ -92,9 +92,8 @@ Do not use historical migration/native-test results as proof of the current tree
 ## Next concrete work
 
 1. Finish and validate PR #15.
-2. Reconcile the 7-day implementation constant with the documented retention product decision.
-3. Finish production deployment/operational hardening: rate limits, observability, migration/deployment safety, cleanup scheduling and recovery.
-4. Wire the merged mobile cloud foundation into pairing, credentials and app lifecycle.
-5. Integrate text/emoji online sync on two real Android devices.
-6. Add the final E2E protocol/library.
-7. Integrate media synchronization end-to-end.
+2. Finish production deployment/operational hardening: rate limits, observability, migration/deployment safety, cleanup scheduling and recovery.
+3. Wire the merged mobile cloud foundation into pairing, credentials and app lifecycle.
+4. Integrate text/emoji online sync on two real Android devices.
+5. Add the final E2E protocol/library.
+6. Integrate media synchronization end-to-end.
