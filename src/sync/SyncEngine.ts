@@ -22,6 +22,7 @@ function isSupportedWithoutMedia(type: Message['type']): boolean { return type =
 function isRetryableSyncError(cause: unknown): boolean { const candidate = cause as { status?: unknown; code?: unknown } | null; if (!(cause instanceof CloudClientError) && (!candidate || typeof candidate !== 'object')) return false; if (typeof candidate?.status !== 'number' || typeof candidate?.code !== 'string') return false; return candidate.status === 0 || candidate.status === 408 || candidate.status === 429 || candidate.status >= 500; }
 function isBlockedSyncError(cause: unknown): boolean { return cause instanceof Error && cause.message === 'Media synchronization is not implemented yet.'; }
 function isValidDeviceId(value: string): boolean { return /^[A-Za-z0-9_-]{1,128}$/.test(value); }
+function isValidMessageId(value: string): boolean { return /^[A-Za-z0-9_-]{1,128}$/.test(value); }
 function isStaleCursorAck(cause: unknown): boolean { return cause instanceof CloudClientError && cause.code === 'ACK_NOT_DELIVERED'; }
 
 export class SyncEngine {
@@ -113,6 +114,7 @@ export class SyncEngine {
       for (const remote of response.messages) {
         if (!Number.isSafeInteger(remote.serverSeq) || remote.serverSeq <= previousServerSeq) throw new Error('Cloud returned inbound messages out of server-sequence order.');
         if (!isValidDeviceId(remote.senderDeviceId) || remote.senderParticipant !== 'PARTNER') throw new Error('Cloud returned a message from an invalid sender.');
+        if (!isValidMessageId(remote.messageId)) throw new Error('Cloud returned an inbound message with an invalid message ID.');
         previousServerSeq = remote.serverSeq;
         try {
           const decoded = await this.codec.decrypt(remote);
