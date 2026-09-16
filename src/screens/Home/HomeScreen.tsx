@@ -6,6 +6,7 @@ import { launchCameraWithPermission } from '../../data/camera';
 import { deleteOwnedMedia, persistPickedMedia } from '../../data/media';
 import { runNativeIntegrationTests } from '../../data/nativeIntegration';
 import type { Message, Relationship } from '../../domain/models';
+import { isPartnerMessageStale } from '../../domain/messageFreshness';
 import { GetActiveMessage, SendMessage } from '../../domain/useCases';
 import { MessageMedia } from '../../components/MessageMedia';
 
@@ -14,6 +15,7 @@ type ComposerType = 'TEXT' | 'EMOJI';
 
 const QUICK_EMOJIS = ['❤️', '😘', '🥰', '🫶', '💋', '💕', '🥹', '✨'];
 const SWIPE_THRESHOLD = 60;
+const STALE_CHECK_INTERVAL_MS = 60 * 1000;
 
 type Props = {
   relationship: Relationship;
@@ -27,6 +29,7 @@ type Props = {
 
 export function HomeScreen({ relationship, repositoryPromise, revision, onChanged, onOpenHistory, onOpenCalendar, onOpenSettings }: Props) {
   const [message, setMessage] = useState<Message | null>(null);
+  const [messageStale, setMessageStale] = useState(false);
   const [draft, setDraft] = useState('');
   const [composerType, setComposerType] = useState<ComposerType>('TEXT');
   const [sending, setSending] = useState(false);
@@ -56,6 +59,16 @@ export function HomeScreen({ relationship, repositoryPromise, revision, onChange
       });
     return () => { mounted = false; };
   }, [repositoryPromise, revision]);
+
+  useEffect(() => {
+    const updateStaleState = () => setMessageStale(isPartnerMessageStale(message, Date.now()));
+
+    updateStaleState();
+    if (!message) return;
+
+    const interval = setInterval(updateStaleState, STALE_CHECK_INTERVAL_MS);
+    return () => clearInterval(interval);
+  }, [message]);
 
   const send = async () => {
     const body = draft.trim();
@@ -164,11 +177,16 @@ export function HomeScreen({ relationship, repositoryPromise, revision, onChange
 
       <View style={styles.messageArea} {...historyPanResponder.panHandlers}>
         <Text style={styles.partner}>{relationship.partnerNickname}</Text>
-        {message ? (
+        {message && !messageStale ? (
           <>
             {message.type === 'PHOTO_VIDEO' ? <MessageMedia message={message} /> : <Text style={styles.message}>{message.body || message.type.toLowerCase()}</Text>}
             {message.body && message.type === 'PHOTO_VIDEO' ? <Text style={styles.mediaCaption}>{message.body}</Text> : null}
             <Text style={styles.meta}>{new Date(message.createdAt).toLocaleString()}</Text>
+          </>
+        ) : messageStale ? (
+          <>
+            <Text style={styles.message}>{`it’s been a while since ${relationship.partnerNickname} sent you something..`}</Text>
+            <Text style={styles.muted}>hit them up!</Text>
           </>
         ) : (
           <Text style={styles.muted}>nothing here yet...</Text>
@@ -236,7 +254,7 @@ const styles = StyleSheet.create({
   message: { fontSize: 38, fontWeight: '700', textAlign: 'center' },
   mediaCaption: { fontSize: 17, marginTop: 10, textAlign: 'center' },
   meta: { marginTop: 12, opacity: 0.55 },
-  muted: { opacity: 0.55, fontSize: 18 },
+  muted: { opacity: 0.55, fontSize: 18, marginTop: 10, textAlign: 'center' },
   composer: { paddingTop: 12 },
   error: { marginBottom: 8, color: '#9B2C2C' },
   typeRow: { flexDirection: 'row', gap: 8, marginBottom: 8 },
