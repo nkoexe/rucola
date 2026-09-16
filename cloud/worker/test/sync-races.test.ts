@@ -105,6 +105,17 @@ function bodyFor(overrides: Partial<PushBody> = {}): PushBody {
   };
 }
 
+function decodeD1Blob(value: unknown): string {
+  if (typeof value === "string") return value;
+  if (value instanceof ArrayBuffer) return new TextDecoder().decode(new Uint8Array(value));
+  if (value instanceof Uint8Array) return new TextDecoder().decode(value);
+  if (Array.isArray(value)) return new TextDecoder().decode(Uint8Array.from(value as number[]));
+  if (ArrayBuffer.isView(value)) {
+    return new TextDecoder().decode(new Uint8Array(value.buffer, value.byteOffset, value.byteLength));
+  }
+  throw new TypeError(`Unexpected D1 blob representation: ${Object.prototype.toString.call(value)}`);
+}
+
 describe("Rucola sync race hardening", () => {
   it("accepts concurrent pushes from both devices with the same sender sequence", async () => {
     const { me, partner } = await bootstrapAndAccept();
@@ -187,12 +198,10 @@ describe("Rucola sync race hardening", () => {
     const row = await env.DB
       .prepare("SELECT ciphertext, server_seq FROM mailbox_messages WHERE relationship_id = ?1 AND message_id = ?2")
       .bind(me.relationshipId, messageId)
-      .first<{ ciphertext: string | Uint8Array; server_seq: number }>();
+      .first<{ ciphertext: unknown; server_seq: number }>();
     expect(row).not.toBeNull();
     expect(row?.server_seq).toBe(1);
-    const ciphertext = typeof row?.ciphertext === "string"
-      ? row.ciphertext
-      : new TextDecoder().decode(row?.ciphertext);
+    const ciphertext = decodeD1Blob(row?.ciphertext);
     expect([first.ciphertext, second.ciphertext]).toContain(ciphertext);
 
     const relationship = await env.DB
