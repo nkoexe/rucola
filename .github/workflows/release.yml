@@ -75,6 +75,25 @@ jobs:
           printf '%s' "$RUCOLA_RELEASE_KEYSTORE_BASE64" | base64 --decode > "$ANDROID_KEYSTORE_PATH"
           chmod 600 "$ANDROID_KEYSTORE_PATH"
 
+      - name: Prepare Android version
+        env:
+          RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+          RELEASE_RUN_NUMBER: ${{ github.run_number }}
+        run: |
+          VERSION_NAME="${RELEASE_TAG#v}"
+          if [[ ! "$VERSION_NAME" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]; then
+            echo "Invalid version name derived from tag: $VERSION_NAME" >&2
+            exit 1
+          fi
+          if [[ ! "$RELEASE_RUN_NUMBER" =~ ^[1-9][0-9]*$ ]]; then
+            echo "Invalid GitHub Actions run number: $RELEASE_RUN_NUMBER" >&2
+            exit 1
+          fi
+          {
+            echo "RUCOLA_VERSION_NAME=$VERSION_NAME"
+            echo "RUCOLA_VERSION_CODE=$RELEASE_RUN_NUMBER"
+          } >> "$GITHUB_ENV"
+
       - uses: gradle/actions/setup-gradle@v4
       - name: Build signed release APK
         working-directory: android
@@ -88,6 +107,7 @@ jobs:
           test -n "$RUCOLA_RELEASE_KEYSTORE_PASSWORD"
           test -n "$RUCOLA_RELEASE_KEY_ALIAS"
           test -n "$RUCOLA_RELEASE_KEY_PASSWORD"
+          echo "Building Android version $RUCOLA_VERSION_NAME (code $RUCOLA_VERSION_CODE)"
           bash ./gradlew assembleRelease
 
       - name: Prepare release APK
