@@ -22,8 +22,8 @@ function toCloudType(type: Message['type']): CloudMessageType { return type; }
 function isSupportedWithoutMedia(type: Message['type']): boolean { return type === 'TEXT' || type === 'EMOJI'; }
 function isRetryableSyncError(cause: unknown): boolean { const candidate = cause as { status?: unknown; code?: unknown } | null; if (!(cause instanceof CloudClientError) && (!candidate || typeof candidate !== 'object')) return false; if (typeof candidate?.status !== 'number' || typeof candidate?.code !== 'string') return false; return candidate.status === 0 || candidate.status === 408 || candidate.status === 429 || candidate.status >= 500; }
 function isBlockedSyncError(cause: unknown): boolean { return cause instanceof Error && cause.message === 'Media synchronization is not implemented yet.'; }
-function isValidDeviceId(value: string): boolean { return /^[A-Za-z0-9_-]{1,128}$/.test(value); }
-function isValidMessageId(value: string): boolean { return /^[A-Za-z0-9_-]{1,128}$/.test(value); }
+function isValidDeviceId(value: string): boolean { return typeof value === 'string' && /^[A-Za-z0-9_-]{1,128}$/.test(value); }
+function isValidMessageId(value: string): boolean { return typeof value === 'string' && /^[A-Za-z0-9_-]{1,128}$/.test(value); }
 function isStaleCursorAck(cause: unknown): boolean { return cause instanceof CloudClientError && cause.code === 'ACK_NOT_DELIVERED'; }
 
 export class SyncEngine {
