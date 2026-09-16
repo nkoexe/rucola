@@ -1,33 +1,31 @@
 # Rucola Cloud Implementation Status
 
-Date: 2026-09-12
-Branch: `cloud/research`
+Date: 2026-09-16
+Branch: `fix/cloud-mailbox-direction`
 
-## Phase 1 — `sync/pull`
+## Current status
 
-**Status: complete and locally validated.**
+The cloud backend foundation is implemented and hardened through the temporary mailbox, ACK, media, cleanup, and concurrency boundaries. The React Native cloud adapter is the next integration step.
 
-The pull endpoint is implemented, hardened, and covered by the Worker test suite.
+## Sync protocol
 
-## Phase 2 — `sync/ack`
+### `GET /v1/sync/pull`
 
-**Status: implementation complete; local validation pending.**
+**Status: complete and hardened.**
 
-Implemented:
-
-- `POST /v1/sync/ack` is now a real route.
 - Device authentication is required.
-- Only `ACTIVE` relationships can acknowledge.
-- The relationship and highest known server sequence are read through a D1 `first-primary` session.
-- `throughServerSeq` must be a positive safe integer.
-- Acknowledgements beyond the server's known high-water mark return `ACK_CURSOR_AHEAD`.
-- Acknowledgement is scoped to the authenticated relationship.
-- Mailbox rows through the supplied high-water mark are deleted immediately after the durable ACK request.
-- Repeating an acknowledgement is harmless and returns success with `deleted: 0` when nothing remains.
-- Messages pushed after an earlier acknowledgement have a higher server sequence and are not removed by the earlier ACK.
-- The legacy `/v1/sync/ack/...` route is no longer accepted.
+- Only `ACTIVE` relationships can synchronize.
+- The caller's own outbound mailbox rows are excluded from its pull results.
+- Partner-originated messages are returned in ascending `server_seq` order.
+- `after` is a bounded relationship-local high-water cursor; `limit` defaults to 50 and is capped at 100.
+- Pull is non-destructive. Repeating a pull safely returns still-unacknowledged messages.
+- Delivery is recorded per receiving device before the response is returned.
+- Expired mailbox rows are skipped, so cursor gaps are expected.
+- Stored ciphertext is validated without requiring plaintext.
 
-### ACK protocol
+### `POST /v1/sync/ack`
+
+**Status: complete and hardened.**
 
 Request:
 
@@ -39,68 +37,82 @@ Content-Type: application/json
 {"throughServerSeq":41}
 ```
 
-Response:
+- Device authentication is required.
+- Only `ACTIVE` relationships can acknowledge.
+- `throughServerSeq` must be a positive safe integer and cannot exceed the server's known sequence.
+- The ACK is directional: a device can acknowledge only partner-originated messages delivered to that device.
+- Live undelivered partner messages prevent an ACK from crossing their sequence.
+- Expired mailbox gaps do not block cursor advancement.
+- Receipt acknowledgement and mailbox deletion are committed together in the D1 batch.
+- Repeating an ACK is idempotent and returns success with `deleted: 0` when nothing remains.
+- The legacy `/v1/sync/ack/...` route is not accepted.
 
-```json
-{
-  "acknowledgedThrough": 41,
-  "deleted": 41,
-  "acknowledgedAt": 1770000000000
-}
-```
+The recipient must persist all covered data locally before sending the ACK. The server response is not the local durability boundary.
 
-`throughServerSeq` is a relationship-wide contiguous high-water mark. The client must only send it after all messages through that sequence have been durably persisted locally.
+## Durable receipts
 
-### Cleanup semantics
+`message_receipts` preserves message identity, sender sequence, immutable message metadata, ciphertext hash, server sequence, delivery expiry, per-device delivery state, acknowledgement state, and finite retention data.
 
-The mailbox is a temporary delivery queue. ACK is the explicit durability boundary: once the recipient confirms a contiguous high-water mark, the corresponding server copies may be deleted.
+The receipt survives mailbox deletion so a sender can safely retry after a lost response. Unacknowledged delivery expires after 14 days; retained receipts remain for up to 30 days after acceptance.
 
-The server deliberately does not attempt to infer acknowledgement from a pull request. If the client crashes after pull but before ACK, the messages remain available for another pull.
+## Pairing
 
-Repeated or lower ACKs are intentionally idempotent. The server does not maintain a second acknowledgement table because the relationship-wide sequence and the client's durable cursor already provide the required high-water-mark semantics.
+**Status: complete and hardened.**
 
-## Important protocol choice
+- bootstrap creates the first device and invitation;
+- invitation acceptance creates the partner device;
+- confirmation attempts are bounded and lockable;
+- concurrent acceptance is tested so an invitation is consumed only once;
+- relationship and device ownership are enforced by the database and Worker.
 
-Pull returns all eligible mailbox messages for the authenticated relationship, including messages originally pushed by the same device. This keeps the cursor model relationship-wide and means local persistence must be idempotent by `messageId`.
+## Media / R2
 
-The server cursor is a monotonic server sequence, not a timestamp. Pull remains non-destructive; ACK is the destructive operation.
+**Status: implemented and hardened.**
 
-## Hardening and consistency
+- upload reservations use `POST /v1/media/create`;
+- media upload uses `PUT /v1/media/{uploadId}`;
+- completion uses `POST /v1/media/{uploadId}/complete`;
+- ownership, MIME type, declared size, expiry, checksum, and lifecycle state are validated;
+- upload bodies are bounded before they can exceed the reserved size in R2;
+- `READY` media becomes `ATTACHED` atomically with `PHOTO_VIDEO` message acceptance;
+- `DRAWING` remains in the protocol model but new drawing pushes are rejected until end-to-end drawing support exists;
+- scheduled cleanup handles expired/orphaned media and retained receipt dependencies.
 
-Both pull and ACK use `withSession("first-primary")` when the latest relationship state matters. Cloudflare documents that `first-primary` starts the session from the latest primary database version and that subsequent queries in the session remain sequentially consistent. citeturn0search0turn0search2
+## Hardening
 
-The ACK implementation was deliberately kept relationship-scoped and rejects future cursors instead of silently clamping them. This makes client protocol bugs visible rather than silently deleting an unintended range.
+Implemented coverage includes:
+
+- relationship isolation;
+- directional pull and ACK semantics;
+- concurrent push/pull/ACK races;
+- sender-sequence conflict handling;
+- message-ID idempotency and conflict detection;
+- pairing acceptance races;
+- cursor expiry gaps;
+- durable receipt delivery tracking;
+- exact ciphertext-view hashing;
+- bounded streamed media uploads;
+- relationship termination guards;
+- retry-expiry handling.
 
 ## Validation
 
-Phase 1 was previously validated with:
-
-```text
-4 test files passed
-44 tests passed
-0 failures
-npm run typecheck passed
-```
-
-Phase 2 adds a dedicated ACK test suite covering:
-
-- unauthenticated requests;
-- exact route behavior;
-- malformed and out-of-range cursors;
-- future-sequence rejection;
-- high-water-mark deletion;
-- repeated ACK idempotency;
-- relationship isolation;
-- messages pushed after an earlier ACK;
-- relationship-wide acknowledgement of sender-owned messages.
-
-Run before considering Phase 2 complete:
+The cloud Worker test suite is the primary validation boundary. Before merge, run:
 
 ```bash
-npm test
+npm ci
 npm run typecheck
+npm test
 ```
+
+The latest fully validated pre-docs-cleanup state was 15 test files and 111 tests passing. Documentation-only commits can still trigger a fresh CI run and should be rechecked before merge.
 
 ## Next step
 
-After the Phase 2 suite is green, perform a second hardening pass focused on **concurrent push/pull/ACK behavior and mailbox lifecycle invariants**. Then proceed to Phase 4 media/R2 work. The React Native cloud adapter should remain blocked until the sync protocol is stable.
+Connect the React Native sync engine to the stable protocol while preserving SQLite as the local source of truth. The mobile flow should remain:
+
+```text
+push local outbox → pull partner messages → persist transactionally → ACK durable cursor
+```
+
+Do not make the UI depend directly on the cloud endpoints.
