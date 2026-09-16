@@ -1,61 +1,82 @@
 # Native SQLite Integration Test Plan
 
-Rucola's repository implementation depends on `expo-sqlite`, so repository integration tests must execute inside a native Expo runtime. The existing Node test command remains reserved for platform-independent domain tests.
+Rucola's repository implementation depends on `expo-sqlite`, so repository integration tests must execute inside a native Expo runtime. The Node test command remains reserved for platform-independent domain and application logic.
 
 ## Harness status
 
-The development-only native harness is implemented at `src/data/nativeIntegration.ts` and exposed through the development Settings screen. It creates a uniquely named disposable SQLite database, initializes the real schema, constructs the real `SQLiteRucolaRepository`, runs assertions, closes the database, and deletes it afterward. The normal `rucola.db` is never used by the suite.
+The development-only native harness is implemented at `src/data/nativeIntegration.ts` and exposed through the development Settings screen. It creates a uniquely named disposable SQLite database, initializes the real current schema, constructs the real `SQLiteRucolaRepository`, runs assertions, closes the database, and deletes the database afterward. The normal `rucola.db` is never used by the suite.
 
-The harness has not been executed in this environment, so its tests must not be described as passing until they are run in a native development build.
+The harness code is present, but this document does **not** claim a current passing device/emulator run. A pass should only be recorded after the native development build actually executes the suite.
 
-## Current test groups
+## Current schema
 
-Implemented:
+The native harness expects SQLite schema **version 5**.
 
-1. Fresh database
-   - initialize creates schema v2;
-   - foreign keys are enabled;
-   - core tables are created.
-2. Message lifecycle
-   - setup creates the partner seed;
-   - first and second ME sends work;
-   - second ME send replaces the active slot;
-   - previous ME message remains history;
-   - ME and PARTNER slots are independent;
-   - ordering increases monotonically.
-3. Persistence
-   - relationship state survives repository recreation;
-   - active message state survives repository recreation.
-4. Integrity
-   - an invalid active-slot foreign key is rejected.
-5. Reset
-   - relationship deletion removes relationship and messages.
+A fresh test database verifies:
 
-Still to implement:
+- foreign keys are enabled;
+- the core relationship/message tables exist;
+- `sync_state`, `sync_outbox`, and `sync_inbox` exist;
+- the outbox includes the blocked state.
 
-6. Setup recovery
-   - partner seed is created exactly once;
-   - missing partner active slot is recovered from partner history.
-7. Media
-   - media references persist;
-   - relationship deletion removes database rows and invokes owned-media cleanup;
-   - failed/missing media deletion does not prevent database reset.
-8. Migration
-   - valid v0/v1 fixtures migrate to v2;
-   - malformed active-slot references fail safely;
-   - malformed numeric fields fail safely;
-   - failed migration rolls back instead of leaving a half-migrated schema.
-9. Integrity edge cases
-   - invalid participant/type/sync-state values are rejected;
-   - active slots cannot point at another relationship or participant;
-   - deleting a message referenced by an active slot is rejected.
-10. Initialization recovery
-   - a failed initialization does not poison the cached initialization promise;
-   - retry can initialize the database successfully.
-11. Ordering/concurrency
-   - repeated sends never reuse an order index;
-   - concurrent sends are checked for duplicate order allocation.
+## Current test coverage
 
-## CI
+The harness currently exercises:
 
-Do not add this suite to `npm run test:domain`. The native suite currently runs manually from a development build through Settings. Once the suite is complete and a reliable emulator/device workflow is available, add a separate CI job that builds/boots the native test environment and runs it.
+### Database initialization
+
+- fresh database creation at schema v5;
+- concurrent initialization of the same database;
+- initialization caching/recovery behavior.
+
+### Message lifecycle
+
+- setup creates the partner seed;
+- first and subsequent ME sends work;
+- replacing the ME active slot leaves prior messages in history;
+- ME and PARTNER active slots are independent;
+- message order indexes are monotonic;
+- concurrent sends preserve every message and allocate unique/contiguous order indexes;
+- concurrent repository instances can write safely against the same SQLite database.
+
+### Persistence and integrity
+
+- relationship and active-message state survive repository recreation;
+- invalid foreign-key references are rejected;
+- relationship reset removes the relationship and dependent messages.
+
+### Media
+
+- invalid/empty source URIs are rejected;
+- selected media is copied into app-owned storage;
+- video extensions follow MIME type;
+- referenced media survives reconciliation;
+- unreferenced owned media is cleaned up;
+- owned media can be deleted;
+- files outside the app-owned media directory are not deleted;
+- broader media robustness edge cases are exercised by the dedicated media robustness suite.
+
+### Synchronization state
+
+The native harness runs the durable sync-state integration suite separately. That suite covers the real SQLite representation of sender sequence allocation, outbox retry/blocking semantics, inbound receipts/cursor state, stale/expired outbound reconciliation, and sync-state reset behavior.
+
+### Migration
+
+The migration integration suite covers the legacy schema fixtures and rollback/integrity behavior against the current schema target, including malformed legacy active-slot and numeric data.
+
+## CI / execution policy
+
+Do not add the native suite to `npm run test:domain`.
+
+The native suite must remain separate because it requires a native Expo runtime and disposable SQLite databases. A development build can execute it manually through the development Settings screen.
+
+A future CI job may automate it when a reliable emulator/device environment is available. CI documentation must report actual execution results rather than treating the presence of the harness as proof that native behavior passed.
+
+## Maintenance rule
+
+When the SQLite schema, repository behavior, media ownership rules, or sync-state semantics change:
+
+1. update this plan;
+2. update the relevant integration harness;
+3. add or adjust regression coverage;
+4. record only validation that was actually executed.
