@@ -8,7 +8,8 @@
     "typecheck": "wrangler types && tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
-    "migrate:local": "wrangler d1 migrations apply rucola-local --local"
+    "migrate:local": "wrangler d1 migrations apply rucola-local --local",
+    "render:deploy-config": "node scripts/render-deploy-config.mjs"
   },
   "devDependencies": {
     "@cloudflare/vitest-plugin": "^1.1.5",
