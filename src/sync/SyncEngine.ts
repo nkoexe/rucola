@@ -9,13 +9,11 @@ export interface SyncEngineOptions { cloud: CloudClient; state: SQLiteSyncStateS
 export interface SyncRunResult { pushed: number; pulled: number; acknowledged: number; failed: number; moreIncoming: boolean; }
 const DEFAULT_OUTBOX_BATCH_SIZE = 20;
 const DEFAULT_PULL_BATCH_SIZE = 50;
-const BLOCKED_RETRY_AT = Number.MAX_SAFE_INTEGER;
 function normalizeBatchSize(value: number | undefined, fallback: number): number { const batchSize = value ?? fallback; if (!Number.isSafeInteger(batchSize) || batchSize < 1 || batchSize > 100) throw new Error('Sync batch size must be between 1 and 100.'); return batchSize; }
 function toCloudType(type: Message['type']): CloudMessageType { return type; }
 function isSupportedWithoutMedia(type: Message['type']): boolean { return type === 'TEXT' || type === 'EMOJI'; }
 function isRetryableSyncError(cause: unknown): boolean { const candidate = cause as { status?: unknown; code?: unknown } | null; if (!(cause instanceof CloudClientError) && (!candidate || typeof candidate !== 'object')) return false; if (typeof candidate?.status !== 'number' || typeof candidate?.code !== 'string') return false; return candidate.status === 0 || candidate.status === 408 || candidate.status === 429 || candidate.status >= 500; }
 function isBlockedSyncError(cause: unknown): boolean { return cause instanceof Error && cause.message === 'Media synchronization is not implemented yet.'; }
-function isBlockedOutboxItem(nextAttemptAt: number): boolean { return nextAttemptAt === BLOCKED_RETRY_AT; }
 function isValidDeviceId(value: string): boolean { return /^[A-Za-z0-9_-]{1,128}$/.test(value); }
 
 export class SyncEngine {
@@ -29,7 +27,7 @@ export class SyncEngine {
     const pending = await this.state.getDueOutbox(Number.MAX_SAFE_INTEGER, Math.max(this.outboxBatchSize, 100));
     if (pending.length === 0) return;
     const due = [];
-    for (const item of pending) { if (isBlockedOutboxItem(item.nextAttemptAt)) continue; if (item.nextAttemptAt > now) break; due.push(item); if (due.length >= this.outboxBatchSize) break; }
+    for (const item of pending) { if (item.nextAttemptAt > now) break; due.push(item); if (due.length >= this.outboxBatchSize) break; }
     if (due.length === 0) return;
     const messages = await this.repository.getMessages(); const byId = new Map(messages.map((message) => [message.id, message]));
     for (const item of due) {
