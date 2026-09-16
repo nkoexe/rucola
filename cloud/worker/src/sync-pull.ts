@@ -103,7 +103,7 @@ export async function pullMessages(env: Env, request: Request): Promise<Response
 
     if (rows.length > 0) {
       const deliveredAt = Date.now();
-      const delivery = await env.DB.prepare(
+      const delivery = await session.prepare(
         `UPDATE message_receipts
          SET delivered_to_device_id = ?1,
              delivered_at = ?2
