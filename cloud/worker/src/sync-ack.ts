@@ -58,9 +58,27 @@ export async function acknowledgeMessages(env: Env, request: Request): Promise<R
        AND sender_device_id != ?2`,
   ).bind(device.relationshipId, device.id).first<{ max_delivered: number | null }>();
   const maxDelivered = delivered?.max_delivered ?? 0;
-  if (throughServerSeq > maxDelivered) {
-    return errorResponse("ACK_NOT_DELIVERED", "throughServerSeq has not been delivered to this device", 409);
-  }
+  if (throughServerSeq > maxDelivered) return errorResponse("ACK_NOT_DELIVERED", "throughServerSeq has not been delivered to this device", 409);
+
+  const missingDelivery = await session.prepare(
+    `SELECT 1 AS missing
+     FROM mailbox_messages AS m
+     WHERE m.relationship_id = ?1
+       AND m.server_seq <= ?2
+       AND m.sender_device_id != ?3
+       AND m.acknowledged_at IS NULL
+       AND NOT EXISTS (
+         SELECT 1 FROM message_receipts AS r
+         WHERE r.relationship_id = m.relationship_id
+           AND r.message_id = m.message_id
+           AND r.server_seq = m.server_seq
+           AND r.sender_device_id = m.sender_device_id
+           AND r.delivered_to_device_id = ?3
+           AND r.delivered_at IS NOT NULL
+       )
+     LIMIT 1`,
+  ).bind(device.relationshipId, throughServerSeq, device.id).first<{ missing: number }>();
+  if (missingDelivery) return errorResponse("ACK_NOT_DELIVERED", "throughServerSeq skips an inbound message that has not been delivered to this device", 409);
 
   const acknowledgedAt = Date.now();
   try {
