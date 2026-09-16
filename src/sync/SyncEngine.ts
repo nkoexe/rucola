@@ -2,7 +2,7 @@ import type { Message } from '../domain/models';
 import type { RucolaRepository } from '../domain/repository';
 import { CloudClient, CloudClientError } from '../cloud/CloudClient.ts';
 import type { CloudPulledMessage, CloudMessageType } from '../cloud/protocol';
-import type { SQLiteSyncStateStore, InboundSyncMessage } from '../data/SQLiteSyncStateStore.ts';
+import type { SQLiteSyncStateStore, InboundSyncMessage, DroppedInboundSyncMessage } from '../data/SQLiteSyncStateStore.ts';
 
 export interface SyncCodec { encryptionVersion: number; encrypt(message: Message): Promise<string>; decrypt(message: CloudPulledMessage): Promise<{ type: CloudMessageType; body: string; mediaReference?: string | null }>; }
 export interface SyncEngineOptions { cloud: CloudClient; state: SQLiteSyncStateStore; repository: RucolaRepository; codec: SyncCodec; now?: () => number; outboxBatchSize?: number; pullBatchSize?: number; }
@@ -10,6 +10,7 @@ export interface SyncRunResult { pushed: number; pulled: number; acknowledged: n
 
 const DEFAULT_OUTBOX_BATCH_SIZE = 20;
 const DEFAULT_PULL_BATCH_SIZE = 50;
+const DROPPED_DECRYPTION_REASON = 'DECRYPTION_FAILED';
 
 function normalizeBatchSize(value: number | undefined, fallback: number): number {
   const batchSize = value ?? fallback;
@@ -91,10 +92,6 @@ export class SyncEngine {
         if (pendingAck.acknowledgedThrough < cursor) throw new Error('Cloud acknowledged fewer messages than the persisted local cursor.');
         result.acknowledged += pendingAck.deleted;
       } catch (cause) {
-        // The local transaction is authoritative. If the cloud no longer has
-        // delivery receipts for this already-committed cursor, pull from it
-        // again rather than getting permanently stuck on an ACK that can no
-        // longer change mailbox state. Normal post-pull ACKs remain strict.
         if (!isStaleCursorAck(cause)) throw cause;
       }
     }
@@ -111,18 +108,26 @@ export class SyncEngine {
       }
       if (response.messages.length > this.pullBatchSize) throw new Error('Cloud returned more inbound messages than requested.');
       const inbound: InboundSyncMessage[] = [];
+      const dropped: DroppedInboundSyncMessage[] = [];
       let previousServerSeq = cursor;
       for (const remote of response.messages) {
         if (!Number.isSafeInteger(remote.serverSeq) || remote.serverSeq <= previousServerSeq) throw new Error('Cloud returned inbound messages out of server-sequence order.');
         if (!isValidDeviceId(remote.senderDeviceId) || remote.senderParticipant !== 'PARTNER') throw new Error('Cloud returned a message from an invalid sender.');
         previousServerSeq = remote.serverSeq;
-        const decoded = await this.codec.decrypt(remote);
-        if (decoded.type !== remote.type) throw new Error('Sync codec changed the inbound message type.');
-        inbound.push({ id: remote.messageId, type: decoded.type, body: decoded.body, createdAt: remote.createdAt, serverSeq: remote.serverSeq, mediaReference: decoded.mediaReference });
+        try {
+          const decoded = await this.codec.decrypt(remote);
+          if (decoded.type !== remote.type) throw new Error('Sync codec changed the inbound message type.');
+          inbound.push({ id: remote.messageId, type: decoded.type, body: decoded.body, createdAt: remote.createdAt, serverSeq: remote.serverSeq, mediaReference: decoded.mediaReference });
+        } catch {
+          // A malformed/hostile ciphertext must not permanently block later messages.
+          // Do not persist ciphertext or plaintext for discarded messages.
+          dropped.push({ messageId: remote.messageId, serverSeq: remote.serverSeq, reason: DROPPED_DECRYPTION_REASON });
+        }
       }
-      const lastServerSeq = inbound.at(-1)?.serverSeq ?? cursor;
-      if (response.nextCursor !== lastServerSeq || response.nextCursor <= cursor) throw new Error('Cloud returned a non-advancing or inconsistent pull cursor.');
-      await this.state.commitInbound(inbound, response.nextCursor, this.now());
+      if (response.nextCursor <= cursor) throw new Error('Cloud returned a non-advancing or inconsistent pull cursor.');
+      if (inbound.length > 0 && response.nextCursor < (inbound.at(-1)?.serverSeq ?? 0)) throw new Error('Cloud returned a non-advancing or inconsistent pull cursor.');
+      if (dropped.length === 0 && response.nextCursor !== (inbound.at(-1)?.serverSeq ?? cursor)) throw new Error('Cloud returned a non-advancing or inconsistent pull cursor.');
+      await this.state.commitInbound(inbound, response.nextCursor, this.now(), dropped);
       const ack = await this.cloud.acknowledgeMessages(response.nextCursor);
       if (ack.acknowledgedThrough < response.nextCursor) throw new Error('Cloud acknowledged fewer messages than requested.');
       cursor = response.nextCursor;
