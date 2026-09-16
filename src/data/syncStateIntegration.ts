@@ -28,10 +28,7 @@ export async function runSyncStateIntegrationTests(db: SQLite.SQLiteDatabase): P
 
   const first = await repository.sendMessage({ type: 'TEXT', body: 'first' });
   const second = await repository.sendMessage({ type: 'TEXT', body: 'second' });
-  const [firstSeqA, firstSeqB] = await Promise.all([
-    store.reserveSenderSequence(first.id),
-    store.reserveSenderSequence(first.id),
-  ]);
+  const [firstSeqA, firstSeqB] = await Promise.all([store.reserveSenderSequence(first.id), store.reserveSenderSequence(first.id)]);
   assertEqual(firstSeqA, 1, 'First message should receive sender sequence one');
   assertEqual(firstSeqB, 1, 'Concurrent reservation of one message must be idempotent');
   assertEqual(await store.reserveSenderSequence(second.id), 2, 'Second message should receive sender sequence two');
@@ -58,9 +55,12 @@ export async function runSyncStateIntegrationTests(db: SQLite.SQLiteDatabase): P
   const blocked = await db.getFirstAsync<{ blocked: number }>('SELECT blocked FROM sync_outbox WHERE relationshipId = ? AND messageId = ?', 'the-one', first.id);
   assertEqual(blocked?.blocked, 1, 'Blocked state must be durable in SQLite');
 
-  const expiryCutoff = createdAt + 30 * 24 * 60 * 60 * 1000;
   const stale = await repository.sendMessage({ type: 'TEXT', body: 'stale' });
   await store.reserveSenderSequence(stale.id);
+  const staleCreatedAt = createdAt;
+  await db.runAsync('UPDATE messages SET createdAt = ? WHERE id = ? AND relationshipId = ?', staleCreatedAt, stale.id, 'the-one');
+  await db.runAsync('UPDATE sync_outbox SET createdAt = ? WHERE relationshipId = ? AND messageId = ?', staleCreatedAt, 'the-one', stale.id);
+  const expiryCutoff = staleCreatedAt + 30 * 24 * 60 * 60 * 1000;
   await store.reconcileOutbox(expiryCutoff);
   assertEqual((await repository.getMessages()).some((message) => message.id === stale.id), false, 'Outbound messages older than 30 days must be deleted during reconciliation');
   assertEqual((await db.getFirstAsync<{ count: number }>('SELECT COUNT(*) AS count FROM sync_outbox WHERE relationshipId = ? AND messageId = ?', 'the-one', stale.id))?.count, 0, 'Expired outbox rows must be deleted');
