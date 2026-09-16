@@ -9,10 +9,28 @@ on:
     paths:
       - "cloud/worker/**"
       - ".github/workflows/cloud-worker.yml"
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: Cloudflare environment to deploy
+        required: true
+        type: choice
+        options:
+          - dev
+          - production
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cloud-worker-${{ github.event_name == 'workflow_dispatch' && inputs.environment || github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 
 jobs:
   test:
+    if: github.event_name != 'workflow_dispatch'
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     defaults:
       run:
         working-directory: cloud/worker
@@ -26,3 +44,44 @@ jobs:
       - run: npm ci
       - run: npm run typecheck
       - run: npm test
+
+  deploy:
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment: ${{ inputs.environment }}
+    defaults:
+      run:
+        working-directory: cloud/worker
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: cloud/worker/package-lock.json
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm test
+      - name: Render Cloudflare deployment config
+        env:
+          RUCOLA_DEPLOY_ENV: ${{ inputs.environment }}
+          RUCOLA_D1_DATABASE_ID: ${{ secrets.RUCOLA_D1_DATABASE_ID }}
+        run: npm run render:deploy-config
+      - name: Apply D1 migrations
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          RUCOLA_DEPLOY_ENV: ${{ inputs.environment }}
+        run: |
+          if [[ "$RUCOLA_DEPLOY_ENV" == "dev" ]]; then
+            DATABASE_NAME="rucola-dev"
+          else
+            DATABASE_NAME="rucola-prod"
+          fi
+          npx wrangler d1 migrations apply "$DATABASE_NAME" --remote --config .wrangler.deploy.jsonc
+      - name: Deploy Worker
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: npx wrangler deploy --config .wrangler.deploy.jsonc --strict
