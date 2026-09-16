@@ -79,6 +79,20 @@ The Cloudflare token should be scoped to the account used by Rucola. The deploym
 
 For production, configure GitHub Environment protection with a required reviewer before using the production deploy option.
 
+## Sync protocol hardening
+
+Mailbox entries are retained for 14 days. Delivery receipts are retained for 30 days to support retry idempotency after a mailbox row has been acknowledged or removed.
+
+The server never resurrects an unacknowledged message after its 14-day delivery window. A retry with the same message identity and payload after that point receives `MESSAGE_RETRY_EXPIRED` instead of creating a second mailbox message. Clients should therefore treat the local outbound message as expired after 30 days without successful synchronization and remove it rather than retrying indefinitely.
+
+Pull is directional: a device never receives its own outbound mailbox rows. ACK is also directional: a device can acknowledge and delete only partner-originated messages that have been delivered to that device. Repeated ACKs are idempotent.
+
+Mailbox retention can create gaps in `serverSeq`. Those gaps are expected: pull skips expired rows and advances only to the latest returned message. An ACK may cross an expired gap when all still-existing partner-originated rows up to that cursor were delivered.
+
+`DRAWING` remains part of the protocol/schema for future compatibility, but new DRAWING pushes are rejected until drawing synchronization is implemented end-to-end.
+
+Inbound decryption is a client responsibility. A future client quarantine path should preserve cursor progress when a received ciphertext cannot be decrypted; a single malformed or hostile payload must not permanently block later messages.
+
 ## Health checks
 
 After deployment, verify:
