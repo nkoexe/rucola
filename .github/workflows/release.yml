@@ -19,6 +19,9 @@ concurrency:
   group: android-release-${{ github.ref }}
   cancel-in-progress: false
 
+env:
+  ANDROID_KEYSTORE_PATH: android/app/rucola-release.keystore
+
 jobs:
   build-release:
     runs-on: ubuntu-latest
@@ -54,30 +57,36 @@ jobs:
       - run: yes | sdkmanager --licenses >/dev/null || true
       - run: sdkmanager "platforms;android-36" "build-tools;36.0.0"
 
-      - name: Create Android debug keystore
-        working-directory: android
+      - name: Restore release keystore
+        env:
+          RUCOLA_RELEASE_KEYSTORE_BASE64: ${{ secrets.RUCOLA_RELEASE_KEYSTORE_BASE64 }}
         run: |
-          if [ ! -f app/debug.keystore ]; then
-            keytool -genkeypair \
-              -v \
-              -storetype JKS \
-              -keystore app/debug.keystore \
-              -storepass android \
-              -keypass android \
-              -alias androiddebugkey \
-              -keyalg RSA \
-              -keysize 2048 \
-              -validity 10000 \
-              -dname "CN=Android Debug,O=Android,C=US"
-          fi
+          test -n "$RUCOLA_RELEASE_KEYSTORE_BASE64"
+          printf '%s' "$RUCOLA_RELEASE_KEYSTORE_BASE64" | base64 --decode > "$ANDROID_KEYSTORE_PATH"
+          chmod 600 "$ANDROID_KEYSTORE_PATH"
 
       - uses: gradle/actions/setup-gradle@v4
-      - name: Build release APK
+      - name: Build signed release APK
         working-directory: android
-        run: bash ./gradlew assembleRelease
+        env:
+          RUCOLA_RELEASE_SIGNING: 'true'
+          RUCOLA_RELEASE_KEYSTORE_FILE: rucola-release.keystore
+          RUCOLA_RELEASE_KEYSTORE_PASSWORD: ${{ secrets.RUCOLA_RELEASE_KEYSTORE_PASSWORD }}
+          RUCOLA_RELEASE_KEY_ALIAS: ${{ secrets.RUCOLA_RELEASE_KEY_ALIAS }}
+          RUCOLA_RELEASE_KEY_PASSWORD: ${{ secrets.RUCOLA_RELEASE_KEY_PASSWORD }}
+        run: |
+          test -n "$RUCOLA_RELEASE_KEYSTORE_PASSWORD"
+          test -n "$RUCOLA_RELEASE_KEY_ALIAS"
+          test -n "$RUCOLA_RELEASE_KEY_PASSWORD"
+          bash ./gradlew assembleRelease
 
       - name: Prepare release APK
         run: cp android/app/build/outputs/apk/release/app-release.apk "rucola-${GITHUB_REF_NAME}.apk"
+
+      - name: Verify APK
+        run: |
+          test -s "rucola-${GITHUB_REF_NAME}.apk"
+          apksigner verify --verbose "rucola-${GITHUB_REF_NAME}.apk"
 
       - name: Create GitHub Release
         env:
