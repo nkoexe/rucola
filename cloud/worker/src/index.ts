@@ -6,7 +6,7 @@ import { acceptInvitation, bootstrapPairing, createInvitation } from "./pairing"
 import { completeMedia, createMediaReservation, uploadMedia } from "./media";
 import { pullMessages } from "./sync-pull";
 import { acknowledgeMessages } from "./sync-ack";
-import { pushMessageDurable } from "./sync-durable";
+import { pushMessageDurable } from "./sync-push";
 import type { Env } from "./types";
 
 const VERSION = "sync-hardening-1";
