@@ -102,6 +102,7 @@ function validateRequest(body: PushRequest, now: number): { value: ValidatedPush
   if (!isBoundedIdentifier(body.messageId)) return { value: null, status: 400, message: "Invalid messageId" };
   if (!Number.isSafeInteger(body.senderSeq) || (body.senderSeq as number) < 1) return { value: null, status: 400, message: "Invalid senderSeq" };
   if (typeof body.type !== "string" || !MESSAGE_TYPES.has(body.type as MessageType)) return { value: null, status: 400, message: "Invalid message type" };
+  if (body.type === "DRAWING") return { value: null, status: 400, message: "DRAWING synchronization is not implemented yet" };
   if (typeof body.ciphertext !== "string" || body.ciphertext.length === 0) return { value: null, status: 400, message: "Invalid ciphertext" };
   const ciphertextBytes = new TextEncoder().encode(body.ciphertext);
   if (ciphertextBytes.byteLength > MAX_CIPHERTEXT_BYTES) return { value: null, status: 413, message: "Ciphertext is too large" };
