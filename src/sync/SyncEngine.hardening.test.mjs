@@ -39,65 +39,65 @@ function harness({ pullResponse, decrypt, now = 1_700_000_100_000, reconcileOutb
 
 test('drops one undecryptable inbound message and still commits later messages', async () => {
   const response = { messages: [inbound('bad-1', 7), inbound('good-2', 8)], nextCursor: 8, hasMore: false };
-  const harness = harnessForDecryptFailure(response);
-  const engine = new SyncEngine({ ...harness });
+  const testHarness = harnessForDecryptFailure(response);
+  const engine = new SyncEngine({ ...testHarness });
   const result = await engine.run();
 
   assert.equal(result.pulled, 1);
   assert.equal(result.failed, 0);
-  const commit = harness.calls.find(([name]) => name === 'commitInbound');
+  const commit = testHarness.calls.find(([name]) => name === 'commitInbound');
   assert.ok(commit);
   assert.deepEqual(commit[1].map((message) => message.id), ['good-2']);
   assert.deepEqual(commit[4], [{ messageId: 'bad-1', serverSeq: 7, reason: 'DECRYPTION_FAILED' }]);
   assert.equal(commit[2], 8);
-  assert.deepEqual(harness.calls.at(-1), ['ack', 8]);
+  assert.deepEqual(testHarness.calls.at(-1), ['ack', 8]);
 });
 
 test('drops a whole undecryptable batch without poisoning the cursor', async () => {
   const response = { messages: [inbound('bad-1', 5), inbound('bad-2', 6)], nextCursor: 6, hasMore: false };
-  const harness = harnessForDecryptFailure(response);
-  const engine = new SyncEngine({ ...harness });
+  const testHarness = harnessForDecryptFailure(response);
+  const engine = new SyncEngine({ ...testHarness });
   const result = await engine.run();
 
   assert.equal(result.pulled, 0);
   assert.equal(result.failed, 0);
-  const commit = harness.calls.find(([name]) => name === 'commitInbound');
+  const commit = testHarness.calls.find(([name]) => name === 'commitInbound');
   assert.ok(commit);
   assert.deepEqual(commit[1], []);
   assert.deepEqual(commit[4], [
     { messageId: 'bad-1', serverSeq: 5, reason: 'DECRYPTION_FAILED' },
     { messageId: 'bad-2', serverSeq: 6, reason: 'DECRYPTION_FAILED' },
   ]);
-  assert.deepEqual(harness.calls.at(-1), ['ack', 6]);
+  assert.deepEqual(testHarness.calls.at(-1), ['ack', 6]);
 });
 
 test('treats a codec type mismatch as a dropped inbound message', async () => {
   const response = { messages: [inbound('bad-type', 3)], nextCursor: 3, hasMore: false };
-  const harness = harnessForDecryptFailure(response, async () => ({ type: 'EMOJI', body: 'wrong' }));
-  const engine = new SyncEngine({ ...harness });
+  const testHarness = harnessForDecryptFailure(response, async () => ({ type: 'EMOJI', body: 'wrong' }));
+  const engine = new SyncEngine({ ...testHarness });
   await engine.run();
 
-  const commit = harness.calls.find(([name]) => name === 'commitInbound');
+  const commit = testHarness.calls.find(([name]) => name === 'commitInbound');
   assert.ok(commit);
   assert.deepEqual(commit[4], [{ messageId: 'bad-type', serverSeq: 3, reason: 'DECRYPTION_FAILED' }]);
 });
 
 test('propagates unexpected codec errors instead of dropping the message', async () => {
   const response = { messages: [inbound('runtime-failure', 4)], nextCursor: 4, hasMore: false };
-  const harness = harness({ pullResponse: response, decrypt: async () => { throw new Error('codec runtime failure'); } });
-  const engine = new SyncEngine({ ...harness });
+  const testHarness = harness({ pullResponse: response, decrypt: async () => { throw new Error('codec runtime failure'); } });
+  const engine = new SyncEngine({ ...testHarness });
   await assert.rejects(() => engine.run(), /codec runtime failure/);
-  assert.equal(harness.calls.some(([name]) => name === 'commitInbound'), false);
-  assert.equal(harness.calls.some(([name]) => name === 'ack'), false);
+  assert.equal(testHarness.calls.some(([name]) => name === 'commitInbound'), false);
+  assert.equal(testHarness.calls.some(([name]) => name === 'ack'), false);
 });
 
 test('does not ACK when local commit of accepted and dropped messages fails', async () => {
   const response = { messages: [inbound('bad-1', 2)], nextCursor: 2, hasMore: false };
-  const harness = harnessForDecryptFailure(response);
-  harness.state.commitInbound = async (...args) => { harness.calls.push(['commitInbound', ...args]); throw new Error('sqlite failed'); };
-  const engine = new SyncEngine({ ...harness });
+  const testHarness = harnessForDecryptFailure(response);
+  testHarness.state.commitInbound = async (...args) => { testHarness.calls.push(['commitInbound', ...args]); throw new Error('sqlite failed'); };
+  const engine = new SyncEngine({ ...testHarness });
   await assert.rejects(() => engine.run(), /sqlite failed/);
-  assert.equal(harness.calls.some(([name]) => name === 'ack'), false);
+  assert.equal(testHarness.calls.some(([name]) => name === 'ack'), false);
 });
 
 function harnessForDecryptFailure(pullResponse, decryptOverride) {
