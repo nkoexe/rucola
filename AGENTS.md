@@ -2,7 +2,7 @@
 
 ## Mission
 
-Rucola is a private mobile app for exactly two people in a long-distance relationship. It is **not** a chat app. The core idea is **one thing waiting for you from the person you love**.
+Rucola is a private mobile app for exactly two people in a long-distance relationship. It is **not a chat app**. The core idea is **one thing waiting for you from the person you love**.
 
 Treat this as a real product codebase, but prefer simple, understandable solutions over enterprise ceremony.
 
@@ -33,9 +33,9 @@ The product source of truth is `docs/PRODUCT_SPEC.md`. The implementation plan i
 Use this dependency direction:
 
 ```text
-Expo Router / React Native screens
+React Native screens
         ↓
-application bootstrap + presentation state
+application/presentation state
         ↓
 domain use cases
         ↓
@@ -43,13 +43,14 @@ repository interfaces
         ↓
 SQLite persistence
 
-future:
-sync engine → temporary backend/mailbox
+CloudClient ← SyncEngine → SQLite sync state
+       ↓
+future/parallel cloud mailbox
 ```
 
 Screens must not depend directly on SQLite or HTTP. Domain code must not depend on React Native. Repository interfaces describe capabilities; the SQLite implementation is replaceable.
 
-Keep synchronization state in the domain/data model so a future backend can be introduced without rewriting the UI. Networking is not currently implemented.
+Synchronization is now a real client-side foundation, not merely future architecture: `CloudClient`, durable sync state/outbox/inbox, and `SyncEngine` exist in `main`. However, they are not yet wired into the app's pairing/lifecycle and the encryption codec is still an abstraction.
 
 ## Product invariants
 
@@ -58,9 +59,9 @@ Keep synchronization state in the domain/data model so a future backend can be i
 - Sending a new message moves that participant's previous active message into immutable history.
 - Messages are immutable: no editing, deleting, replies, threads, or reactions in the initial product.
 - History contains both participants' messages and is permanent local data.
-- The phone is the permanent data store; a future server is only a temporary mailbox.
+- The phone is the permanent data store; the cloud is only a temporary mailbox.
 - The Home screen focuses on the partner's current message.
-- After three days without a newer partner message, Home transitions to a gentle stale/waiting prompt; the old message remains in History.
+- After three days without a newer partner message, Home transitions to a gentle stale/waiting prompt; the old message remains in History. This behavior is a product requirement but is not yet implemented.
 - Do not implement fake `read`/`unread` semantics. Delivery/synchronization is not the same as the user seeing a message.
 - Offline-first is fundamental. UI consumes local repositories/state.
 - Message ordering must survive offline bursts: A, B, C must all be preserved even though C is the current active message.
@@ -80,7 +81,7 @@ Photo/video uses the system library/camera picker, copies the selected asset int
 The React Native implementation currently has:
 
 - Expo/RN/TypeScript foundation and Android development build setup.
-- Local SQLite schema and repository.
+- Local SQLite schema and repository, currently at schema v5.
 - Relationship setup with partner name, own name, and optional together-since date.
 - Partner active-message home screen.
 - Local text and emoji message creation and active-message replacement.
@@ -89,14 +90,17 @@ The React Native implementation currently has:
 - Month/date calendar browsing of historical messages, including media messages.
 - Local-data reset from settings, including cleanup of owned media files.
 - Domain use-case boundary used by the app screens.
-- Explicit SQLite v0/v1 → v2 migration handling and integrity validation.
+- Explicit legacy/schema migration handling through v5.
 - Node domain/use-case tests and native SQLite/repository integration coverage.
+- Typed `CloudClient` transport for pairing, sync, ACK and media operations.
+- Durable SQLite sync state, outbox/inbox, retry/backoff and blocked-item handling.
+- `SyncEngine` with ordered outgoing sync, inbound cursor commit, ACK retry and concurrent-run coalescing.
 
 The UI is deliberately barebones. Do not spend the current implementation phase on Figma fidelity.
 
 ## Pairing
 
-Real two-device pairing requires a remote service and must **not** be faked as local-only communication.
+Real two-device pairing requires the remote service and must **not** be faked as local-only communication.
 
 The intended eventual flow is:
 
@@ -114,9 +118,9 @@ server validates secure invitation
 paired relationship
 ```
 
-The five-emoji sequence is the user-facing mechanism, not a security credential. The real invitation token needs cryptographic entropy, expiry (target 24h), and one-time use. Pairing state should be designed behind an abstraction so the future backend can be added without coupling screens to HTTP.
+The five-emoji sequence is the user-facing mechanism, not a security credential. The real invitation token is separate and has expiry/one-time semantics.
 
-Until a backend exists, do not claim that two separate devices can pair or exchange messages.
+The mobile transport for bootstrap/create/accept exists, but onboarding has not integrated it yet. Until that happens and two real devices are tested, do not claim pairing is complete.
 
 ## Onboarding
 
@@ -148,31 +152,22 @@ Do not add an avatar/tutorial step unless explicitly requested. Partner avatar s
 
 This is **not** the same as the eventual unpair flow. Eventual unpairing must preserve local history and make the app read-only. Do not silently implement one as the other.
 
-## Future backend direction
+## Cloud direction and integration boundary
 
-Likely direction: Cloudflare Workers + D1 for metadata/state + R2 for temporary media, unless implementation research gives a strong reason to change it.
+The cloud implementation lives on `cloud/research` and uses Cloudflare Workers + D1 + R2. It includes pairing, authenticated sync push/pull/ACK, durable receipts, media reservation/upload/completion, cleanup and database invariants.
 
-The future server must:
+PR #15 is currently open to fix directional mailbox ownership so a device only receives/ACKs partner-originated mailbox deliveries. Treat that hardening as pending until merged and validated.
 
-- queue unsynchronized messages in order;
-- preserve replaced messages until the recipient durably persists and acknowledges them;
-- treat local persistence as the archive/source of truth;
-- support media with the same durability/acknowledgement rule;
-- never require the UI to depend directly on the network.
+The mobile cloud foundation is already merged into `main`, but these pieces are not yet integrated into the product lifecycle:
 
-Backend work should progress alongside local product work after the application structure is stable. The first major product checkpoint is a rough but genuinely online two-person prototype.
+- SecureStore credential persistence;
+- pairing UI/onboarding;
+- automatic/background sync scheduling;
+- real E2E encryption;
+- end-to-end media synchronization;
+- production cloud endpoint/configuration.
 
-Push/background synchronization and the Android widget come later and must respect platform execution limits.
-
-## UI direction
-
-The final UI should feel cute, personal, playful, slightly wonky and handmade, based on the Rucola Figma/reference assets. The owner will handle the detailed visual pass later.
-
-For current development:
-- use plain React Native controls;
-- keep screens usable and testable;
-- avoid unnecessary design-system work;
-- do not turn the app into a generic Material showcase.
+The server remains a temporary mailbox and must never become the permanent history source.
 
 ## Testing and validation
 
@@ -186,10 +181,11 @@ Tests are required for important domain/repository behavior:
 - one-active-message-per-participant invariant;
 - migration and malformed-data handling;
 - media cleanup and failure recovery;
-- synchronization ordering and durable acknowledgement once the backend exists;
+- synchronization ordering, cursor durability and ACK behavior;
+- directional mailbox ownership once the cloud hardening PR is merged;
 - the three-day Home rule once it is represented in testable application/domain logic.
 
-Current validation includes Node domain/use-case tests and a native SQLite/repository integration runner using disposable databases. Keep the native suite separate from the Node suite; it exercises real Expo SQLite behavior and must not touch the normal `rucola.db`.
+Current validation includes Node domain/use-case tests, cloud-client/sync-engine tests, and a native SQLite/repository integration runner using disposable databases. Keep the native suite separate from Node tests; it exercises real Expo SQLite behavior and must not touch the normal `rucola.db`.
 
 Relevant local commands:
 
@@ -197,6 +193,8 @@ Relevant local commands:
 npm ci
 npm run typecheck
 npm run test:domain
+npm run test:cloud-client
+npm run test:sync-engine
 npx expo prebuild
 npm run android
 ```
@@ -206,7 +204,7 @@ If native/build validation cannot be performed by an agent, state that explicitl
 ## Git workflow
 
 - `main` is the stable integration branch.
-- Work on a focused `feature/*`, `fix/*`, `test/*`, `chore/*`, or research branch created from `main`; never implement directly on `main`.
+- Work on a focused `feature/*`, `fix/*`, `test/*`, `chore/*`, `docs/*`, or research branch created from `main`; never implement directly on `main`.
 - Keep commits small and understandable.
 - Do not commit secrets, generated build output, IDE state, or machine-specific configuration.
 - Review the final diff for stale files, duplicate implementations, unused code, and contradictory documentation.
