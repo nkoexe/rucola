@@ -212,6 +212,10 @@ export class SQLiteSyncStateStore {
     );
   }
 
+  async getPendingOutbox(limit: number): Promise<OutboxItem[]> {
+    return this.getDueOutbox(Number.MAX_SAFE_INTEGER, limit);
+  }
+
   async markAttemptFailed(messageId: string, cause: unknown, now: number): Promise<void> {
     const error = cause instanceof Error ? cause.message : String(cause);
     await this.database.withExclusiveTransactionAsync(async (transaction) => {
