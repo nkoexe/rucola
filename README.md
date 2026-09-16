@@ -16,8 +16,10 @@ The app is being built with:
 - `expo-image-picker` + `expo-file-system` for durable local photo/video messages
 - `expo-video` for local video playback
 - a domain/use-case layer over the repository boundary
+- a typed cloud client and durable local synchronization state
+- a synchronization engine that prepares ordered push/pull/ACK handling
 
-The local prototype currently supports:
+The local product currently supports:
 
 - onboarding with partner name, own name, and optional together-since date;
 - one active message per participant;
@@ -27,11 +29,16 @@ The local prototype currently supports:
 - photo/video messages with optional captions;
 - immutable message history;
 - month/date calendar browsing;
-- local reset including owned-media cleanup.
+- local reset including owned-media cleanup;
+- durable local outbox/inbox synchronization state and hardened sync-state recovery.
 
-Drawing is still unimplemented. Real five-emoji two-device pairing, backend synchronization, notifications, widgets, and E2E encryption are not implemented yet.
+The mobile cloud layer is **not yet the complete online product**. Real pairing credentials are not yet persisted through the full onboarding lifecycle, background synchronization is not yet wired into the application lifecycle, and the current mobile sync engine intentionally leaves media synchronization and final E2E encryption for later work.
 
-The UI is intentionally barebones while the functional local app is being completed. Detailed Figma implementation comes afterward.
+The separate `cloud/research` workstream contains the implemented Cloudflare Worker transport foundation: pairing, directional mailbox sync, receipts, media/R2 handling, cleanup, retention, and protocol hardening. It is not yet the stable `main`-branch production integration.
+
+Drawing is still unimplemented. Notifications and the Android widget are later features. The final Figma implementation is also still pending.
+
+The UI is intentionally barebones while the functional product is being completed. Detailed Figma implementation comes afterward.
 
 ## Documentation
 
@@ -39,9 +46,12 @@ Use these documents as the current sources of truth:
 
 - [`AGENTS.md`](AGENTS.md) — engineering constraints and development workflow
 - [`docs/PRODUCT_SPEC.md`](docs/PRODUCT_SPEC.md) — product behavior, scope, and UX direction
-- [`docs/DEVELOPMENT_ROADMAP.md`](docs/DEVELOPMENT_ROADMAP.md) — phased implementation plan and milestones
-- [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — application architecture and persistence/synchronization invariants
+- [`docs/DEVELOPMENT_ROADMAP.md`](docs/DEVELOPMENT_ROADMAP.md) — phased implementation plan and current milestone status
+- [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — application architecture, persistence, synchronization, and security boundaries
 - [`docs/REACT_NATIVE_MIGRATION.md`](docs/REACT_NATIVE_MIGRATION.md) — historical migration record
+- [`docs/NATIVE_SQLITE_TEST_PLAN.md`](docs/NATIVE_SQLITE_TEST_PLAN.md) — native SQLite integration-test harness and coverage
+- [`docs/cloud/PROTOCOL_REVIEW.md`](docs/cloud/PROTOCOL_REVIEW.md) — historical cloud protocol review and the decisions that followed
+- [`cloud/worker/README.md`](cloud/worker/README.md) — current Worker deployment and protocol notes on the cloud workstream
 - [`src/data/README.md`](src/data/README.md) — native SQLite integration-test coverage
 
 `docs/PRODUCT_SPEC.md` replaces the older `docs/PRODUCT.md`; the latter is intentionally no longer maintained.
@@ -80,13 +90,13 @@ npm run android
 
 The project uses an Expo development build rather than Expo Go because native capabilities are required.
 
-The native SQLite integration suite is available through the development-only integration test screen and uses disposable databases.
+The native SQLite integration suite is available through the development-only integration test screen and uses disposable databases. It is intentionally separate from the Node test suite.
 
 ## Design
 
 Rucola should feel pastel, cutesy, playful, handmade and slightly wonky rather than like a generic Material app.
 
-Figma is the visual reference for the later UI pass.
+Figma/reference assets are the visual target for the later UI pass. The design files live in `reference/`.
 
 ## Git workflow
 
