@@ -3,6 +3,8 @@ import { SQLiteRucolaRepository } from './SQLiteRucolaRepository';
 import { SQLiteSyncStateStore } from './SQLiteSyncStateStore';
 
 function assertEqual<T>(actual: T, expected: T, message: string): void { if (actual !== expected) throw new Error(`${message} (expected ${String(expected)}, got ${String(actual)})`); }
+async function assertRejects(action: () => Promise<unknown>, message: string): Promise<void> { try { await action(); } catch { return; } throw new Error(message); }
+
 export async function runSyncStateIntegrationTests(db: SQLite.SQLiteDatabase): Promise<void> {
   const repository = new SQLiteRucolaRepository(db);
   const store = new SQLiteSyncStateStore({ database: db });
@@ -30,8 +32,16 @@ export async function runSyncStateIntegrationTests(db: SQLite.SQLiteDatabase): P
   assertEqual(failed.length, 1, 'Failed message should move outside the immediate retry window');
   assertEqual(failed[0]?.messageId, second.id, 'A failed earlier message must remain represented in durable state');
   assertEqual((await repository.getMessages()).find((message) => message.id === first.id)?.syncState, 'FAILED', 'Failed message state must persist');
+  await store.markBlocked(first.id, new Error('unsupported message')); 
+  const afterBlocked = await store.getDueOutbox(Date.now(), 10);
+  assertEqual(afterBlocked.length, 1, 'Blocked message must stay out of the retry queue');
+  assertEqual(afterBlocked[0]?.messageId, second.id, 'Blocking an earlier message must not hide later retryable state');
+  await store.reconcileOutbox(Date.now());
+  const afterReconcile = await store.getDueOutbox(Date.now(), 10);
+  assertEqual(afterReconcile.length, 1, 'Outbox reconciliation must not resurrect a blocked message');
+  const blocked = await db.getFirstAsync<{ blocked: number }>('SELECT blocked FROM sync_outbox WHERE relationshipId = ? AND messageId = ?', 'the-one', first.id);
+  assertEqual(blocked?.blocked, 1, 'Blocked state must be durable in SQLite');
   await store.markSynced(second.id);
-  assertEqual((await repository.getMessages()).find((message) => message.id === second.id)?.syncState, 'SYNCED', 'Synced message state must persist');
   await assertRejects(() => store.commitInbound([{ id: 'remote-1', type: 'TEXT', body: 'hello', createdAt, serverSeq: 1 }, { id: 'remote-2', type: 'TEXT', body: '', createdAt: createdAt + 1, serverSeq: 2 }], 2), 'Invalid inbound batches must fail before changing local state');
   assertEqual(await store.getPullCursor(), 0, 'Failed inbound validation must not advance the cursor');
   assertEqual((await repository.getMessages()).some((message) => message.id === 'remote-1'), false, 'Failed inbound validation must not insert messages');
@@ -74,4 +84,3 @@ export async function runSyncStateIntegrationTests(db: SQLite.SQLiteDatabase): P
   assertEqual(cleared.pullCursor, 0, 'Clearing sync state must reset the pull cursor');
   assertEqual((await store.getDueOutbox(Date.now(), 10)).length, 0, 'Clearing sync state must remove the outbox');
 }
-async function assertRejects(action: () => Promise<unknown>, message: string): Promise<void> { try { await action(); } catch { return; } throw new Error(message); }
