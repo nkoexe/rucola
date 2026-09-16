@@ -128,6 +128,37 @@ describe("media upload", () => {
     expect(await env.MEDIA_BUCKET.head(row!.object_key)).toBeNull();
   });
 
+  it("bounds streamed bodies to the reserved size before writing an oversized object", async () => {
+    const { me } = await bootstrapAndAccept();
+    const declaredBytes = new Uint8Array([1, 2, 3]);
+    const oversizedBytes = new Uint8Array([1, 2, 3, 4]);
+    const uploadId = await createMedia(me.credential, declaredBytes.byteLength);
+
+    const request = new Request(`https://rucola.test/v1/media/${uploadId}`, {
+      method: "PUT",
+      headers: {
+        authorization: `Bearer ${me.credential}`,
+        "content-type": "image/png",
+        "content-length": String(declaredBytes.byteLength),
+      },
+      body: new ReadableStream<Uint8Array>({
+        start(controller) {
+          controller.enqueue(oversizedBytes);
+          controller.close();
+        },
+      }),
+    });
+    const response = await exports.default.fetch(request);
+    expect(response.status).toBe(502);
+    expect((await json(response)).error).toMatchObject({ code: "MEDIA_UPLOAD_FAILED" });
+
+    const row = await env.DB.prepare(
+      "SELECT object_key, status FROM media_uploads WHERE id = ?1",
+    ).bind(uploadId).first<{ object_key: string; status: string }>();
+    expect(row?.status).toBe("PENDING");
+    expect(await env.MEDIA_BUCKET.head(row!.object_key)).toBeNull();
+  });
+
   it("enforces ownership, MIME, expiry, and pending-state checks", async () => {
     const { me, partner } = await bootstrapAndAccept();
     const bytes = new Uint8Array([1, 2, 3]);
