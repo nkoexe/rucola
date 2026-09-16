@@ -22,6 +22,8 @@ env:
   ANDROID_KEYSTORE_PATH: android/app/rucola-release.keystore
   ANDROID_API_LEVEL: '36'
   ANDROID_BUILD_TOOLS: '36.0.0'
+  ANDROID_SDK_ROOT: ${{ runner.temp }}/android-sdk
+  ANDROID_HOME: ${{ runner.temp }}/android-sdk
 
 jobs:
   build-release:
@@ -60,20 +62,28 @@ jobs:
           distribution: temurin
           java-version: '17'
 
+      - uses: actions/cache@v6
+        id: android-sdk-cache
+        with:
+          path: ${{ env.ANDROID_SDK_ROOT }}
+          key: android-sdk-${{ runner.os }}-api${{ env.ANDROID_API_LEVEL }}-build${{ env.ANDROID_BUILD_TOOLS }}-v2
+
       - uses: android-actions/setup-android@v4
         with:
           packages: platform-tools
 
       - name: Install Android SDK components
         run: |
-          sdkmanager "platforms;android-${ANDROID_API_LEVEL}" "build-tools;${ANDROID_BUILD_TOOLS}"
+          sdkmanager --sdk_root="$ANDROID_SDK_ROOT" \
+            "platforms;android-${ANDROID_API_LEVEL}" \
+            "build-tools;${ANDROID_BUILD_TOOLS}"
 
-      - run: yes | sdkmanager --licenses >/dev/null || true
+      - run: yes | sdkmanager --sdk_root="$ANDROID_SDK_ROOT" --licenses >/dev/null || true
 
       - name: Verify Android SDK components
         run: |
-          test -d "$ANDROID_HOME/platforms/android-${ANDROID_API_LEVEL}"
-          test -d "$ANDROID_HOME/build-tools/${ANDROID_BUILD_TOOLS}"
+          test -d "$ANDROID_SDK_ROOT/platforms/android-${ANDROID_API_LEVEL}"
+          test -d "$ANDROID_SDK_ROOT/build-tools/${ANDROID_BUILD_TOOLS}"
 
       - name: Restore release keystore
         env:
@@ -129,7 +139,7 @@ jobs:
           RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
         run: |
           APK_PATH="rucola-${RELEASE_TAG}.apk"
-          APKSIGNER="$ANDROID_HOME/build-tools/${ANDROID_BUILD_TOOLS}/apksigner"
+          APKSIGNER="$ANDROID_SDK_ROOT/build-tools/${ANDROID_BUILD_TOOLS}/apksigner"
           test -s "$APK_PATH"
           test -x "$APKSIGNER"
           "$APKSIGNER" verify --verbose "$APK_PATH"
