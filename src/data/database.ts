@@ -10,10 +10,7 @@ const initializationPromises = new WeakMap<SQLite.SQLiteDatabase, Promise<SQLite
 
 export function getDatabase(): Promise<SQLite.SQLiteDatabase> {
   if (!databasePromise) {
-    databasePromise = SQLite.openDatabaseAsync(DATABASE_NAME).catch((cause) => {
-      databasePromise = null;
-      throw cause;
-    });
+    databasePromise = SQLite.openDatabaseAsync(DATABASE_NAME).catch((cause) => { databasePromise = null; throw cause; });
   }
   return databasePromise;
 }
@@ -41,15 +38,10 @@ async function initializeDatabaseInternal(database: SQLite.SQLiteDatabase): Prom
   if (version === 0) {
     if (tables.length !== 3) throw new Error('Rucola database is incomplete and cannot be migrated safely.');
     await migrateLegacySchema(database);
-  } else if (version === 1) {
-    await migrateLegacySchema(database);
-  } else if (version === 2) {
-    await migrateSyncSchema(database);
-  } else if (version === 3) {
-    await migrateSyncInboxSchema(database);
-  } else if (version === 4) {
-    await migrateBlockedOutboxSchema(database);
-  }
+  } else if (version === 1) await migrateLegacySchema(database);
+  else if (version === 2) await migrateSyncSchema(database);
+  else if (version === 3) await migrateSyncInboxSchema(database);
+  else if (version === 4) await migrateBlockedOutboxSchema(database);
   return verifyDatabase(database);
 }
 
@@ -67,105 +59,24 @@ async function verifyDatabase(db: SQLite.SQLiteDatabase): Promise<SQLite.SQLiteD
 
 async function createLatestSchema(db: SQLite.SQLiteDatabase): Promise<void> {
   await db.execAsync(`
-    CREATE TABLE relationships (
-      id TEXT PRIMARY KEY NOT NULL,
-      partnerNickname TEXT NOT NULL,
-      ownName TEXT NOT NULL,
-      partnerColor TEXT NOT NULL,
-      togetherSince INTEGER
-    );
-    CREATE TABLE messages (
-      id TEXT PRIMARY KEY NOT NULL,
-      relationshipId TEXT NOT NULL,
-      participant TEXT NOT NULL CHECK (participant IN ('ME', 'PARTNER')),
-      type TEXT NOT NULL CHECK (type IN ('TEXT', 'EMOJI', 'PHOTO_VIDEO', 'DRAWING')),
-      body TEXT NOT NULL,
-      createdAt INTEGER NOT NULL,
-      orderIndex INTEGER NOT NULL,
-      mediaReference TEXT,
-      syncState TEXT NOT NULL CHECK (syncState IN ('LOCAL_ONLY', 'PENDING', 'SYNCED', 'FAILED')),
-      FOREIGN KEY (relationshipId) REFERENCES relationships(id) ON DELETE CASCADE,
-      UNIQUE (relationshipId, id),
-      UNIQUE (relationshipId, participant, id)
-    );
+    CREATE TABLE relationships (id TEXT PRIMARY KEY NOT NULL, partnerNickname TEXT NOT NULL, ownName TEXT NOT NULL, partnerColor TEXT NOT NULL, togetherSince INTEGER);
+    CREATE TABLE messages (id TEXT PRIMARY KEY NOT NULL, relationshipId TEXT NOT NULL, participant TEXT NOT NULL CHECK (participant IN ('ME', 'PARTNER')), type TEXT NOT NULL CHECK (type IN ('TEXT', 'EMOJI', 'PHOTO_VIDEO', 'DRAWING')), body TEXT NOT NULL, createdAt INTEGER NOT NULL, orderIndex INTEGER NOT NULL, mediaReference TEXT, syncState TEXT NOT NULL CHECK (syncState IN ('LOCAL_ONLY', 'PENDING', 'SYNCED', 'FAILED')), FOREIGN KEY (relationshipId) REFERENCES relationships(id) ON DELETE CASCADE, UNIQUE (relationshipId, id), UNIQUE (relationshipId, participant, id));
     CREATE INDEX messages_relationship_order ON messages (relationshipId, orderIndex DESC, createdAt DESC, id DESC);
-    CREATE TABLE active_message_slots (
-      relationshipId TEXT NOT NULL,
-      participant TEXT NOT NULL CHECK (participant IN ('ME', 'PARTNER')),
-      messageId TEXT NOT NULL UNIQUE,
-      PRIMARY KEY (relationshipId, participant),
-      FOREIGN KEY (relationshipId) REFERENCES relationships(id) ON DELETE CASCADE,
-      FOREIGN KEY (relationshipId, participant, messageId) REFERENCES messages(relationshipId, participant, id) ON DELETE RESTRICT
-    );
-    CREATE TABLE sync_state (
-      relationshipId TEXT PRIMARY KEY NOT NULL,
-      deviceId TEXT,
-      participant TEXT CHECK (participant IS NULL OR participant IN ('ME', 'PARTNER')),
-      nextSenderSeq INTEGER NOT NULL CHECK (nextSenderSeq >= 1),
-      pullCursor INTEGER NOT NULL CHECK (pullCursor >= 0),
-      updatedAt INTEGER NOT NULL,
-      FOREIGN KEY (relationshipId) REFERENCES relationships(id) ON DELETE CASCADE
-    );
-    CREATE TABLE sync_outbox (
-      relationshipId TEXT NOT NULL,
-      messageId TEXT NOT NULL,
-      senderSeq INTEGER NOT NULL CHECK (senderSeq >= 1),
-      attempts INTEGER NOT NULL CHECK (attempts >= 0),
-      lastError TEXT,
-      nextAttemptAt INTEGER NOT NULL,
-      createdAt INTEGER NOT NULL,
-      blocked INTEGER NOT NULL DEFAULT 0 CHECK (blocked IN (0, 1)),
-      PRIMARY KEY (relationshipId, messageId),
-      UNIQUE (relationshipId, senderSeq),
-      FOREIGN KEY (relationshipId) REFERENCES relationships(id) ON DELETE CASCADE,
-      FOREIGN KEY (messageId) REFERENCES messages(id) ON DELETE CASCADE
-    );
+    CREATE TABLE active_message_slots (relationshipId TEXT NOT NULL, participant TEXT NOT NULL CHECK (participant IN ('ME', 'PARTNER')), messageId TEXT NOT NULL UNIQUE, PRIMARY KEY (relationshipId, participant), FOREIGN KEY (relationshipId) REFERENCES relationships(id) ON DELETE CASCADE, FOREIGN KEY (relationshipId, participant, messageId) REFERENCES messages(relationshipId, participant, id) ON DELETE RESTRICT);
+    CREATE TABLE sync_state (relationshipId TEXT PRIMARY KEY NOT NULL, deviceId TEXT, participant TEXT CHECK (participant IS NULL OR participant IN ('ME', 'PARTNER')), nextSenderSeq INTEGER NOT NULL CHECK (nextSenderSeq >= 1), pullCursor INTEGER NOT NULL CHECK (pullCursor >= 0), updatedAt INTEGER NOT NULL, FOREIGN KEY (relationshipId) REFERENCES relationships(id) ON DELETE CASCADE);
+    CREATE TABLE sync_outbox (relationshipId TEXT NOT NULL, messageId TEXT NOT NULL, senderSeq INTEGER NOT NULL CHECK (senderSeq >= 1), attempts INTEGER NOT NULL CHECK (attempts >= 0), lastError TEXT, nextAttemptAt INTEGER NOT NULL, createdAt INTEGER NOT NULL, blocked INTEGER NOT NULL DEFAULT 0 CHECK (blocked IN (0, 1)), PRIMARY KEY (relationshipId, messageId), UNIQUE (relationshipId, senderSeq), FOREIGN KEY (relationshipId) REFERENCES relationships(id) ON DELETE CASCADE, FOREIGN KEY (messageId) REFERENCES messages(id) ON DELETE CASCADE);
     CREATE INDEX sync_outbox_due ON sync_outbox (relationshipId, blocked, nextAttemptAt, senderSeq);
-    CREATE TABLE sync_inbox (
-      relationshipId TEXT NOT NULL,
-      messageId TEXT NOT NULL,
-      serverSeq INTEGER NOT NULL CHECK (serverSeq >= 1),
-      PRIMARY KEY (relationshipId, messageId),
-      UNIQUE (relationshipId, serverSeq),
-      FOREIGN KEY (relationshipId) REFERENCES relationships(id) ON DELETE CASCADE
-    );
+    CREATE TABLE sync_inbox (relationshipId TEXT NOT NULL, messageId TEXT NOT NULL, serverSeq INTEGER NOT NULL CHECK (serverSeq >= 1), PRIMARY KEY (relationshipId, messageId), UNIQUE (relationshipId, serverSeq), FOREIGN KEY (relationshipId) REFERENCES relationships(id) ON DELETE CASCADE, FOREIGN KEY (messageId) REFERENCES messages(id) ON DELETE CASCADE);
   `);
 }
 
 async function migrateSyncSchema(db: SQLite.SQLiteDatabase): Promise<void> {
   await db.withTransactionAsync(async () => {
     await db.execAsync(`
-      CREATE TABLE sync_state (
-        relationshipId TEXT PRIMARY KEY NOT NULL,
-        deviceId TEXT,
-        participant TEXT CHECK (participant IS NULL OR participant IN ('ME', 'PARTNER')),
-        nextSenderSeq INTEGER NOT NULL CHECK (nextSenderSeq >= 1),
-        pullCursor INTEGER NOT NULL CHECK (pullCursor >= 0),
-        updatedAt INTEGER NOT NULL,
-        FOREIGN KEY (relationshipId) REFERENCES relationships(id) ON DELETE CASCADE
-      );
-      CREATE TABLE sync_outbox (
-        relationshipId TEXT NOT NULL,
-        messageId TEXT NOT NULL,
-        senderSeq INTEGER NOT NULL CHECK (senderSeq >= 1),
-        attempts INTEGER NOT NULL CHECK (attempts >= 0),
-        lastError TEXT,
-        nextAttemptAt INTEGER NOT NULL,
-        createdAt INTEGER NOT NULL,
-        blocked INTEGER NOT NULL DEFAULT 0 CHECK (blocked IN (0, 1)),
-        PRIMARY KEY (relationshipId, messageId),
-        UNIQUE (relationshipId, senderSeq),
-        FOREIGN KEY (relationshipId) REFERENCES relationships(id) ON DELETE CASCADE
-      );
+      CREATE TABLE sync_state (relationshipId TEXT PRIMARY KEY NOT NULL, deviceId TEXT, participant TEXT CHECK (participant IS NULL OR participant IN ('ME', 'PARTNER')), nextSenderSeq INTEGER NOT NULL CHECK (nextSenderSeq >= 1), pullCursor INTEGER NOT NULL CHECK (pullCursor >= 0), updatedAt INTEGER NOT NULL, FOREIGN KEY (relationshipId) REFERENCES relationships(id) ON DELETE CASCADE);
+      CREATE TABLE sync_outbox (relationshipId TEXT NOT NULL, messageId TEXT NOT NULL, senderSeq INTEGER NOT NULL CHECK (senderSeq >= 1), attempts INTEGER NOT NULL CHECK (attempts >= 0), lastError TEXT, nextAttemptAt INTEGER NOT NULL, createdAt INTEGER NOT NULL, blocked INTEGER NOT NULL DEFAULT 0 CHECK (blocked IN (0, 1)), PRIMARY KEY (relationshipId, messageId), UNIQUE (relationshipId, senderSeq), FOREIGN KEY (relationshipId) REFERENCES relationships(id) ON DELETE CASCADE, FOREIGN KEY (messageId) REFERENCES messages(id) ON DELETE CASCADE);
       CREATE INDEX sync_outbox_due ON sync_outbox (relationshipId, blocked, nextAttemptAt, senderSeq);
-      CREATE TABLE sync_inbox (
-        relationshipId TEXT NOT NULL,
-        messageId TEXT NOT NULL,
-        serverSeq INTEGER NOT NULL CHECK (serverSeq >= 1),
-        PRIMARY KEY (relationshipId, messageId),
-        UNIQUE (relationshipId, serverSeq),
-        FOREIGN KEY (relationshipId) REFERENCES relationships(id) ON DELETE CASCADE
-      );
+      CREATE TABLE sync_inbox (relationshipId TEXT NOT NULL, messageId TEXT NOT NULL, serverSeq INTEGER NOT NULL CHECK (serverSeq >= 1), PRIMARY KEY (relationshipId, messageId), UNIQUE (relationshipId, serverSeq), FOREIGN KEY (relationshipId) REFERENCES relationships(id) ON DELETE CASCADE, FOREIGN KEY (messageId) REFERENCES messages(id) ON DELETE CASCADE);
       PRAGMA user_version = ${SCHEMA_VERSION};
     `);
   });
@@ -173,19 +84,10 @@ async function migrateSyncSchema(db: SQLite.SQLiteDatabase): Promise<void> {
 
 async function migrateSyncInboxSchema(db: SQLite.SQLiteDatabase): Promise<void> {
   await db.withTransactionAsync(async () => {
-    await db.execAsync(`
-      CREATE TABLE sync_inbox (
-        relationshipId TEXT NOT NULL,
-        messageId TEXT NOT NULL,
-        serverSeq INTEGER NOT NULL CHECK (serverSeq >= 1),
-        PRIMARY KEY (relationshipId, messageId),
-        UNIQUE (relationshipId, serverSeq),
-        FOREIGN KEY (relationshipId) REFERENCES relationships(id) ON DELETE CASCADE
-      );
-      PRAGMA user_version = ${SCHEMA_VERSION};
-    `);
+    await db.execAsync(`CREATE TABLE sync_inbox (relationshipId TEXT NOT NULL, messageId TEXT NOT NULL, serverSeq INTEGER NOT NULL CHECK (serverSeq >= 1), PRIMARY KEY (relationshipId, messageId), UNIQUE (relationshipId, serverSeq), FOREIGN KEY (relationshipId) REFERENCES relationships(id) ON DELETE CASCADE);`);
     await db.execAsync('ALTER TABLE sync_outbox ADD COLUMN blocked INTEGER NOT NULL DEFAULT 0 CHECK (blocked IN (0, 1));');
     await db.execAsync('DROP INDEX IF EXISTS sync_outbox_due; CREATE INDEX sync_outbox_due ON sync_outbox (relationshipId, blocked, nextAttemptAt, senderSeq);');
+    await db.execAsync(`PRAGMA user_version = ${SCHEMA_VERSION};`);
   });
 }
 
@@ -226,7 +128,7 @@ async function migrateLegacySchema(db: SQLite.SQLiteDatabase): Promise<void> {
     await createLatestSchema(db);
     for (const relationship of relationships) { const togetherSince = parseLegacyNullableInteger(relationship.togetherSince, 'togetherSince', relationship.id); await db.runAsync('INSERT INTO relationships (id, partnerNickname, ownName, partnerColor, togetherSince) VALUES (?, ?, ?, ?, ?)', relationship.id, relationship.partnerNickname, relationship.ownName, relationship.partnerColor, togetherSince); }
     for (const message of messages) { const createdAt = parseLegacyInteger(message.createdAt, 'createdAt', message.id); await db.runAsync('INSERT INTO messages (id, relationshipId, participant, type, body, createdAt, orderIndex, mediaReference, syncState) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)', message.id, message.relationshipId, message.participant, message.type, message.body, createdAt, message.orderIndex, message.mediaReference, message.syncState); }
-    for (const slot of activeSlots) await db.runAsync('INSERT INTO active_message_slots (relationshipId, participant, messageId) VALUES (?, ?, ?)', relationshipId, slot.participant, slot.messageId);
+    for (const slot of activeSlots) await db.runAsync('INSERT INTO active_message_slots (relationshipId, participant, messageId) VALUES (?, ?, ?)', slot.relationshipId, slot.participant, slot.messageId);
     await db.execAsync(`DROP TABLE active_message_slots_legacy; DROP TABLE messages_legacy; DROP TABLE relationships_legacy; DROP INDEX IF EXISTS messages_relationship_participant_active; PRAGMA user_version = ${SCHEMA_VERSION};`);
   });
 }
