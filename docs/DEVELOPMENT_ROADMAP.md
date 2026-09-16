@@ -4,7 +4,7 @@ This roadmap translates the product direction into development phases. It is int
 
 ## Current baseline
 
-`main` contains the React Native/Expo migration, local SQLite repository, durable media handling, migration coverage, native integration coverage, documentation cleanup, and Android CI hardening.
+`main` contains the React Native/Expo migration, local SQLite repository, durable media handling, schema migrations through v5, native integration coverage, the typed cloud client foundation, durable local sync state/outbox/inbox, and Android release CI hardening.
 
 Current foundation status:
 
@@ -12,17 +12,22 @@ Current foundation status:
 - local persistence: complete
 - core message lifecycle: complete
 - media picker/camera persistence: complete
-- SQLite migrations: complete
-- native integration suite: complete
-- Android CI build pipeline: complete
-- final navigation architecture: not complete
+- SQLite migrations: complete through schema v5
+- native integration suite: implemented; the repository's latest recorded historical result is 12/12 groups, but current-tree execution is not claimed here
+- Android CI build/release pipeline: implemented and hardened
+- application navigation architecture: **not complete; Expo Router migration remains planned**
 - final Home UX: not complete
-- cloud backend foundation: **in progress on `cloud/research`**
-- real two-device pairing: backend primitives implemented; mobile integration not started
-- online synchronization: backend protocol implemented; mobile integration not started
+- three-day stale Home behavior: not implemented
+- cloud client transport foundation: **merged into `main`**
+- durable local sync state/outbox/inbox: **implemented and tested**
+- SyncEngine: **implemented and tested, but not wired into app lifecycle**
+- credential persistence / SecureStore: not implemented
+- user-facing pairing flow: not implemented
+- real two-device online prototype: not complete
+- cloud backend: **substantially implemented on `cloud/research`; final directional mailbox fix is open as PR #15**
 - final Figma implementation: not started
 
-The mobile and cloud workstreams are intentionally progressing in parallel. The cloud backend is no longer future work: its synchronization foundation is actively being implemented on `cloud/research` while the React Native client continues separately.
+The mobile and cloud workstreams are intentionally progressing in parallel. The cloud backend is no longer merely a design exercise, and the mobile client now has a transport/sync foundation. The remaining work is integration and production hardening, not a greenfield cloud implementation.
 
 ## Phase 1 — Application structure and lifecycle hardening
 
@@ -57,6 +62,8 @@ Do not expand SQLite unless the audit finds a real defect.
 - navigation is ready for future deep links/pairing routes;
 - existing domain/native tests still pass;
 - Android CI remains green.
+
+**Status: in progress / next mobile structure step.**
 
 ## Phase 2 — Complete local product loop
 
@@ -107,19 +114,11 @@ Message replacement/history
 - remove or clearly gate intentionally unavailable drawing behavior;
 - resolve the avatar/documentation discrepancy by either deferring avatars explicitly or implementing them later.
 
-### Exit criteria
+The local repository and media functionality are largely implemented. The remaining Phase 2 work is primarily application lifecycle/navigation, stale-state behavior, and UX completion rather than basic persistence.
 
-A fresh local installation can complete the whole experience without developer-only controls.
+**Status: partially complete; do not treat Phase 2 as finished until the local product can run without developer-only controls and the three-day behavior exists.**
 
-The message lifecycle works for bursts and restarts:
-
-```text
-A → B → C
-```
-
-without losing history or incorrectly showing an old active message.
-
-## Phase 3 — Backend foundation in parallel
+## Phase 3 — Backend and cloud client foundation in parallel
 
 Backend work proceeds in parallel with the local/mobile phases. It does **not** wait for pixel-perfect UI.
 
@@ -135,63 +134,61 @@ Production stack:
 
 The backend is a temporary mailbox, not permanent history storage. Local SQLite remains the durable source of truth.
 
-### Completed backend foundation on `cloud/research`
+### Cloud implementation status
+
+The `cloud/research` workstream has implemented and tested substantially more than the original roadmap described. The current Worker contains:
 
 - device-bound authentication;
-- two-person relationship state machine;
-- secure pairing bootstrap/invitation/acceptance flow;
-- invitation expiry and bounded confirmation attempts;
-- message push with stable message identity and idempotent retries;
-- sender sequence and server sequence handling;
-- durable message receipts;
-- atomic database-level message acceptance invariants;
-- media attachment and message/media type invariants;
-- ordered non-destructive mailbox pull;
-- destructive ACK after local durability;
-- concurrent ACK and relationship termination hardening;
-- mailbox expiry/cursor-gap handling;
-- sender-device binding for legacy mailbox retries.
+- two-person relationship state and pairing bootstrap/create/accept;
+- secure invitation handling and confirmation-attempt hardening;
+- idempotent sync push with durable message receipts;
+- sender/device/sequence invariants;
+- pull and ACK endpoints;
+- directional mailbox hardening in open PR #15;
+- media reservation/upload/completion lifecycle;
+- D1 invariants for message/media acceptance;
+- cleanup/expiry logic;
+- extensive Worker/Vitest coverage.
 
-### Remaining backend work
+The cloud branch is still separate from `main`. Do not describe the backend as production-ready merely because the test suite is green: R2/deployment configuration, operational hardening, and the final protocol review remain part of the workstream.
 
-1. Finalize the media upload/completion API.
-2. Add R2 integration.
-3. Enforce 20 MB image / 100 MB video transport limits.
-4. Implement scheduled cleanup and the finite retention contract.
-5. Finish production operational hardening: rate limits, observability, migration safety and recovery.
-6. Remove obsolete protocol state after the client contract is finalized.
-7. Connect the React Native sync engine to the stable protocol.
-8. Add the final E2E encryption layer after transport/storage semantics are stable.
+### Mobile cloud foundation
 
-### Critical synchronization example
+Merged into `main` in PR #14:
 
-```text
-Sender:
-  A
-  B
-  C
+- typed cloud protocol contracts;
+- `CloudClient` transport with authentication and timeouts;
+- pairing bootstrap/create/accept transport;
+- durable sync push/pull/ACK transport;
+- media reservation/upload/completion transport;
+- typed server errors and response validation;
+- SQLite sync state/outbox/inbox;
+- atomic inbound persistence + cursor commit;
+- ordered outgoing sync and inbound pull/commit/ACK in `SyncEngine`;
+- concurrent sync-run coalescing;
+- retry/backoff and permanently blocked outbox handling;
+- device replacement and cursor recovery semantics;
+- focused client/sync tests.
 
-Recipient offline
+Not yet integrated:
 
-Server:
-  A
-  B
-  C
+- SecureStore credential persistence;
+- app lifecycle/background scheduling;
+- UI pairing flow;
+- real encryption codec;
+- end-to-end media synchronization;
+- a production cloud base URL/configuration in the app.
 
-Recipient reconnects:
-  persist A
-  persist B
-  persist C
+### Remaining cloud work
 
-Local:
-  A = history
-  B = history
-  C = active
-
-Only then acknowledge delivery.
-```
-
-The server must not simply retain the newest active message and discard A/B.
+1. Merge/finish the directional mailbox ownership hardening represented by PR #15.
+2. Reconcile cloud docs and implementation around current ACK/receipt semantics.
+3. Finish production operational hardening: rate limits, observability, migration/deployment safety, cleanup/recovery, and bounded resource usage.
+4. Decide and implement the remaining product-level retention/poison-message/relationship-end policies where still open.
+5. Wire the mobile cloud client into pairing and application lifecycle.
+6. Persist device credentials securely.
+7. Implement the real encryption layer after transport semantics are stable.
+8. Integrate media synchronization end-to-end.
 
 ## Phase 4 — First usable online prototype
 
@@ -203,12 +200,14 @@ Two real people can use two real Android devices and:
 
 - install the app;
 - complete anonymous setup;
-- pair using the intended pairing flow;
-- exchange real messages over the Internet;
+- pair using the intended five-emoji flow;
+- exchange real text/emoji messages over the Internet;
 - send multiple messages while the other person is offline;
 - reconnect and recover the complete ordered history;
 - see the correct active message;
 - continue using the app after restart.
+
+Photo/video synchronization may remain a separate follow-up if the text/emoji online loop is deliberately used as the first prototype boundary, but the final initial release still requires media to work end-to-end.
 
 ### Prototype quality
 
@@ -216,7 +215,7 @@ The UI may still be rough.
 
 The prototype is successful if the central relationship loop works reliably.
 
-This milestone should be treated as a real product checkpoint, not just a technical demo.
+**Status: not reached.**
 
 ## Phase 5 — Figma implementation
 
@@ -236,6 +235,8 @@ Only after the functional structure is stable:
 - animations where they materially improve the experience.
 
 The Figma design is the visual target, not the source of domain behavior.
+
+**Status: not started.**
 
 ## Phase 6 — UX pass
 
@@ -257,7 +258,7 @@ Focus on:
 - loading transitions;
 - media failure behavior.
 
-This phase is where small interaction decisions should be refined based on actual use.
+**Status: not started.**
 
 ## Phase 7 — Initial release hardening
 
@@ -275,6 +276,8 @@ After UX is good:
 - privacy/security review;
 - logging/error reporting decisions;
 - release build validation.
+
+**Status: not started.**
 
 ## Phase 8 — Post-MVP features
 
