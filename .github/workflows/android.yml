@@ -6,6 +6,10 @@ on:
   pull_request:
     branches: [main]
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -24,6 +28,7 @@ jobs:
         with:
           distribution: temurin
           java-version: '17'
+          cache: gradle
       - uses: android-actions/setup-android@v3
         with:
           packages: platform-tools
@@ -46,8 +51,9 @@ jobs:
               -dname "CN=Android Debug,O=Android,C=US"
           fi
       - uses: gradle/actions/setup-gradle@v4
-      - working-directory: android
-        run: bash ./gradlew assembleDebug assembleRelease
+      - name: Build debug APK
+        working-directory: android
+        run: bash ./gradlew assembleDebug
       - uses: actions/upload-artifact@v4
         with:
           name: rucola-development-apk
