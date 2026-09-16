@@ -99,7 +99,7 @@ jobs:
         working-directory: android
         env:
           RUCOLA_RELEASE_SIGNING: 'true'
-          RUCOLA_RELEASE_KEYSTORE_FILE: app/rucola-release.keystore
+          RUCOLA_RELEASE_KEYSTORE_FILE: rucola-release.keystore
           RUCOLA_RELEASE_KEYSTORE_PASSWORD: ${{ secrets.RUCOLA_RELEASE_KEYSTORE_PASSWORD }}
           RUCOLA_RELEASE_KEY_ALIAS: ${{ secrets.RUCOLA_RELEASE_KEY_ALIAS }}
           RUCOLA_RELEASE_KEY_PASSWORD: ${{ secrets.RUCOLA_RELEASE_KEY_PASSWORD }}
