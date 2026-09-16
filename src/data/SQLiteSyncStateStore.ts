@@ -253,4 +253,13 @@ export class SQLiteSyncStateStore {
     });
     return created;
   }
+
+  async clear(): Promise<void> {
+    await this.database.withExclusiveTransactionAsync(async (transaction) => {
+      await transaction.runAsync('DELETE FROM active_message_slots WHERE relationshipId = ?', RELATIONSHIP_ID);
+      await transaction.runAsync('DELETE FROM sync_outbox WHERE relationshipId = ?', RELATIONSHIP_ID);
+      await transaction.runAsync('DELETE FROM sync_inbox WHERE relationshipId = ?', RELATIONSHIP_ID);
+      await transaction.runAsync('DELETE FROM sync_state WHERE relationshipId = ?', RELATIONSHIP_ID);
+    });
+  }
 }
