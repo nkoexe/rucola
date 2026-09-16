@@ -2,7 +2,7 @@
 
 ## Purpose
 
-The cloud backend is the production synchronization service for exactly one two-person relationship. It is **not** a cloud message archive and must never become the application's permanent source of truth.
+The cloud backend is the synchronization service for exactly one two-person relationship. It is **not** a cloud message archive and must never become the application's permanent source of truth.
 
 The mobile device owns durable history in local SQLite. The cloud temporarily holds encrypted/opaque message payloads and temporary media until the receiving device has durably persisted them locally.
 
@@ -81,7 +81,7 @@ Supported synchronized message types are:
 - `TEXT`
 - `EMOJI`
 - `PHOTO_VIDEO`
-- `DRAWING`
+- `DRAWING` (protocol-compatible but new pushes currently rejected)
 
 Messages have two independent sequence concepts:
 
@@ -128,21 +128,23 @@ The server must:
 - never delete a message merely because it was pulled;
 - allow the recipient to retry pull without losing data.
 
-The mailbox provides a **14-day retry window** for unacknowledged messages. This is a generous but finite guarantee; the server does not retain mailbox messages indefinitely.
+The mailbox provides a **14-day retry window** for unacknowledged messages. This is a finite guarantee; the server does not retain mailbox messages indefinitely.
 
-Expired messages are skipped rather than returned as tombstones. Clients must therefore treat the pull cursor as a high-water mark that may contain gaps.
+Expired messages are skipped rather than returned as tombstones. Clients must therefore treat the pull position as a high-water mark that may contain gaps.
 
 ## Pull protocol
 
-Pull uses a relationship-wide high-water cursor:
+Pull uses the `after` query parameter as a relationship-wide high-water cursor:
 
 ```text
-GET /v1/sync/pull?cursor=<server_seq>&limit=<n>
+GET /v1/sync/pull?after=<server_seq>&limit=<n>
 ```
 
-The cursor means "return messages with `server_seq` greater than this value". It is not a count of retained mailbox rows and therefore may contain gaps when messages expire.
+The cursor means "return eligible messages with `server_seq` greater than this value". It is not a count of retained mailbox rows and therefore may contain gaps when messages expire.
 
-Pull is non-destructive.
+Pull is non-destructive. It excludes the caller's own outbound mailbox rows, while preserving the relationship-wide server sequence so clients can move across interleaved outbound messages.
+
+A pull also records per-device delivery state before returning the messages. This gives the ACK endpoint a server-side basis for verifying that the covered partner messages were actually delivered to that device.
 
 A client must persist returned messages idempotently using `message_id` before advancing its durable local synchronization state.
 
@@ -157,27 +159,24 @@ POST /v1/sync/ack
 }
 ```
 
-The receiving client may ACK only after every message through that sequence has been durably persisted locally.
+The receiving client may ACK only after every live partner message through that sequence has been durably persisted locally. Expired mailbox gaps do not need to be present.
 
-For media messages this means the referenced media must also be durably persisted locally before the ACK covers that message.
-
-The Worker validates that the cursor is not ahead of the relationship's known sequence, marks the corresponding durable receipts as acknowledged, and then deletes eligible mailbox rows in the same D1 batch. Repeated ACKs are idempotent. ACK does not delete media objects directly.
+The Worker validates that the cursor is not ahead of the relationship's known sequence, requires live partner messages covered by the ACK to have delivery state for the receiving device, acknowledges eligible durable receipts, and deletes the corresponding partner-originated mailbox rows in the same D1 batch. Repeated ACKs are idempotent. ACK does not delete media objects directly.
 
 ## Durable receipts
 
 Mailbox deletion cannot be the only source of message identity because a sender may retry after receiving no HTTP response even though acceptance committed.
 
-`message_receipts` therefore survives mailbox deletion and stores only synchronization metadata plus a SHA-256 digest of the opaque ciphertext. It preserves the original `server_seq` and immutable message identity.
+`message_receipts` therefore survives mailbox deletion and stores synchronization metadata plus a SHA-256 digest of the opaque ciphertext. Delivery tracking records the receiving device and delivery time used to validate ACK eligibility.
 
 Each receipt records:
 
 - `delivery_expires_at` — the end of the 14-day unacknowledged delivery guarantee;
+- `delivered_to_device_id` / `delivered_at` — the receiving-device delivery record;
 - `acknowledged_at` — whether the recipient crossed the local durability boundary;
 - `retention_expires_at` — the end of the finite receipt-retention period.
 
-A matching retry during the delivery window returns the original server sequence. Once an unacknowledged delivery window expires, the receipt becomes a retry-expired tombstone rather than silently creating a second acceptance. After ACK, the receipt remains available for the post-ACK idempotency window.
-
-Acknowledged receipts have a **30-day retention window after acceptance**. This is intentionally not indefinite. Receipt cleanup must be coordinated with media cleanup and must never remove a receipt while the protocol still promises retries for it.
+A matching retry during the delivery window returns the original server sequence. Once an unacknowledged delivery window expires, the receipt becomes a retry-expired tombstone rather than silently creating a second acceptance. After ACK, the receipt remains available for the finite idempotency window.
 
 ## Media
 
@@ -216,47 +215,4 @@ The current implementation establishes this opaque-payload boundary without comm
 
 ## Failure model
 
-The protocol assumes requests can fail after the server has committed and before the client receives the response.
-
-Therefore every important operation must be safe to retry:
-
-- pairing operations are one-time/expiry constrained;
-- message push is idempotent by message identity and immutable payload;
-- media completion must be idempotent;
-- pull is non-destructive;
-- ACK is idempotent;
-- cleanup is eventually consistent and retry-safe.
-
-The retry guarantees are intentionally finite: mailbox delivery is guaranteed for 14 days while unacknowledged, and durable message identity is retained for its documented finite receipt window. After those boundaries, the system makes no indefinite recovery guarantee.
-
-The system should prefer a recoverable duplicate request over irreversible data loss within the defined retention windows.
-
-## Current API surface
-
-Implemented Worker routes:
-
-- `GET /health`
-- `GET /health/schema`
-- `GET /v1/auth/probe`
-- `POST /v1/pairing/bootstrap`
-- `POST /v1/pairing/create`
-- `POST /v1/pairing/accept`
-- `POST /v1/sync/push`
-- `GET /v1/sync/pull`
-- `POST /v1/sync/ack`
-
-Media upload endpoints and R2 integration are intentionally not implemented yet.
-
-## Implementation rules
-
-When extending the cloud backend:
-
-- keep local SQLite authoritative;
-- keep the mailbox temporary;
-- make durability boundaries explicit;
-- prefer database-enforced invariants for critical state transitions;
-- make retries safe within their documented retention windows;
-- do not store plaintext application content;
-- do not add permanent cloud history without an explicit product decision;
-- do not let R2 cleanup race ahead of the message/receipt durability contract;
-- treat the Worker/D1/R2 stack as production infrastructure, including operational hardening, observability, rate limiting, migration safety and recovery planning.
+The protocol assumes requests can fail after the server has committed and before the client receives the response. Every mutating operation therefore has an idempotent retry path or an explicit one-time/expiry rule.
