@@ -58,25 +58,7 @@ export async function acknowledgeMessages(env: Env, request: Request): Promise<R
        AND sender_device_id != ?2`,
   ).bind(device.relationshipId, device.id).first<{ max_delivered: number | null }>();
   const maxDelivered = delivered?.max_delivered ?? 0;
-
-  if (throughServerSeq > maxDelivered) {
-    // Receipts are intentionally retained longer than mailbox messages. Once
-    // both the mailbox row and its receipt have expired, the device's local
-    // cursor may still legitimately point past that old message. There is
-    // nothing left to acknowledge in that case, so treating the ACK as
-    // idempotent lets a long-offline client recover without weakening the
-    // protection for any mailbox row that is still present.
-    const outstanding = await session.prepare(
-      `SELECT 1 AS outstanding
-       FROM mailbox_messages AS m
-       WHERE m.relationship_id = ?1
-         AND m.server_seq <= ?2
-         AND m.sender_device_id != ?3
-         AND m.acknowledged_at IS NULL
-       LIMIT 1`,
-    ).bind(device.relationshipId, throughServerSeq, device.id).first<{ outstanding: number }>();
-    if (outstanding) return errorResponse("ACK_NOT_DELIVERED", "throughServerSeq has not been delivered to this device", 409);
-  }
+  if (throughServerSeq > maxDelivered) return errorResponse("ACK_NOT_DELIVERED", "throughServerSeq has not been delivered to this device", 409);
 
   const missingDelivery = await session.prepare(
     `SELECT 1 AS missing
