@@ -322,7 +322,8 @@ export async function pushMessageDurable(env: Env, request: Request): Promise<Re
       env, device, message, currentNow, sequenceRow.next_server_seq, ciphertextHash,
     );
     if (result === "success") {
-      const receipt = await env.DB.prepare(
+      const session = env.DB.withSession("first-primary");
+      const receipt = await session.prepare(
         `SELECT server_seq, server_received_at FROM message_receipts
          WHERE relationship_id = ?1 AND message_id = ?2`,
       ).bind(device.relationshipId, message.messageId).first<{ server_seq: number; server_received_at: number }>();
