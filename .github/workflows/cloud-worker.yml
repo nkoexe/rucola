@@ -105,7 +105,11 @@ jobs:
           cache-dependency-path: cloud/worker/package-lock.json
       - run: npm ci
       - run: npm run typecheck
-      - run: npm test
+      - name: Run tests
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: npm test
       - name: Render Cloudflare deployment config
         env:
           RUCOLA_DEPLOY_ENV: ${{ inputs.environment }}
