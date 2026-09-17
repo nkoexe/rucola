@@ -2,7 +2,7 @@
 
 > Current cloud implementation status and remaining integration work.
 >
-> Updated: 2026-09-16.
+> Updated: 2026-09-17.
 
 ## 1. Purpose
 
@@ -22,7 +22,7 @@ The implementation must preserve these properties:
 
 ## 2. Current implementation status
 
-The cloud backend foundation is implemented and hardened on `cloud/research`, with the directional mailbox hardening work carried by `fix/cloud-mailbox-direction`.
+The cloud backend foundation is implemented and hardened on `main`. The earlier `cloud/research` and `fix/cloud-mailbox-direction` branches are historical workstreams whose relevant implementation and hardening changes have been incorporated into `main`.
 
 Implemented:
 
@@ -158,7 +158,7 @@ Current guarantees:
 
 The Worker currently uses migration files under `cloud/worker/migrations/` through `0009_receipt_delivery_tracking.sql`.
 
-Early development versions contained duplicate numeric migration prefixes. The files were renumbered into one ordered sequence. Before applying this branch to an already-populated remote D1 database, inspect its applied migration history and reconcile any old filenames before deploying.
+Early development versions contained duplicate numeric migration prefixes. The files were renumbered into one ordered sequence. Before applying the current migration history to an already-populated remote D1 database, inspect its applied migration history and reconcile any old filenames before deploying.
 
 The cloud Worker has an independent current schema from the mobile app's local SQLite schema; do not treat the two migration directories as interchangeable.
 
