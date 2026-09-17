@@ -3,7 +3,7 @@ import { databaseHealthy, checkSchema } from "./db";
 import { runCleanup } from "./cleanup";
 import { errorResponse, json, methodNotAllowed } from "./http";
 import { acceptInvitation, bootstrapPairing, createInvitation } from "./pairing";
-import { completeMedia, createMediaReservation, uploadMedia } from "./media";
+import { completeMedia, createMediaReservation, downloadMedia, uploadMedia } from "./media";
 import { pullMessages } from "./sync-pull";
 import { acknowledgeMessages } from "./sync-ack";
 import { pushMessageDurable } from "./sync-push";
@@ -107,8 +107,9 @@ export default {
     }
     const mediaUploadMatch = url.pathname.match(/^\/v1\/media\/([^/]+)$/);
     if (mediaUploadMatch) {
-      if (request.method !== "PUT") return methodNotAllowed(["PUT", "OPTIONS"]);
-      return uploadMedia(env, request, mediaUploadMatch[1]);
+      if (request.method === "PUT") return uploadMedia(env, request, mediaUploadMatch[1]);
+      if (request.method === "GET") return downloadMedia(env, request, mediaUploadMatch[1]);
+      return methodNotAllowed(["GET", "PUT", "OPTIONS"]);
     }
     if (url.pathname === "/v1/sync/push") {
       if (request.method !== "POST") return methodNotAllowed(["POST", "OPTIONS"]);
