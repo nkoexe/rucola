@@ -1,8 +1,8 @@
 # Rucola Cloud Protocol Hardening Review
 
-**Status:** C1 protocol review completed; the major protocol findings have been implemented and regression-tested on the `cloud/research` workstream.
+**Status:** C1 protocol review completed; the major protocol findings were implemented and regression-tested during the `cloud/research` workstream and have since been incorporated into `main`.
 
-**Branch:** `cloud/research`
+**Historical branch:** `cloud/research`
 
 **Purpose:** This document is the historical adversarial review that shaped the Worker protocol. Current deployment/protocol notes live in `cloud/worker/README.md`; current mobile architecture lives in `docs/ARCHITECTURE.md`.
 
@@ -67,9 +67,9 @@ The mobile `SyncEngine` enforces the important client boundary: cursor advanceme
 
 ### Pairing
 
-The user-facing mechanism is exactly five emojis. That code is a usability/confirmation mechanism, not the security credential.
+The human-facing pairing UX is a product concern separate from the security credential. The backend uses a higher-entropy invitation/token plus bounded confirmation attempts, expiry, and one-time consumption.
 
-The actual pairing protocol uses a higher-entropy invitation/token plus bounded confirmation attempts, expiry, and one-time consumption. The mobile app must keep those technical credentials invisible to the user.
+The mobile app must keep technical credentials invisible to the user.
 
 ### Device lifecycle
 
