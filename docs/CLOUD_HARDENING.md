@@ -51,7 +51,9 @@ The backend currently operates on opaque payloads and deliberately does not fina
 
 #### Production posture
 
-`cloud/research` contains the cloud backend work, with `fix/cloud-mailbox-direction` carrying the current hardening changes. Operational hardening includes abuse/rate limiting, migration safety, secret handling, cleanup/recovery and bounded resource usage.
+`main` contains the canonical cloud backend work. The earlier `cloud/research` and `fix/cloud-mailbox-direction` branches are historical provenance for the cloud implementation and directional mailbox hardening that have been incorporated into `main`.
+
+Operational hardening includes abuse/rate limiting, migration safety, secret handling, cleanup/recovery and bounded resource usage.
 
 ## Remaining implementation / hardening
 
@@ -113,7 +115,7 @@ The important invariant is that mailbox pull and ACK are not media deletion even
 
 Durable receipts were introduced after the initial mailbox schema. Existing pre-receipt mailbox rows do not have receipts, so the push path retains a legacy mailbox conflict check while such rows remain.
 
-The receipt delivery-state migration is now `cloud/worker/migrations/0006_receipt_delivery_state.sql`; production deployment must verify the existing remote migration history before applying this branch because earlier development versions used duplicate migration prefixes that were subsequently renumbered.
+The receipt delivery-state migration is now `cloud/worker/migrations/0006_receipt_delivery_state.sql`; production deployment must verify the existing remote migration history before applying the current ordered migration history because earlier development versions used duplicate migration prefixes that were subsequently renumbered.
 
 ## Obsolete state
 
