@@ -21,11 +21,6 @@
 		{
 			"binding": "MEDIA_BUCKET",
 			"bucket_name": "rucola-media-local"
-		},
-		{
-			"bucket_name": "rucola-media-dev",
-			"binding": "rucola_media_dev",
-			"remote": true
 		}
 	],
 	"ratelimits": [
