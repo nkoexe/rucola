@@ -38,6 +38,9 @@ function sameSha256(object: R2Object, expected: string): boolean { const actual 
 async function getOwnedUpload(env: Env, device: AuthenticatedDevice, uploadId: string): Promise<MediaUploadRow | null> {
   return env.DB.prepare(`SELECT media_uploads.id, media_uploads.relationship_id, media_uploads.created_by_device_id, media_uploads.object_key, media_uploads.media_type, media_uploads.declared_mime, media_uploads.size_bytes, media_uploads.checksum, media_uploads.status, media_uploads.expires_at FROM media_uploads JOIN relationships ON relationships.id = media_uploads.relationship_id WHERE media_uploads.id = ?1 AND media_uploads.relationship_id = ?2 AND media_uploads.created_by_device_id = ?3 AND relationships.status = 'ACTIVE'`).bind(uploadId, device.relationshipId, device.id).first<MediaUploadRow>();
 }
+async function getAttachedUpload(env: Env, device: AuthenticatedDevice, uploadId: string): Promise<MediaUploadRow | null> {
+  return env.DB.prepare(`SELECT media_uploads.id, media_uploads.relationship_id, media_uploads.created_by_device_id, media_uploads.object_key, media_uploads.media_type, media_uploads.declared_mime, media_uploads.size_bytes, media_uploads.checksum, media_uploads.status, media_uploads.expires_at FROM media_uploads JOIN relationships ON relationships.id = media_uploads.relationship_id WHERE media_uploads.id = ?1 AND media_uploads.relationship_id = ?2 AND media_uploads.status = 'ATTACHED' AND relationships.status = 'ACTIVE'`).bind(uploadId, device.relationshipId).first<MediaUploadRow>();
+}
 function removeObjectBestEffort(env: Env, objectKey: string): Promise<void> { return env.MEDIA_BUCKET.delete(objectKey).catch(() => undefined); }
 function boundedMediaStream(body: ReadableStream<Uint8Array>, maxBytes: number): ReadableStream<Uint8Array> {
   const { readable, writable } = new FixedLengthStream(maxBytes);
@@ -82,6 +85,24 @@ export async function completeMedia(env: Env, request: Request, uploadId: string
   if (!object) return errorResponse("MEDIA_NOT_UPLOADED", "Media object has not been uploaded", 409);
   if (object.size !== upload.size_bytes || object.httpMetadata?.contentType !== upload.declared_mime || object.customMetadata?.uploadId !== upload.id || (upload.checksum !== null && !sameSha256(object, upload.checksum))) { await removeObjectBestEffort(env, upload.object_key); return errorResponse("MEDIA_STORAGE_MISMATCH", "Stored media does not match the reservation", 409); }
   const readyExpiresAt = now + READY_RETENTION_MS;
-  try { const result = await env.DB.prepare(`UPDATE media_uploads SET status = 'READY', completed_at = ?1, expires_at = ?2 WHERE id = ?3 AND relationship_id = ?4 AND created_by_device_id = ?5 AND status = 'PENDING' AND expires_at > ?1`).bind(now, readyExpiresAt, upload.id, device.relationshipId, device.id).run(); if (result.meta.changes !== 1) { const current = await getOwnedUpload(env, device, upload.id); if (current?.status === "READY") return json({ uploadId: current.id, status: "READY" }); if (!current) return errorResponse("MEDIA_NOT_FOUND", "Media upload was not found", 404); if (Date.now() >= current.expires_at) return errorResponse("MEDIA_EXPIRED", "Media upload has expired", 409); return errorResponse("MEDIA_NOT_PENDING", "Media upload is no longer pending", 409); } } catch { return errorResponse("DATABASE_UNAVAILABLE", "Media completion could not be recorded", 503); }
+  try { const result = await env.DB.prepare(`UPDATE media_uploads SET status = 'READY', completed_at = ?1, expires_at = ?2 WHERE id = ?3 AND relationship_id = ?4 AND created_by_device_id = ?5 AND status = 'PENDING' AND expires_at > ?1`).bind(now, readyExpiresAt, upload.id, device.relationshipId, device.id).run(); if (result.meta.changes !== 1) { const current = await getOwnedUpload(env, device, upload.id); if (current?.status === "READY") return json({ uploadId: current.id, status: "READY" }); if (!current) return errorResponse("MEDIA_NOT_FOUND", "Media upload was not found", 404); if (Date.now() >= current.expires_at) return errorResponse("MEDIA_EXPIRED", "Media upload has expired", 409); return errorResponse("MEDIA_NOT_PENDING", "Media upload is not pending", 409); } } catch { return errorResponse("DATABASE_UNAVAILABLE", "Media completion could not be recorded", 503); }
   return json({ uploadId: upload.id, status: "READY" });
+}
+export async function downloadMedia(env: Env, request: Request, uploadId: string): Promise<Response> {
+  const device = await authenticateDevice(env, request);
+  if (!device) return errorResponse("UNAUTHENTICATED", "Valid device credentials are required", 401);
+  if (!/^[0-9a-f-]{36}$/i.test(uploadId)) return errorResponse("INVALID_UPLOAD_ID", "Invalid media upload ID", 400);
+  const upload = await getAttachedUpload(env, device, uploadId);
+  if (!upload) return errorResponse("MEDIA_NOT_FOUND", "Attached media was not found", 404);
+  let object: R2ObjectBody | null;
+  try { object = await env.MEDIA_BUCKET.get(upload.object_key); } catch { return errorResponse("MEDIA_STORAGE_UNAVAILABLE", "Media storage could not be read", 502); }
+  if (!object) return errorResponse("MEDIA_NOT_FOUND", "Media object was not found", 404);
+  if (object.size !== upload.size_bytes || object.httpMetadata?.contentType !== upload.declared_mime || object.customMetadata?.uploadId !== upload.id || (upload.checksum !== null && !sameSha256(object, upload.checksum))) return errorResponse("MEDIA_STORAGE_MISMATCH", "Stored media does not match the attachment", 502);
+  const headers = new Headers({
+    "cache-control": "no-store",
+    "content-type": upload.declared_mime,
+    "content-length": String(upload.size_bytes),
+  });
+  if (object.httpEtag) headers.set("etag", object.httpEtag);
+  return new Response(object.body, { status: 200, headers });
 }
