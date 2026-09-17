@@ -1,11 +1,11 @@
 # Rucola Cloud Implementation Status
 
-Date: 2026-09-16
-Branch: `fix/cloud-mailbox-direction`
+Date: 2026-09-17  
+Branch: `main`
 
 ## Current status
 
-The cloud backend foundation is implemented and hardened through the temporary mailbox, ACK, media, cleanup, and concurrency boundaries. The React Native cloud adapter is the next integration step.
+The cloud backend foundation is implemented and hardened through the temporary mailbox, ACK, media, cleanup, pairing, concurrency, and database-invariant boundaries. The React Native cloud adapter is the next integration step.
 
 ## Sync protocol
 
@@ -57,13 +57,14 @@ The receipt survives mailbox deletion so a sender can safely retry after a lost 
 
 ## Pairing
 
-**Status: complete and hardened.**
+**Status: complete and hardened at the backend layer.**
 
 - bootstrap creates the first device and invitation;
 - invitation acceptance creates the partner device;
 - confirmation attempts are bounded and lockable;
 - concurrent acceptance is tested so an invitation is consumed only once;
-- relationship and device ownership are enforced by the database and Worker.
+- relationship and device ownership are enforced by the database and Worker;
+- the user-facing confirmation code remains separate from the higher-entropy invitation token and device credentials.
 
 ## Media / R2
 
@@ -93,11 +94,12 @@ Implemented coverage includes:
 - exact ciphertext-view hashing;
 - bounded streamed media uploads;
 - relationship termination guards;
-- retry-expiry handling.
+- retry-expiry handling;
+- database-level acceptance invariants, including receipt delivery-state constraints.
 
 ## Validation
 
-The cloud Worker test suite is the primary validation boundary. Before merge, run:
+The cloud Worker test suite is the primary validation boundary. Run:
 
 ```bash
 npm ci
@@ -105,11 +107,22 @@ npm run typecheck
 npm test
 ```
 
-The latest fully validated pre-docs-cleanup state was 15 test files and 111 tests passing. Documentation-only commits can still trigger a fresh CI run and should be rechecked before merge.
+The latest completed backend validation before the current CI workflow fix was 15 test files and 111 tests passing. A fresh CI run is required to validate the current workflow and remote Cloudflare resources end-to-end.
+
+## Remaining work
+
+1. React Native cloud transport/adapter integration.
+2. Foreground two-device online-flow validation on real Android devices.
+3. Background synchronization and notifications.
+4. Production migration/backfill procedure and verification of any already-populated remote D1 database.
+5. Production resource/secrets verification.
+6. Deeper production observability and structured metrics.
+7. Final E2E encryption/key-management design and implementation.
+8. Final cleanup/removal decision for the legacy `mailbox_messages.acknowledged_at` field.
 
 ## Next step
 
-Connect the React Native sync engine to the stable protocol while preserving SQLite as the local source of truth. The mobile flow should remain:
+Connect the React Native sync engine to the stable protocol while preserving SQLite as the local source of truth:
 
 ```text
 push local outbox → pull partner messages → persist transactionally → ACK durable cursor
