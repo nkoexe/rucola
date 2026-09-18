@@ -273,6 +273,43 @@ describe("mobile SyncEngine ↔ Cloud Worker integration", () => {
     expect(me.cursor).toBe(serverSeqByMessage.get("partner-offline-1"));
     expect(partner.cursor).toBe(serverSeqByMessage.get("me-offline-1"));
 
+    // The receiver's cursor is intentionally scoped to peer messages. Prove that
+    // a later peer message is still delivered even when that cursor is below the
+    // global server sequence because the receiver never saw its own message.
+    const thirdMessage = message(relationshipId, "me-offline-2", "a later hello", 2);
+    me.messages.push(thirdMessage);
+    me.outbox.push({
+      messageId: thirdMessage.id,
+      senderSeq: 2,
+      attempts: 0,
+      lastError: null,
+      nextAttemptAt: 0,
+      createdAt: thirdMessage.createdAt,
+    });
+
+    const thirdPush = await me.engine.run();
+    expect(thirdPush.failed).toBe(0);
+    expect(thirdPush.pushed).toBe(1);
+
+    const secondPartnerSync = await partner.engine.run();
+    expect(secondPartnerSync.failed).toBe(0);
+    expect(secondPartnerSync.pulled).toBe(1);
+    expect(partner.messages.find((item) => item.id === thirdMessage.id)?.body).toBe(
+      "a later hello",
+    );
+
+    const finalReceiptRows = await env.DB
+      .prepare(
+        "SELECT message_id, server_seq FROM message_receipts WHERE relationship_id = ?1 ORDER BY server_seq",
+      )
+      .bind(relationshipId)
+      .all<{ message_id: string; server_seq: number }>();
+    const thirdServerSeq = finalReceiptRows.results.find(
+      (row) => row.message_id === thirdMessage.id,
+    )?.server_seq;
+    expect(thirdServerSeq).toBeGreaterThan(partner.cursor);
+    expect(partner.cursor).toBe(thirdServerSeq);
+
     const mailbox = await env.DB
       .prepare(
         "SELECT message_id, server_seq FROM mailbox_messages WHERE relationship_id = ?1 ORDER BY server_seq",
