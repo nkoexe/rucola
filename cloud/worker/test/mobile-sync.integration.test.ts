@@ -1,7 +1,7 @@
 import { env, exports } from "cloudflare:workers";
 import { describe, expect, it } from "vitest";
-import { CloudClient } from "../../src/cloud/CloudClient.ts";
-import { SyncEngine } from "../../src/sync/SyncEngine.ts";
+import { CloudClient } from "../../../src/cloud/CloudClient.ts";
+import { SyncEngine } from "../../../src/sync/SyncEngine.ts";
 
 type LocalMessage = {
   id: string;
@@ -13,7 +13,7 @@ type LocalMessage = {
   isActive: boolean;
   syncState: "PENDING" | "SYNCED";
   orderIndex: number;
-  mediaReference: null;
+  mediaReference: string | null;
 };
 
 type OutboxItem = {
@@ -72,7 +72,6 @@ async function pair(): Promise<{
 
 function message(
   relationshipId: string,
-  participant: "ME" | "PARTNER",
   id: string,
   body: string,
   orderIndex: number,
@@ -80,7 +79,7 @@ function message(
   return {
     id,
     relationshipId,
-    participant,
+    participant: "ME",
     type: "TEXT",
     body,
     createdAt: Date.now(),
@@ -102,20 +101,17 @@ function createClient(credential: string): CloudClient {
 function createDeviceHarness(
   relationshipId: string,
   credential: string,
-  participant: "ME" | "PARTNER",
   initialMessages: LocalMessage[],
 ) {
   const messages = [...initialMessages];
-  const outbox: OutboxItem[] = initialMessages
-    .filter((item) => item.participant === participant)
-    .map((item, index) => ({
-      messageId: item.id,
-      senderSeq: index + 1,
-      attempts: 0,
-      lastError: null,
-      nextAttemptAt: 0,
-      createdAt: item.createdAt,
-    }));
+  const outbox: OutboxItem[] = initialMessages.map((item, index) => ({
+    messageId: item.id,
+    senderSeq: index + 1,
+    attempts: 0,
+    lastError: null,
+    nextAttemptAt: 0,
+    createdAt: item.createdAt,
+  }));
   let cursor = 0;
 
   const state = {
@@ -142,14 +138,17 @@ function createDeviceHarness(
       throw new Error(`Unexpected blocked message ${id}: ${error.message}`);
     },
     getPullCursor: async () => cursor,
-    commitInbound: async (batch: Array<{
-      id: string;
-      type: "TEXT" | "EMOJI";
-      body: string;
-      createdAt: number;
-      serverSeq: number;
-      mediaReference?: string | null;
-    }>, nextCursor: number) => {
+    commitInbound: async (
+      batch: Array<{
+        id: string;
+        type: "TEXT" | "EMOJI";
+        body: string;
+        createdAt: number;
+        serverSeq: number;
+        mediaReference?: string | null;
+      }>,
+      nextCursor: number,
+    ) => {
       for (const item of batch) {
         if (!messages.some((local) => local.id === item.id)) {
           messages.push({
@@ -202,17 +201,26 @@ describe("mobile SyncEngine ↔ Cloud Worker integration", () => {
   it("syncs two devices through the real CloudClient and Worker, including offline backlog and simultaneous sends", async () => {
     const { relationshipId, meCredential, partnerCredential } = await pair();
 
-    const meMessage = message(relationshipId, "ME", "me-offline-1", "hello from me", 1);
-    const partnerMessage = message(relationshipId, "PARTNER", "partner-offline-1", "hello from partner", 1);
-    const me = createDeviceHarness(relationshipId, meCredential, "ME", [meMessage]);
-    const partner = createDeviceHarness(relationshipId, partnerCredential, "PARTNER", [partnerMessage]);
+    const meMessage = message(relationshipId, "me-offline-1", "hello from me", 1);
+    const partnerMessage = message(
+      relationshipId,
+      "partner-offline-1",
+      "hello from partner",
+      1,
+    );
+    const me = createDeviceHarness(relationshipId, meCredential, [meMessage]);
+    const partner = createDeviceHarness(relationshipId, partnerCredential, [partnerMessage]);
 
     const result = await Promise.all([me.engine.run(), partner.engine.run()]);
 
     expect(result.map((run) => run.failed)).toEqual([0, 0]);
     expect(result.map((run) => run.pushed)).toEqual([1, 1]);
-    expect(me.messages.find((item) => item.id === "partner-offline-1")?.body).toBe("hello from partner");
-    expect(partner.messages.find((item) => item.id === "me-offline-1")?.body).toBe("hello from me");
+    expect(me.messages.find((item) => item.id === "partner-offline-1")?.body).toBe(
+      "hello from partner",
+    );
+    expect(partner.messages.find((item) => item.id === "me-offline-1")?.body).toBe(
+      "hello from me",
+    );
     expect(me.cursor).toBe(2);
     expect(partner.cursor).toBe(2);
 
