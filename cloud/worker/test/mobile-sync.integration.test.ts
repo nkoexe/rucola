@@ -1,7 +1,8 @@
 import { env, exports } from "cloudflare:workers";
 import { describe, expect, it } from "vitest";
-import { CloudClient } from "../../../src/cloud/CloudClient.ts";
-import { SyncEngine } from "../../../src/sync/SyncEngine.ts";
+import { CloudClient } from "../../../src/cloud/CloudClient";
+import { SyncEngine } from "../../../src/sync/SyncEngine";
+import type { CloudPulledMessage } from "../../../src/cloud/protocol";
 
 type LocalMessage = {
   id: string;
@@ -176,9 +177,10 @@ function createDeviceHarness(
   const codec = {
     encryptionVersion: 1,
     encrypt: async (local: LocalMessage) => `cipher:${local.body}`,
-    decrypt: async (remote: { type: "TEXT" | "EMOJI"; ciphertext: string }) => ({
+    decrypt: async (remote: CloudPulledMessage) => ({
       type: remote.type,
       body: remote.ciphertext.replace(/^cipher:/, ""),
+      mediaReference: null,
     }),
   };
 
