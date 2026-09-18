@@ -106,6 +106,23 @@ test('malformed successful JSON is rejected instead of being blindly cast', asyn
   await assert.rejects(() => client.pullMessages(), (error) => error instanceof CloudClientError && error.code === 'INVALID_RESPONSE');
 });
 
+test('transport failures become retryable typed network errors', async () => {
+  const client = new CloudClient({
+    baseUrl: 'https://cloud.example.test',
+    credential: 'credential',
+    fetchImpl: async () => {
+      throw new TypeError('network unavailable');
+    },
+  });
+  await assert.rejects(() => client.pullMessages(), (error) => {
+    assert(error instanceof CloudClientError);
+    assert.equal(error.code, 'CLIENT_NETWORK_ERROR');
+    assert.equal(error.status, 0);
+    assert.equal(error.message, 'network unavailable');
+    return true;
+  });
+});
+
 test('a stalled request is converted into a typed timeout error', async () => {
   const client = new CloudClient({
     baseUrl: 'https://cloud.example.test', credential: 'credential', requestTimeoutMs: 5,
