@@ -106,6 +106,30 @@ test('malformed successful JSON is rejected instead of being blindly cast', asyn
   await assert.rejects(() => client.pullMessages(), (error) => error instanceof CloudClientError && error.code === 'INVALID_RESPONSE');
 });
 
+test('rejects sync push responses with invalid zero sequence fields', async () => {
+  const client = new CloudClient({
+    baseUrl: 'https://cloud.example.test',
+    credential: 'credential',
+    fetchImpl: async () => jsonResponse({
+      messageId: 'message',
+      senderSeq: 0,
+      serverSeq: 0,
+      acceptedAt: 0,
+    }),
+  });
+  await assert.rejects(
+    () => client.pushMessage({
+      messageId: 'message',
+      senderSeq: 1,
+      type: 'TEXT',
+      ciphertext: 'cipher',
+      encryptionVersion: 1,
+      createdAt: 1_700_000_000_000,
+    }),
+    (error) => error instanceof CloudClientError && error.code === 'INVALID_RESPONSE',
+  );
+});
+
 test('transport failures become retryable typed network errors', async () => {
   const client = new CloudClient({
     baseUrl: 'https://cloud.example.test',
