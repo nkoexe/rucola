@@ -247,9 +247,9 @@ describe("Rucola sync race hardening", () => {
     expect(remaining?.count).toBe(0);
   });
 
-  it("preserves server-sequence ordering across a larger cross-device race", async () => {
+  async function runCrossDeviceBurst(count: number): Promise<void> {
     const { me, partner } = await bootstrapAndAccept();
-    const requests = Array.from({ length: 20 }, (_, index) => {
+    const requests = Array.from({ length: count }, (_, index) => {
       const credential = index % 2 === 0 ? me.credential : partner.credential;
       return push(credential, bodyFor({
         senderSeq: Math.floor(index / 2) + 1,
@@ -261,15 +261,70 @@ describe("Rucola sync race hardening", () => {
     expect(responses.every((response) => response.status === 200)).toBe(true);
 
     const rows = await env.DB
-      .prepare("SELECT server_seq, sender_device_id FROM mailbox_messages WHERE relationship_id = ?1 ORDER BY server_seq")
+      .prepare(
+        "SELECT server_seq, sender_device_id, sender_seq FROM mailbox_messages WHERE relationship_id = ?1 ORDER BY server_seq",
+      )
       .bind(me.relationshipId)
-      .all<{ server_seq: number; sender_device_id: string }>();
+      .all<{ server_seq: number; sender_device_id: string; sender_seq: number }>();
 
+    expect(rows.results).toHaveLength(count);
     expect(rows.results.map((row) => row.server_seq)).toEqual(
-      Array.from({ length: 20 }, (_, index) => index + 1),
+      Array.from({ length: count }, (_, index) => index + 1),
     );
     expect(new Set(rows.results.map((row) => row.sender_device_id))).toEqual(
       new Set([me.deviceId, partner.deviceId]),
     );
+    expect(rows.results.map((row) => row.sender_seq).sort((a, b) => a - b)).toEqual(
+      Array.from({ length: count }, (_, index) => Math.floor(index / 2) + 1),
+    );
+
+    const relationship = await env.DB
+      .prepare("SELECT next_server_seq FROM relationships WHERE id = ?1")
+      .bind(me.relationshipId)
+      .first<{ next_server_seq: number }>();
+    expect(relationship?.next_server_seq).toBe(count + 1);
+  }
+
+  it("handles a two-device burst of 10 concurrent sends", async () => {
+    await runCrossDeviceBurst(10);
   });
+
+  it("handles a two-device burst of 25 concurrent sends", async () => {
+    await runCrossDeviceBurst(25);
+  }, 15_000);
+
+  it("makes a retry storm for one message idempotent", async () => {
+    const { me } = await bootstrapAndAccept();
+    const message = bodyFor({ senderSeq: 1, ciphertext: "retry-storm" });
+
+    const responses = await Promise.all(
+      Array.from({ length: 10 }, () => push(me.credential, message)),
+    );
+
+    expect(responses.every((response) => response.status === 200)).toBe(true);
+    const bodies = await Promise.all(responses.map(json));
+    expect(new Set(bodies.map((body) => body.serverSeq))).toEqual(new Set([1]));
+
+    const rows = await env.DB
+      .prepare(
+        "SELECT message_id, server_seq FROM mailbox_messages WHERE relationship_id = ?1 AND message_id = ?2",
+      )
+      .bind(me.relationshipId, message.messageId)
+      .all<{ message_id: string; server_seq: number }>();
+    expect(rows.results).toHaveLength(1);
+    expect(rows.results[0]?.server_seq).toBe(1);
+
+    const receipts = await env.DB
+      .prepare(
+        "SELECT message_id, server_seq FROM message_receipts WHERE relationship_id = ?1 AND message_id = ?2",
+      )
+      .bind(me.relationshipId, message.messageId)
+      .all<{ message_id: string; server_seq: number }>();
+    expect(receipts.results).toHaveLength(1);
+    expect(receipts.results[0]?.server_seq).toBe(1);
+  }, 15_000);
+
+  it("preserves server-sequence ordering across a larger cross-device race", async () => {
+    await runCrossDeviceBurst(20);
+  }, 15_000);
 });
