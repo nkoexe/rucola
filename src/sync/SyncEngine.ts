@@ -221,7 +221,12 @@ export class SyncEngine {
       let previousServerSeq = cursor;
       for (const remote of response.messages) {
         if (!Number.isSafeInteger(remote.serverSeq) || remote.serverSeq <= previousServerSeq) throw new Error('Cloud returned inbound messages out of server-sequence order.');
-        if (!isValidDeviceId(remote.senderDeviceId) || remote.senderParticipant !== 'PARTNER') throw new Error('Cloud returned a message from an invalid sender.');
+        if (
+          !isValidDeviceId(remote.senderDeviceId) ||
+          (remote.senderParticipant !== 'ME' && remote.senderParticipant !== 'PARTNER')
+        ) {
+          throw new Error('Cloud returned a message from an invalid sender.');
+        }
         if (!isValidMessageId(remote.messageId)) throw new Error('Cloud returned an inbound message with an invalid message ID.');
         previousServerSeq = remote.serverSeq;
         let decoded: Awaited<ReturnType<SyncCodec['decrypt']>>;
