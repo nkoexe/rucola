@@ -324,7 +324,7 @@ describe("mobile SyncEngine ↔ Cloud Worker integration", () => {
       )
       .bind(relationshipId)
       .all<{ message_id: string; acknowledged_at: number | null }>();
-    expect(receipts.results).toHaveLength(2);
+    expect(receipts.results).toHaveLength(3);
     expect(receipts.results.every((row) => row.acknowledged_at !== null)).toBe(true);
   });
 });
