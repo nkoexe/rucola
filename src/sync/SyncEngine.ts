@@ -1,6 +1,6 @@
 import type { Message } from '../domain/models';
-import { CloudClient, CloudClientError } from '../cloud/CloudClient';
-import type { CloudPulledMessage, CloudMessageType } from '../cloud/protocol';
+import { CloudClient, CloudClientError } from '../cloud/CloudClient.ts';
+import type { CloudPulledMessage, CloudMessageType } from '../cloud/protocol.ts';
 
 export interface SyncStateStore {
   reconcileOutbox(now?: number): Promise<number>;
