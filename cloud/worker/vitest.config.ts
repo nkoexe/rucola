@@ -6,6 +6,7 @@ import { defineConfig } from "vitest/config";
 const root = path.dirname(fileURLToPath(import.meta.url));
 
 export default defineConfig({
+  tsconfig: "./tsconfig.json",
   plugins: [
     cloudflareTest(async () => {
       const migrations = await readD1Migrations(path.join(root, "migrations"));
