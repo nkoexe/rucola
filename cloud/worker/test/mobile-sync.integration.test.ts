@@ -129,6 +129,7 @@ function createDeviceHarness(
   relationshipId: string,
   credential: string,
   initialMessages: LocalMessage[],
+  fetchImpl: typeof fetch,
 ) {
   const messages = [...initialMessages];
   const outbox: OutboxItem[] = initialMessages.map((item, index) => ({
