@@ -91,11 +91,37 @@ function message(
   };
 }
 
-function createClient(credential: string): CloudClient {
+function createSynchronizedFetch(): typeof fetch {
+  let completedPushes = 0;
+  let release!: () => void;
+  const barrier = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+
+  return (async (input, init) => {
+    const url =
+      typeof input === "string"
+        ? input
+        : input instanceof URL
+          ? input.toString()
+          : input.url;
+    const response = await exports.default.fetch(input, init);
+
+    if (new URL(url).pathname === "/v1/sync/push") {
+      completedPushes += 1;
+      if (!response.ok || completedPushes >= 2) release();
+      await barrier;
+    }
+
+    return response;
+  }) as typeof fetch;
+}
+
+function createClient(credential: string, fetchImpl: typeof fetch): CloudClient {
   return new CloudClient({
     baseUrl: "https://rucola.test",
     credential,
-    fetchImpl: ((input, init) => exports.default.fetch(input, init)) as typeof fetch,
+    fetchImpl,
   });
 }
 
@@ -191,7 +217,7 @@ function createDeviceHarness(
       return cursor;
     },
     engine: new SyncEngine({
-      cloud: createClient(credential),
+      cloud: createClient(credential, fetchImpl),
       state,
       repository,
       codec,
@@ -200,7 +226,7 @@ function createDeviceHarness(
 }
 
 describe("mobile SyncEngine ↔ Cloud Worker integration", () => {
-  it("syncs two devices through the real CloudClient and Worker, including offline backlog and simultaneous sends", async () => {
+  it("syncs two devices through the real CloudClient and Worker with a pre-existing outbox backlog and synchronized concurrent sends", async () => {
     const { relationshipId, meCredential, partnerCredential } = await pair();
 
     const meMessage = message(relationshipId, "me-offline-1", "hello from me", 1);
@@ -210,8 +236,19 @@ describe("mobile SyncEngine ↔ Cloud Worker integration", () => {
       "hello from partner",
       1,
     );
-    const me = createDeviceHarness(relationshipId, meCredential, [meMessage]);
-    const partner = createDeviceHarness(relationshipId, partnerCredential, [partnerMessage]);
+    const synchronizedFetch = createSynchronizedFetch();
+    const me = createDeviceHarness(
+      relationshipId,
+      meCredential,
+      [meMessage],
+      synchronizedFetch,
+    );
+    const partner = createDeviceHarness(
+      relationshipId,
+      partnerCredential,
+      [partnerMessage],
+      synchronizedFetch,
+    );
 
     const result = await Promise.all([me.engine.run(), partner.engine.run()]);
 
