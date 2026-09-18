@@ -291,23 +291,23 @@ describe("mobile SyncEngine ↔ Cloud Worker integration", () => {
     expect(thirdPush.failed).toBe(0);
     expect(thirdPush.pushed).toBe(1);
 
+    const thirdReceipt = await env.DB
+      .prepare(
+        "SELECT server_seq FROM message_receipts WHERE relationship_id = ?1 AND message_id = ?2",
+      )
+      .bind(relationshipId, thirdMessage.id)
+      .first<{ server_seq: number }>();
+    const thirdServerSeq = thirdReceipt?.server_seq;
+    const cursorBeforeSecondSync = partner.cursor;
+    expect(thirdServerSeq).toBeDefined();
+    expect(thirdServerSeq!).toBeGreaterThan(cursorBeforeSecondSync);
+
     const secondPartnerSync = await partner.engine.run();
     expect(secondPartnerSync.failed).toBe(0);
     expect(secondPartnerSync.pulled).toBe(1);
     expect(partner.messages.find((item) => item.id === thirdMessage.id)?.body).toBe(
       "a later hello",
     );
-
-    const finalReceiptRows = await env.DB
-      .prepare(
-        "SELECT message_id, server_seq FROM message_receipts WHERE relationship_id = ?1 ORDER BY server_seq",
-      )
-      .bind(relationshipId)
-      .all<{ message_id: string; server_seq: number }>();
-    const thirdServerSeq = finalReceiptRows.results.find(
-      (row) => row.message_id === thirdMessage.id,
-    )?.server_seq;
-    expect(thirdServerSeq).toBeGreaterThan(partner.cursor);
     expect(partner.cursor).toBe(thirdServerSeq);
 
     const mailbox = await env.DB
