@@ -31,7 +31,12 @@ function assertResponseShape(path: string, body: unknown): void {
   if (path === '/v1/pairing/bootstrap') { if (!requireStrings('relationshipId', 'invitationId', 'deviceId', 'credential', 'token', 'confirmationCode') || body.participant !== 'ME' || !isSafePositiveInteger(body.expiresAt)) invalidResponse('Cloud returned an invalid pairing bootstrap response.'); return; }
   if (path === '/v1/pairing/create') { if (!requireStrings('relationshipId', 'invitationId', 'token', 'confirmationCode') || !isSafePositiveInteger(body.expiresAt)) invalidResponse('Cloud returned an invalid pairing creation response.'); return; }
   if (path === '/v1/pairing/accept') { if (!requireStrings('relationshipId', 'deviceId', 'credential') || body.participant !== 'PARTNER') invalidResponse('Cloud returned an invalid pairing acceptance response.'); return; }
-  if (path === '/v1/sync/push') { if (!requireStrings('messageId') || !requireNumbers('senderSeq', 'serverSeq', 'acceptedAt')) invalidResponse('Cloud returned an invalid sync push response.'); return; }
+  if (path === '/v1/sync/push') {
+    if (!requireStrings('messageId') || !isSafePositiveInteger(body.senderSeq) || !isSafePositiveInteger(body.serverSeq) || !isSafePositiveInteger(body.acceptedAt)) {
+      invalidResponse('Cloud returned an invalid sync push response.');
+    }
+    return;
+  }
   if (path === '/v1/sync/pull') { if (!Array.isArray(body.messages) || !isSafeNonNegativeInteger(body.nextCursor) || typeof body.hasMore !== 'boolean') invalidResponse('Cloud returned an invalid sync pull response.'); for (const message of body.messages) if (!isRecord(message) || !requirePullMessage(message)) invalidResponse('Cloud returned an invalid inbound sync message.'); return; }
   if (path === '/v1/sync/ack') { if (!isSafePositiveInteger(body.acknowledgedThrough) || !isSafeNonNegativeInteger(body.deleted) || !isSafePositiveInteger(body.acknowledgedAt)) invalidResponse('Cloud returned an invalid sync ACK response.'); return; }
   if (path === '/v1/media/create') { if (!requireStrings('uploadId', 'mediaType', 'mime') || (body.mediaType !== 'PHOTO' && body.mediaType !== 'VIDEO') || !isSafePositiveInteger(body.size) || !(body.checksum === null || typeof body.checksum === 'string') || body.status !== 'PENDING' || !isSafePositiveInteger(body.expiresAt)) invalidResponse('Cloud returned an invalid media reservation response.'); return; }
