@@ -26,7 +26,6 @@ function requirePullMessage(message: Record<string, unknown>): boolean { return 
 function assertResponseShape(path: string, body: unknown): void {
   if (!isRecord(body)) invalidResponse(`Cloud returned an invalid response for ${path}.`);
   const requireStrings = (...keys: string[]) => keys.every((key) => isString(body[key]));
-  const requireNumbers = (...keys: string[]) => keys.every((key) => isSafePositiveInteger(body[key]) || isSafeNonNegativeInteger(body[key]));
   if (path === '/v1/auth/probe') { if (body.authenticated !== true || (body.participant !== 'ME' && body.participant !== 'PARTNER')) invalidResponse('Cloud returned an invalid auth probe response.'); return; }
   if (path === '/v1/pairing/bootstrap') { if (!requireStrings('relationshipId', 'invitationId', 'deviceId', 'credential', 'token', 'confirmationCode') || body.participant !== 'ME' || !isSafePositiveInteger(body.expiresAt)) invalidResponse('Cloud returned an invalid pairing bootstrap response.'); return; }
   if (path === '/v1/pairing/create') { if (!requireStrings('relationshipId', 'invitationId', 'token', 'confirmationCode') || !isSafePositiveInteger(body.expiresAt)) invalidResponse('Cloud returned an invalid pairing creation response.'); return; }
