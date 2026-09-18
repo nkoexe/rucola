@@ -261,8 +261,17 @@ describe("mobile SyncEngine ↔ Cloud Worker integration", () => {
     expect(partner.messages.find((item) => item.id === "me-offline-1")?.body).toBe(
       "hello from me",
     );
-    expect(me.cursor).toBe(2);
-    expect(partner.cursor).toBe(2);
+    const receiptRows = await env.DB
+      .prepare(
+        "SELECT message_id, server_seq FROM message_receipts WHERE relationship_id = ?1 ORDER BY server_seq",
+      )
+      .bind(relationshipId)
+      .all<{ message_id: string; server_seq: number }>();
+    const serverSeqByMessage = new Map(
+      receiptRows.results.map((row) => [row.message_id, row.server_seq]),
+    );
+    expect(me.cursor).toBe(serverSeqByMessage.get("partner-offline-1"));
+    expect(partner.cursor).toBe(serverSeqByMessage.get("me-offline-1"));
 
     const mailbox = await env.DB
       .prepare(
