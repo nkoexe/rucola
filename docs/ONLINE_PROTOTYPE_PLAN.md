@@ -339,6 +339,8 @@ The pairing UI must handle:
 
 ## Phase D — application cloud runtime
 
+**Status:** implemented for the first TEXT/EMOJI sync path.
+
 Introduce one lifecycle owner instead of creating cloud/sync objects ad hoc inside screens.
 
 Conceptually:
@@ -359,7 +361,8 @@ The runtime is responsible for:
 - constructing the correct cloud client;
 - constructing the codec only when key material is available;
 - configuring the local sync state;
-- starting/stopping synchronization;
+- owning one coalescing `SyncEngine` instance;
+- starting synchronization after startup, pairing, local send, and foreground resume;
 - exposing a small application-facing status model;
 - clearing cloud state on reset.
 
@@ -368,6 +371,8 @@ No screen should directly instantiate `CloudClient` or `SyncEngine`.
 The existing startup health probe should move under this lifecycle rather than remaining an isolated side effect.
 
 ## Phase E — integrate message writes with the durable outbox
+
+**Status:** runtime trigger is implemented; real-device validation remains.
 
 Sending remains offline-first.
 
@@ -396,6 +401,8 @@ For the first online milestone, only `TEXT` and `EMOJI` should pass through the 
 `PHOTO_VIDEO` and `DRAWING` remain explicitly blocked in SyncEngine until their complete media protocols are wired.
 
 ## Phase F — startup/foreground/after-send synchronization
+
+**Status:** implemented for the foreground prototype path.
 
 Initial triggers:
 
