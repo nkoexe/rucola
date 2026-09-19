@@ -107,7 +107,7 @@ export function PairingScreen({ relationship, onComplete, onBack }: Props) {
 
   if (mode === 'loading') return <PairingLoading />;
   if (mode === 'create' && pending) {
-    return <CreatePairing pending={pending} error={error} onShare={sharePairingPass} onCancel={() => void cancel()} />;
+    return <CreatePairing pending={pending} error={error} onShare={() => sharePairingPass(pending)} onCancel={() => void cancel()} />;
   }
   if (mode === 'create') return <PairingLoading />;
   if (mode === 'join') return <JoinPairing error={error} onBack={() => { setError(null); setMode('choice'); }} onComplete={() => onComplete(relationship)} />;
@@ -132,7 +132,7 @@ function PairingLoading() {
   );
 }
 
-function ChoiceScreen({ relationship, error, onCreate, onJoin, onContinue }: {
+function ChoiceScreen({ relationship, error, onCreate, onJoin, onContinue, onBack }: {
   relationship: Relationship;
   error: string | null;
   onCreate: () => void;
@@ -275,14 +275,12 @@ function ActionButton({ label, onPress, secondary = false, disabled = false }: {
 }
 
 function sharePairingPass(pending: PendingPairingView) {
-  return () => {
-    void Share.share({
+  void Share.share({
       title: 'Rucola pairing pass',
       message: pending.package,
-    }).catch(() => {
-      // The native share sheet can be cancelled. Do not surface a secret or raw package in diagnostics.
-    });
-  };
+  }).catch(() => {
+    // The native share sheet can be cancelled. Do not surface a secret or raw package in diagnostics.
+  });
 }
 
 function useRemainingTime(expiresAt: number) {
