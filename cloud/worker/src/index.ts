@@ -36,7 +36,9 @@ async function handleSchemaHealth(env: Env): Promise<Response> {
 async function handleAuthProbe(env: Env, request: Request): Promise<Response> {
   const device = await authenticateDevice(env, request);
   if (!device) return errorResponse("UNAUTHENTICATED", "Valid device credentials are required", 401);
-  return json({ authenticated: true, participant: device.participant });
+  const relationship = await env.DB.prepare("SELECT status FROM relationships WHERE id = ?1").bind(device.relationshipId).first<{ status: "PAIRING" | "ACTIVE" | "ENDED" }>();
+  if (!relationship) return errorResponse("RELATIONSHIP_NOT_FOUND", "Relationship was not found", 404);
+  return json({ authenticated: true, participant: device.participant, relationshipStatus: relationship.status });
 }
 
 async function handleCreateInvitation(env: Env, request: Request): Promise<Response> {
