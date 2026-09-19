@@ -1,6 +1,6 @@
 # Rucola — First Online Prototype Plan
 
-**Status:** planned, implementation not started  
+**Status:** mobile runtime and foreground encrypted sync implemented; two-device physical validation pending  
 **Target:** first real two-device Android prototype against the dev backend  
 **Backend:** `https://dev.rucola.njco.dev`  
 **Primary branch:** `main` after integration PRs are merged
@@ -48,15 +48,9 @@ Already present:
 
 Still missing from the mobile product path:
 
-- persistent cloud identity storage;
-- real mobile pairing lifecycle;
-- shared encryption-key establishment;
-- production SyncCodec implementation;
-- application-owned SyncEngine lifecycle;
-- automatic sync after local writes/startup/foreground;
-- end-to-end text/emoji exchange;
-- two-device integration coverage;
-- a signed dev-test APK exercising the complete path.
+- two-device physical validation of the integrated path;
+- an in-app QR/camera transport (the prototype currently uses the native share sheet);
+- signed dev-test APK exercising the complete path on real devices;
 
 The current runtime health probe must not be mistaken for synchronization. It only proves that the app can reach the configured dev Worker.
 
@@ -390,6 +384,8 @@ create durable outbox row
 update local UI immediately
        ↓
 CloudRuntime triggers sync
+       ↓
+encrypt once and persist ciphertext in the outbox
        ↓
 push ciphertext asynchronously
 ```
