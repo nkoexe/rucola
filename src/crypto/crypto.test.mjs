@@ -58,7 +58,7 @@ test('tampered ciphertext is rejected', async () => {
   const codec = new AesGcmSyncCodec({ relationshipId: 'relationship-1', relationshipKey: key(), provider });
   const ciphertext = await codec.encrypt(message(), 7);
   const parts = ciphertext.split('.');
-  parts[2] = parts[2].slice(0, -1) + (parts[2].endsWith('A') ? 'B' : 'A');
+  parts[2] = `${parts[2][0] === 'A' ? 'B' : 'A'}${parts[2].slice(1)}`;
   await assert.rejects(
     () => codec.decrypt({ messageId: 'message-1', senderSeq: 7, type: 'TEXT', encryptionVersion: 1, ciphertext: parts.join('.') }),
     (error) => error instanceof CryptoDecryptionError,
