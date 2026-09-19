@@ -70,6 +70,9 @@ export default function App() {
       if (state !== 'active') return;
       void repositoryPromise
         .then((repository) => cloudRuntime.refreshAndSync(repository))
+        .then((identity) => {
+          if (!identity) setPairingComplete(false);
+        })
         .catch((cause) => {
           console.warn('[rucola] foreground sync failed:', cause instanceof Error ? cause.message : 'unknown error');
         });
