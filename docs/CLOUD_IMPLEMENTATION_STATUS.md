@@ -77,7 +77,7 @@ The receipt survives mailbox deletion so a sender can safely retry after a lost 
 - upload bodies are bounded before they can exceed the reserved size in R2;
 - `READY` media becomes `ATTACHED` atomically with `PHOTO_VIDEO` message acceptance;
 - `DRAWING` remains in the protocol model but new drawing pushes are rejected until end-to-end drawing support exists;
-- scheduled cleanup handles expired/orphaned media and retained receipt dependencies.
+- scheduled cleanup handles expired/orphaned media, retained receipt dependencies, and stale unpaired relationships whose invitations have expired.
 
 ## Hardening
 
@@ -128,16 +128,17 @@ Implemented on the current development branch:
 - `SyncEngine` now passes the durable sender sequence into the codec, so the sequence is covered by AES-GCM authenticated context exactly as designed.
 - The app triggers synchronization on startup, after pairing, after local message creation, and when returning to the foreground.
 - SQLite schema v6 persists the encrypted outbound envelope in `sync_outbox` before the first network push, so AES-GCM ciphertext is reused across ambiguous retries instead of being regenerated with a fresh nonce.
+- The sync test suite now exercises a simulated two-device encrypted TEXT burst in both directions and a lost-response/idempotent retry.
+- The Worker cleanup suite now covers expiry of an unpaired pairing relationship without touching active relationships.
 
 The implementation is committed. The Android UX uses the native Android share sheet for the out-of-band pairing payload; the intended recipient path is direct device-to-device transfer (for example Quick Share), while the raw pairing payload is never displayed in the app.
 
 ## Remaining work
 
-1. Add an in-app QR/camera transfer path when a dedicated QR dependency is introduced; the current Android prototype uses the native share sheet for direct out-of-band transfer.
-2. Validate the real encrypted TEXT/EMOJI online loop on two Android devices against the dev Worker, including offline bursts and retry/restart behavior.
-3. Expand integration coverage around `CloudRuntime` lifecycle ownership and real-device sync triggers.
-4. Wire local TEXT/EMOJI writes into the durable outbox and trigger startup/foreground/after-send synchronization.
-5. Add two-device integration coverage and validate the signed dev APK on real Android devices.
+1. Validate the real encrypted TEXT/EMOJI online loop on two Android devices against the dev Worker, including offline bursts and retry/restart behavior.
+2. Validate the signed dev APK path against the dev Worker and the current Worker schema.
+3. Add an in-app QR/camera transfer path if the share-sheet prototype proves insufficient for the physical test.
+4. Add background synchronization/notifications only after the foreground two-device loop is proven.
 6. Finish end-to-end PHOTO_VIDEO synchronization.
 7. Add background synchronization/notifications.
 8. Complete production migration/recovery, resource/secrets verification, and observability.
@@ -145,6 +146,6 @@ The implementation is committed. The Android UX uses the native Android share sh
 
 ## Next step
 
-Run the current CI validation to catch Expo/native API or lockfile issues. Once green, continue with pairing protocol/lifecycle integration.
+The code/CI milestone is green. The next gate is a two-device signed-dev-Apk test against `https://dev.rucola.njco.dev`; no production deployment should happen before that.
 
 Do not make the UI depend directly on cloud endpoints.
