@@ -69,8 +69,7 @@ async function insertInvitation(env: Env, relationshipId: string, deviceId: stri
 export async function createInvitation(env: Env, request: Request, device: AuthenticatedDevice): Promise<Response> {
   if (!isJsonContentType(request)) return errorResponse("INVALID_REQUEST", "JSON request body required", 400);
   if (device.participant !== "ME") return errorResponse("PAIRING_CLOSED", "Only the first device can create invitations", 409);
-  const body = await readJson<PairingCreateRequest>(request); const lifetime = invitationLifetime(body);
-  if (lifetime <= 0) return errorResponse("INVALID_REQUEST", "Invalid invitation lifetime", 400);
+  const body = await readJson<PairingCreateRequest>(request); const lifetime = invitationLifetime(body); if (lifetime <= 0) return errorResponse("INVALID_REQUEST", "Invalid invitation lifetime", 400);
   const relationship = await env.DB.prepare(`SELECT status, relationship_key_commitment FROM relationships WHERE id = ?1`).bind(device.relationshipId).first<{ status: "PAIRING" | "ACTIVE" | "ENDED"; relationship_key_commitment: string | null }>();
   if (!relationship || relationship.status !== "PAIRING" || !relationship.relationship_key_commitment) return errorResponse("PAIRING_CLOSED", "Relationship is not currently pairable", 409);
   try { const invitation = await insertInvitation(env, device.relationshipId, device.id, lifetime); if (!invitation) return errorResponse("PAIRING_CLOSED", "Relationship is not currently pairable", 409); const relationship = await env.DB.prepare(`SELECT relationship_key_commitment FROM relationships WHERE id = ?1`).bind(device.relationshipId).first<{ relationship_key_commitment: string | null }>(); if (!relationship?.relationship_key_commitment) return errorResponse("PAIRING_CLOSED", "Pairing encryption state is unavailable", 409); return json({ relationshipId: device.relationshipId, relationshipKeyCommitment: relationship.relationship_key_commitment, ...invitation }, 201); }
