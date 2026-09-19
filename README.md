@@ -9,6 +9,7 @@ Use these documents as the current sources of truth:
 - [`AGENTS.md`](AGENTS.md) — engineering constraints and development workflow
 - [`docs/PRODUCT_SPEC.md`](docs/PRODUCT_SPEC.md) — product behavior, scope, and UX direction
 - [`docs/DEVELOPMENT_ROADMAP.md`](docs/DEVELOPMENT_ROADMAP.md) — phased implementation plan and current milestone status
+- [`docs/ONLINE_PROTOTYPE_PLAN.md`](docs/ONLINE_PROTOTYPE_PLAN.md) — concrete implementation plan for the first real two-device online prototype
 - [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — application architecture, persistence, synchronization, and security boundaries
 - [`docs/REACT_NATIVE_MIGRATION.md`](docs/REACT_NATIVE_MIGRATION.md) — historical migration record
 - [`docs/NATIVE_SQLITE_TEST_PLAN.md`](docs/NATIVE_SQLITE_TEST_PLAN.md) — native SQLite integration-test harness and coverage
