@@ -85,8 +85,6 @@ export class CloudRuntime {
       identity.relationshipId,
       identity.deviceId,
       identity.participant,
-      identity.relationshipKey,
-      identity.credential,
     ].join(':');
 
     if (this.syncEngine && this.syncEngineIdentityKey === identityKey) return this.syncEngine;
