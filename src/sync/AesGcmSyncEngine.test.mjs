@@ -43,7 +43,8 @@ test('SyncEngine pushes ciphertext that decrypts with the durable sender sequenc
   const calls = [];
   const state = {
     reconcileOutbox: async () => {},
-    getPendingOutbox: async () => [{ messageId: 'message-1', senderSeq: 7, nextAttemptAt: 0 }],
+    getPendingOutbox: async () => [{ messageId: 'message-1', senderSeq: 7, nextAttemptAt: 0, ciphertext: null, encryptionVersion: null }],
+    storeOutboundCiphertext: async (id, ciphertext, encryptionVersion) => calls.push(['storeOutboundCiphertext', id, ciphertext, encryptionVersion]),
     markSynced: async (id) => calls.push(['markSynced', id]),
     markAttemptFailed: async () => {},
     markBlocked: async () => {},
@@ -66,8 +67,8 @@ test('SyncEngine pushes ciphertext that decrypts with the durable sender sequenc
 
   const result = await engine.run();
   assert.equal(result.pushed, 1);
-  assert.equal(calls[0][0], 'push');
-  const pushed = calls[0][1];
+  assert.equal(calls[1][0], 'push');
+  const pushed = calls[1][1];
   const decoded = await recipientCodec.decrypt({
     messageId: pushed.messageId,
     senderSeq: pushed.senderSeq,
@@ -76,7 +77,7 @@ test('SyncEngine pushes ciphertext that decrypts with the durable sender sequenc
     ciphertext: pushed.ciphertext,
   });
   assert.deepEqual(decoded, { type: 'TEXT', body: 'hello 🌶️', mediaReference: null });
-  assert.deepEqual(calls[1], ['markSynced', 'message-1']);
+  assert.deepEqual(calls[2], ['markSynced', 'message-1']);
   await assert.rejects(
     () => recipientCodec.decrypt({ ...pushed, senderSeq: 8 }),
   );
