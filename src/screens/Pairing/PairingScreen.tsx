@@ -226,8 +226,8 @@ function JoinPairing({ error, onBack, onComplete }: {
       <Text style={styles.label}>five emojis</Text>
       <TextInput
         value={confirmationCode}
-        onChangeText={(value) => { setLocalError(null); setConfirmationCode(value); }}
-        placeholder="😀 😃 😄 😁 😆"
+        onChangeText={(value) => { setLocalError(null); setConfirmationCode(value.replace(/\s+/g, '')); }}
+        placeholder="😀😃😄😁😆"
         autoCorrect={false}
         style={[styles.input, styles.emojiInput]}
       />
