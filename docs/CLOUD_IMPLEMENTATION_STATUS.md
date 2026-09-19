@@ -109,33 +109,34 @@ npm test
 
 The latest completed backend validation before the current CI workflow fix was 15 test files and 111 tests passing. A fresh CI run is required to validate the current workflow and remote Cloudflare resources end-to-end.
 
+## Current mobile security foundation
+
+Implemented on the current development branch:
+
+- `expo-secure-store` is now a direct mobile dependency with a reproducible npm lock entry.
+- `CloudIdentityStore` provides a typed secure-storage boundary for relationship ID, device ID, participant, cloud credential, and relationship encryption key.
+- Relationship encryption keys are generated as 256-bit AES keys using Expo Crypto.
+- The prototype E2E codec uses AES-256-GCM with fresh 12-byte nonces, 16-byte authentication tags, a versioned envelope, and authenticated additional data.
+- TEXT and EMOJI are supported by the prototype codec; media remains deliberately blocked until the full media sync path is implemented.
+- Unit tests cover round-trip encryption, nonce uniqueness, tampering, wrong keys, malformed envelopes, encoding, and secure-identity validation.
+- The native integration harness includes a SecureStore/AES-GCM smoke test using a dedicated test storage key so it cannot overwrite a real paired identity.
+
+The implementation is committed, but CI validation of the current head is still pending.
+
 ## Remaining work
 
-1. Secure local cloud identity/credential storage.
-2. Define and implement E2E v1 relationship-key pairing without sending the relationship key to the Worker.
-3. Implement the real AES-256-GCM `SyncCodec` and its tamper/malformed-message tests.
-4. Add the application-owned CloudRuntime and connect the existing `SyncEngine` to it.
-5. Wire local TEXT/EMOJI writes into the durable outbox and trigger startup/foreground/after-send synchronization.
-6. Add two-device integration coverage and validate the signed dev APK on real Android devices.
-7. Finish end-to-end PHOTO_VIDEO synchronization.
-8. Add background synchronization/notifications.
-9. Complete production migration/recovery, resource/secrets verification, and observability.
-10. Decide whether to remove the legacy `mailbox_messages.acknowledged_at` field after the current protocol is fully migrated.
+1. Complete the pairing protocol and mobile pairing lifecycle, including secure out-of-band relationship-key transfer.
+2. Add the application-owned CloudRuntime and connect the existing `SyncEngine` to the real codec and identity state.
+3. Update the SyncEngine codec contract to pass sender sequence into authenticated encryption.
+4. Wire local TEXT/EMOJI writes into the durable outbox and trigger startup/foreground/after-send synchronization.
+5. Add two-device integration coverage and validate the signed dev APK on real Android devices.
+6. Finish end-to-end PHOTO_VIDEO synchronization.
+7. Add background synchronization/notifications.
+8. Complete production migration/recovery, resource/secrets verification, and observability.
+9. Decide whether to remove the legacy `mailbox_messages.acknowledged_at` field after the current protocol is fully migrated.
 
 ## Next step
 
-Implement the mobile security foundation first:
-
-```text
-secure identity storage
-        ↓
-relationship-key handling
-        ↓
-AES-256-GCM SyncCodec
-        ↓
-tests
-```
-
-Then continue into pairing and CloudRuntime integration.
+Run the current CI validation to catch Expo/native API or lockfile issues. Once green, continue with pairing protocol/lifecycle integration.
 
 Do not make the UI depend directly on cloud endpoints.
