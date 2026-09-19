@@ -1,11 +1,11 @@
 # Rucola Cloud Implementation Status
 
-Date: 2026-09-17  
+Date: 2026-09-19  
 Branch: `main`
 
 ## Current status
 
-The cloud backend foundation is implemented and hardened through the temporary mailbox, ACK, media, cleanup, pairing, concurrency, and database-invariant boundaries. The React Native cloud adapter is the next integration step.
+The cloud backend foundation is implemented and hardened through the temporary mailbox, ACK, media, cleanup, pairing, concurrency, and database-invariant boundaries. The React Native cloud adapter is now partially wired for dev health checks; the complete mobile pairing/crypto/sync lifecycle remains the next integration step.
 
 ## Sync protocol
 
@@ -111,21 +111,31 @@ The latest completed backend validation before the current CI workflow fix was 1
 
 ## Remaining work
 
-1. React Native cloud transport/adapter integration.
-2. Foreground two-device online-flow validation on real Android devices.
-3. Background synchronization and notifications.
-4. Production migration/backfill procedure and verification of any already-populated remote D1 database.
-5. Production resource/secrets verification.
-6. Deeper production observability and structured metrics.
-7. Final E2E encryption/key-management design and implementation.
-8. Final cleanup/removal decision for the legacy `mailbox_messages.acknowledged_at` field.
+1. Secure local cloud identity/credential storage.
+2. Define and implement E2E v1 relationship-key pairing without sending the relationship key to the Worker.
+3. Implement the real AES-256-GCM `SyncCodec` and its tamper/malformed-message tests.
+4. Add the application-owned CloudRuntime and connect the existing `SyncEngine` to it.
+5. Wire local TEXT/EMOJI writes into the durable outbox and trigger startup/foreground/after-send synchronization.
+6. Add two-device integration coverage and validate the signed dev APK on real Android devices.
+7. Finish end-to-end PHOTO_VIDEO synchronization.
+8. Add background synchronization/notifications.
+9. Complete production migration/recovery, resource/secrets verification, and observability.
+10. Decide whether to remove the legacy `mailbox_messages.acknowledged_at` field after the current protocol is fully migrated.
 
 ## Next step
 
-Connect the React Native sync engine to the stable protocol while preserving SQLite as the local source of truth:
+Implement the mobile security foundation first:
 
 ```text
-push local outbox → pull partner messages → persist transactionally → ACK durable cursor
+secure identity storage
+        ↓
+relationship-key handling
+        ↓
+AES-256-GCM SyncCodec
+        ↓
+tests
 ```
 
-Do not make the UI depend directly on the cloud endpoints.
+Then continue into pairing and CloudRuntime integration.
+
+Do not make the UI depend directly on cloud endpoints.
