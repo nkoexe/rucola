@@ -55,9 +55,10 @@ export function SettingsScreen({ relationship, repositoryPromise, onBack, onRela
     setSyncMessage(null);
     try {
       const repository = await repositoryPromise;
-      const identity = await cloudRuntime.refreshAndSync(repository);
+      const result = await cloudRuntime.refreshAndSync(repository);
+      const identity = await cloudRuntime.loadIdentity();
       setCloudState(identity?.state === 'ACTIVE' ? 'active' : 'not-paired');
-      setSyncMessage(identity ? 'sync finished.' : 'this phone is not paired online.');
+      setSyncMessage(identity && result ? `sync finished: ${result.pushed} sent, ${result.pulled} received.` : 'this phone is not paired online.');
     } catch (cause) {
       setSyncMessage(cause instanceof Error ? cause.message : 'sync failed.');
     } finally {
