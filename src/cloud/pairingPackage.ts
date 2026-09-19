@@ -27,7 +27,9 @@ function assertExpiry(value: unknown, now = Date.now()): asserts value is number
 }
 
 function encodeJson(value: unknown): string {
-  return bytesToBase64Url(utf8Encode(JSON.stringify(value)));
+  const encoded = bytesToBase64Url(utf8Encode(JSON.stringify(value)));
+  if (!encoded) throw new Error('Pairing package payload is empty.');
+  return encoded;
 }
 
 function decodeJson(value: string): unknown {
