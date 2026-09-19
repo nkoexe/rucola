@@ -40,8 +40,8 @@ function message(overrides = {}) {
   };
 }
 
-test('AES-GCM codec round-trips Unicode text', async () => {
-  const codec = new AesGcmSyncCodec({ relationshipId: 'relationship-1', relationshipKey: key(), provider });
+test('AES-GCM codec round-trips Unicode text across local and cloud relationship IDs', async () => {
+  const codec = new AesGcmSyncCodec({ relationshipId: 'cloud-relationship-1', relationshipKey: key(), provider });
   const ciphertext = await codec.encrypt(message(), 7);
   const decoded = await codec.decrypt({ messageId: 'message-1', senderSeq: 7, type: 'TEXT', encryptionVersion: 1, ciphertext });
   assert.deepEqual(decoded, { type: 'TEXT', body: 'Hello 🌶️', mediaReference: null });
