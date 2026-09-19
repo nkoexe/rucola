@@ -17,6 +17,8 @@ type Props = {
 
 export function SettingsScreen({ relationship, repositoryPromise, onBack, onRelationshipDeleted, onOpenPairing }: Props) {
   const [cloudState, setCloudState] = useState<'loading' | 'active' | 'not-paired'>('loading');
+  const [syncing, setSyncing] = useState(false);
+  const [syncMessage, setSyncMessage] = useState<string | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showNativeTests, setShowNativeTests] = useState(false);
@@ -45,6 +47,22 @@ export function SettingsScreen({ relationship, repositoryPromise, onBack, onRela
     void import('../Dev/NativeIntegrationTestScreen').then(({ NativeIntegrationTestScreen }) => {
       setNativeIntegrationTestScreen(() => NativeIntegrationTestScreen);
     });
+  };
+
+  const syncNow = async () => {
+    if (syncing) return;
+    setSyncing(true);
+    setSyncMessage(null);
+    try {
+      const repository = await repositoryPromise;
+      const identity = await cloudRuntime.refreshAndSync(repository);
+      setCloudState(identity?.state === 'ACTIVE' ? 'active' : 'not-paired');
+      setSyncMessage(identity ? 'sync finished.' : 'this phone is not paired online.');
+    } catch (cause) {
+      setSyncMessage(cause instanceof Error ? cause.message : 'sync failed.');
+    } finally {
+      setSyncing(false);
+    }
   };
 
   const clearLocalData = () => {
@@ -81,7 +99,7 @@ export function SettingsScreen({ relationship, repositoryPromise, onBack, onRela
       </View>
       <View style={styles.section}>
         <Text style={styles.label}>local data</Text>
-        <Text style={styles.muted}>Messages are currently stored on this device. Cloud pairing is separate and can be set up later.</Text>
+        <Text style={styles.muted}>Messages stay on this device. Online sync only carries the encrypted mailbox data needed to reach your person.</Text>
         {error ? <Text style={styles.error}>{error}</Text> : null}
         <Pressable onPress={clearLocalData} disabled={deleting} style={[styles.dangerButton, deleting && styles.disabled]}>
           <Text style={styles.dangerText}>{deleting ? 'clearing...' : 'Clear local data'}</Text>
@@ -90,7 +108,12 @@ export function SettingsScreen({ relationship, repositoryPromise, onBack, onRela
       <View style={styles.section}>
         <Text style={styles.label}>online</Text>
         {cloudState === 'active' ? (
-          <Text style={styles.muted}>connected to your person. Messages sync when the app is open.</Text>
+          <>
+            <Text style={styles.muted}>connected to your person. Messages sync when the app is open.</Text>
+            <Pressable onPress={() => void syncNow()} disabled={syncing} style={[styles.devButton, syncing && styles.disabled]}>
+              <Text style={styles.devText}>{syncing ? 'syncing...' : 'sync now'}</Text>
+            </Pressable>
+          </>
         ) : (
           <>
             <Text style={styles.muted}>Connect this phone to your person's phone to exchange messages over the internet.</Text>
@@ -101,6 +124,7 @@ export function SettingsScreen({ relationship, repositoryPromise, onBack, onRela
             ) : null}
           </>
         )}
+        {syncMessage ? <Text style={styles.muted}>{syncMessage}</Text> : null}
       </View>
       {__DEV__ ? (
         <View style={styles.section}>
