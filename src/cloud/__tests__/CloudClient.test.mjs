@@ -20,7 +20,7 @@ test('authenticated requests send the device credential', async () => {
     },
   });
   const result = await client.authProbe();
-  assert.deepEqual(result, { authenticated: true, participant: 'ME' });
+  assert.deepEqual(result, { authenticated: true, participant: 'ME', relationshipStatus: 'ACTIVE' });
   assert.equal(requests.length, 1);
   assert.equal(requests[0].url, 'https://cloud.example.test/v1/auth/probe');
   assert.equal(requests[0].init.headers.Authorization, 'Bearer test-credential');
@@ -44,7 +44,7 @@ test('pairing bootstrap is intentionally unauthenticated and returns credentials
   assert.equal(result.credential, 'credential');
   assert.equal(captured.url, 'https://cloud.example.test/v1/pairing/bootstrap');
   assert.equal(captured.init.headers.Authorization, undefined);
-  assert.deepEqual(JSON.parse(captured.init.body), { expiresInSeconds: 60 });
+  assert.deepEqual(JSON.parse(captured.init.body), { expiresInSeconds: 60, relationshipKeyCommitment: 'a'.repeat(64) });
 });
 
 test('pull encodes the durable cursor and limit', async () => {
