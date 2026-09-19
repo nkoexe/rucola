@@ -8,6 +8,7 @@ import { GetRelationship } from '../domain/useCases';
 import { CalendarScreen } from '../screens/Calendar/CalendarScreen';
 import { HistoryScreen } from '../screens/History/HistoryScreen';
 import { HomeScreen } from '../screens/Home/HomeScreen';
+import { PairingScreen } from '../screens/Pairing/PairingScreen';
 import { SettingsScreen } from '../screens/Settings/SettingsScreen';
 import { SetupScreen } from '../screens/Setup/SetupScreen';
 import { checkCloudRuntime } from '../cloud/runtime';
@@ -67,10 +68,9 @@ export default function App() {
   if (!relationship) return <SetupScreen repositoryPromise={repositoryPromise} onComplete={setRelationship} />;
 
   return (
-    <MainApp
+    <PairingScreen
       relationship={relationship}
-      repositoryPromise={repositoryPromise}
-      onRelationshipDeleted={() => setRelationship(null)}
+      onComplete={setRelationship}
     />
   );
 }
