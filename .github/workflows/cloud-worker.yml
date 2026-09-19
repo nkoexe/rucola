@@ -3,13 +3,7 @@ name: Cloud Worker
 on:
   push:
     branches:
-      - main
-    paths:
-      - "cloud/worker/**"
-      - ".github/workflows/cloud-worker.yml"
-      - ".gitattributes"
-  pull_request:
-    branches: [main]
+      - "**"
     paths:
       - "cloud/worker/**"
       - ".github/workflows/cloud-worker.yml"
@@ -28,7 +22,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: cloud-worker-${{ github.event_name == 'workflow_dispatch' && inputs.environment || github.event.pull_request.number || github.ref }}
+  group: cloud-worker-${{ github.event_name == 'workflow_dispatch' && inputs.environment || github.ref }}
   cancel-in-progress: ${{ github.event_name != 'workflow_dispatch' }}
 
 jobs:
