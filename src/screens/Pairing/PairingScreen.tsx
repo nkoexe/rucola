@@ -276,8 +276,8 @@ function ActionButton({ label, onPress, secondary = false, disabled = false }: {
 
 function sharePairingPass(pending: PendingPairingView) {
   void Share.share({
-      title: 'Rucola pairing pass',
-      message: pending.package,
+    title: 'Rucola pairing pass',
+    message: pending.package,
   }).catch(() => {
     // The native share sheet can be cancelled. Do not surface a secret or raw package in diagnostics.
   });
