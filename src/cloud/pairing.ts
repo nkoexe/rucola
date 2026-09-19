@@ -1,5 +1,4 @@
 import { CryptoDigestAlgorithm, digestStringAsync } from 'expo-crypto';
-import { type PairingPackage } from './pairingPackage';
 export { PAIRING_PROTOCOL_VERSION, createPairingPackage, decodePairingPackage, type PairingPackage } from './pairingPackage';
 import type { PairingPackage } from './pairingPackage';
 import { normalizeRelationshipKey } from '../crypto/relationshipKey';
