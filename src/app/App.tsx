@@ -14,7 +14,7 @@ import { SetupScreen } from '../screens/Setup/SetupScreen';
 import { cloudRuntime } from '../cloud/CloudRuntime';
 import { checkCloudRuntime } from '../cloud/runtime';
 
-type AppScreen = 'home' | 'history' | 'calendar' | 'settings';
+type AppScreen = 'home' | 'history' | 'calendar' | 'settings' | 'pairing';
 type RepositoryPromise = ReturnType<typeof getRepository>;
 
 export default function App() {
@@ -135,7 +135,8 @@ function MainApp({ relationship, repositoryPromise, onRelationshipDeleted }: {
       {screen === 'home' && <HomeScreen relationship={relationship} repositoryPromise={repositoryPromise} onOpenHistory={() => setScreen('history')} onOpenCalendar={() => setScreen('calendar')} onOpenSettings={() => setScreen('settings')} onChanged={refresh} revision={revision} />}
       {screen === 'history' && <HistoryScreen relationship={relationship} repositoryPromise={repositoryPromise} onBack={() => setScreen('home')} revision={revision} />}
       {screen === 'calendar' && <CalendarScreen relationship={relationship} repositoryPromise={repositoryPromise} onBack={() => setScreen('home')} />}
-      {screen === 'settings' && <SettingsScreen relationship={relationship} repositoryPromise={repositoryPromise} onBack={() => setScreen('home')} onRelationshipDeleted={onRelationshipDeleted} />}
+      {screen === 'settings' && <SettingsScreen relationship={relationship} repositoryPromise={repositoryPromise} onBack={() => setScreen('home')} onRelationshipDeleted={onRelationshipDeleted} onOpenPairing={() => setScreen('pairing')} />}
+      {screen === 'pairing' && <PairingScreen relationship={relationship} onComplete={onRelationshipDeleted === undefined ? () => {} : (value) => { void value; setScreen('home'); }} onBack={() => setScreen('settings')} />}
       <StatusBar style="dark" />
     </SafeAreaView>
   );
