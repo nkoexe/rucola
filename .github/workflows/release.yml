@@ -55,6 +55,7 @@ jobs:
           npm run typecheck
           npm run test:domain
           npm run test:cloud-client
+          npm run test:crypto
           npm run test:sync-engine
 
       - uses: actions/setup-java@v6
