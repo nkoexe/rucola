@@ -138,6 +138,13 @@ export class PairingManager {
     return { identity, response };
   }
 
+  async cancelPendingPairing(): Promise<void> {
+    const identity = await this.identityStore.load();
+    if (!identity || identity.state !== 'PAIRING') return;
+    await this.identityStore.clear();
+    this.cloud.clearCredential();
+  }
+
   async refreshRelationshipState(): Promise<CloudIdentity | null> {
     const identity = await this.identityStore.load();
     if (!identity) return null;
