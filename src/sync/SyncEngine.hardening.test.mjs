@@ -31,7 +31,7 @@ function harness({ pullResponse, decrypt, now = 1_700_000_100_000, reconcileOutb
   };
   const codec = {
     encryptionVersion: 1,
-    encrypt: async (message) => `cipher:${message.body}`,
+    encrypt: async (message, senderSeq) => `cipher:${senderSeq}:${message.body}`,
     decrypt: decrypt ?? (async (remote) => ({ type: remote.type, body: `decoded:${remote.ciphertext}` })),
   };
   return { calls, state, repository, cloud, codec, now: () => now };
