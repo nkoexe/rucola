@@ -61,6 +61,7 @@ export class PairingManager {
       pendingPairing,
     };
     await this.identityStore.save(identity);
+    this.cloud.setCredential(response.credential);
 
     return {
       relationshipId: response.relationshipId,
@@ -139,8 +140,16 @@ export class PairingManager {
       return null;
     }
 
+    if (identity.participant === 'ME' && identity.state === 'ACTIVE' && probe.relationshipStatus === 'PAIRING') {
+      throw new Error('Cloud relationship state regressed to pairing.');
+    }
+
     const nextState = probe.relationshipStatus === 'ACTIVE' ? 'ACTIVE' : 'PAIRING';
     if (identity.state === nextState) return identity;
+
+    if (nextState === 'PAIRING' && !identity.pendingPairing) {
+      throw new Error('Cloud reports pairing without a recoverable pending invitation.');
+    }
 
     const updated: CloudIdentity = {
       ...identity,
