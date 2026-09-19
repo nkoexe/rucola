@@ -24,11 +24,46 @@ function identity(overrides = {}) {
   };
 }
 
+function pairing() {
+  return {
+    invitationId: 'invitation-1',
+    token: 'a'.repeat(43),
+    confirmationCode: '😀😃😄😁😆',
+    expiresAt: Date.now() + 60_000,
+  };
+}
+
 test('persists and loads a cloud identity', async () => {
   const backend = createStore();
   const store = new CloudIdentityStore(backend);
   await store.save(identity());
   assert.deepEqual(await store.load(), identity());
+});
+
+test('persists a recoverable pending pairing state', async () => {
+  const backend = createStore();
+  const store = new CloudIdentityStore(backend);
+  const pending = { ...identity(), state: 'PAIRING', pendingPairing: pairing() };
+  await store.save(pending);
+  assert.deepEqual(await store.load(), pending);
+});
+
+test('rejects an active identity with pending pairing state', async () => {
+  const backend = createStore();
+  const store = new CloudIdentityStore(backend);
+  await assert.rejects(
+    () => store.save({ ...identity(), state: 'ACTIVE', pendingPairing: pairing() }),
+    /cannot have pending pairing/,
+  );
+});
+
+test('rejects pairing state without pending invitation', async () => {
+  const backend = createStore();
+  const store = new CloudIdentityStore(backend);
+  await assert.rejects(
+    () => store.save({ ...identity(), state: 'PAIRING' }),
+    /Stored pairing state is missing/,
+  );
 });
 
 test('overwrites the previous identity', async () => {
