@@ -68,7 +68,7 @@ Authentication is device-bound. Revoked devices cannot continue normal synchroni
 Bootstrap creates the relationship and the first device. The creator can create an invitation with:
 
 - a cryptographically random token;
-- a six-digit human confirmation code;
+- a five-emoji human confirmation code;
 - an expiry;
 - bounded confirmation attempts and lockout.
 
