@@ -21,8 +21,9 @@ Current foundation status:
 - final Home UX: not complete
 - three-day stale Home behavior: not complete
 - real two-device application pairing: not complete
-- application-level cloud credential persistence/lifecycle: not complete
-- end-to-end online message exchange: not complete
+- application-level cloud credential persistence/lifecycle: complete
+- first application-owned encrypted SyncEngine runtime: complete
+- end-to-end online message exchange: pending two-device validation
 - final Figma implementation: not started
 
 The cloud workstream is on `cloud/research`. Its current Worker implementation already covers the core transport foundation, including pairing, directional mailbox synchronization, receipts, media/R2 handling, cleanup, bounded payloads, and concurrency hardening. That work is ahead of the stable mobile integration on `main` and should not be described as merely a proposed backend.
@@ -172,16 +173,16 @@ The mobile repository/data layer and sync client foundation now provide:
 - explicit handling for expected undecryptable inbound messages without permanently blocking later sequences;
 - preservation of local history when synchronization fails.
 
-This is a **client transport foundation**, not a complete online application. Pairing credentials are not yet persisted through the product lifecycle, the SyncEngine is not yet owned by an application/background lifecycle, and media synchronization is intentionally incomplete.
+This is now the first application-owned online runtime, but it is not yet the completed two-device prototype. The runtime owns the cloud client, persisted identity/key material, AES-GCM codec, SQLite sync state, and SyncEngine. TEXT/EMOJI synchronization is triggered on startup, after pairing, after local message creation, and on Android foreground resume. Media synchronization remains intentionally incomplete, and two physical Android devices still need validation.
 
 ### Remaining backend/workstream work
 
 1. Keep the hardened Worker implementation and the stable mobile contract aligned.
 2. Adapt the backend pairing protocol so the first online prototype can establish a shared relationship encryption secret without sending that secret to the Worker.
-3. Finish the mobile cloud identity lifecycle: persistent device credential, device identity, participant role, and relationship encryption key.
-4. Implement the real `SyncCodec` using AES-256-GCM with a versioned envelope and authenticated additional data.
-5. Make one application-owned cloud/sync runtime responsible for `CloudClient`, `SyncCodec`, durable sync state, and `SyncEngine`.
-6. Wire local message creation into the durable outbox and trigger foreground synchronization.
+3. Validate the mobile cloud identity lifecycle on two physical devices, including restart and reset.
+4. Validate encrypted TEXT/EMOJI exchange, offline bursts, retries, and cursor/ACK durability on two physical devices.
+5. Add an in-app QR/camera pairing transport after the share-sheet prototype is proven.
+6. Keep local message creation and foreground synchronization covered by real-device validation.
 7. Keep the 14-day mailbox / 30-day durable-receipt retention contract aligned between Worker code, tests, and client behavior.
 8. Finish end-to-end photo/video synchronization after TEXT/EMOJI online sync is proven.
 9. Add later E2E hardening such as key rotation/recovery only after the first encrypted two-device prototype works.
@@ -209,7 +210,7 @@ Two real people can use two real Android devices and:
 
 ### Prototype quality
 
-The UI may still be rough.
+The UI may still be rough. The current mobile implementation uses the native Android share sheet for the high-entropy pairing payload and five emojis for human confirmation.
 
 The prototype is successful only when the central relationship loop works across two real devices, not merely in unit tests or on one device.
 
