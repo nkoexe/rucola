@@ -84,15 +84,15 @@ function parseIdentity(value: unknown): CloudIdentity {
   const pendingPairing = candidate.pendingPairing === undefined ? undefined : parsePendingPairing(candidate.pendingPairing);
   if (state === 'PAIRING' && !pendingPairing) throw new CloudIdentityStoreError('Stored pairing state is missing.');
   if (state === 'ACTIVE' && pendingPairing) throw new CloudIdentityStoreError('Active cloud identity cannot have pending pairing state.');
-  return {
+  const identity: CloudIdentity = {
     relationshipId: requireId(candidate.relationshipId, 'Relationship ID'),
     deviceId: requireId(candidate.deviceId, 'Device ID'),
     participant,
     state,
     credential: requireCredential(candidate.credential),
     relationshipKey: requireKey(candidate.relationshipKey),
-    pendingPairing,
   };
+  return pendingPairing === undefined ? identity : { ...identity, pendingPairing };
 }
 
 export class CloudIdentityStore {
