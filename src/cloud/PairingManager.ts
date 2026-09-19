@@ -122,7 +122,9 @@ export class PairingManager {
     if (existing) throw new Error('A cloud identity already exists on this device.');
 
     const response = await this.cloud.acceptInvitation(pairingPackage.token, confirmationCode, commitment);
-    if (response.relationshipId !== pairingPackage.relationshipId) throw new Error('Cloud returned a different relationship ID.');
+    // The token and key commitment are the server-authenticated pairing binding.
+    // relationshipId/invitationId in the bearer package are advisory metadata and must not be
+    // allowed to make a successfully accepted invitation unrecoverable if they were modified in transit.
     if (response.relationshipKeyCommitment !== commitment) throw new Error('Cloud returned a different relationship key commitment.');
 
     const identity: CloudIdentity = {
