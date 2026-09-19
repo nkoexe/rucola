@@ -10,14 +10,15 @@ The harness code is present, but this document does **not** claim a current pass
 
 ## Current schema
 
-The native harness expects SQLite schema **version 5**.
+The native harness expects SQLite schema **version 6**.
 
 A fresh test database verifies:
 
 - foreign keys are enabled;
 - the core relationship/message tables exist;
 - `sync_state`, `sync_outbox`, and `sync_inbox` exist;
-- the outbox includes the blocked state.
+- the outbox includes the blocked state;
+- the outbox includes nullable durable ciphertext and encryption-version columns.
 
 ## Current test coverage
 
@@ -25,7 +26,7 @@ The harness currently exercises:
 
 ### Database initialization
 
-- fresh database creation at schema v5;
+- fresh database creation at schema v6;
 - concurrent initialization of the same database;
 - initialization caching/recovery behavior.
 
@@ -58,7 +59,7 @@ The harness currently exercises:
 
 ### Synchronization state
 
-The native harness runs the durable sync-state integration suite separately. That suite covers the real SQLite representation of sender sequence allocation, outbox retry/blocking semantics, inbound receipts/cursor state, stale/expired outbound reconciliation, and sync-state reset behavior.
+The native harness runs the durable sync-state integration suite separately. That suite covers the real SQLite representation of sender sequence allocation, outbox retry/blocking semantics, durable encrypted payload persistence, inbound receipts/cursor state, stale/expired outbound reconciliation, and sync-state reset behavior.
 
 ### Migration
 
