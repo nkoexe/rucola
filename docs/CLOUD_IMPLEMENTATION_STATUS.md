@@ -109,7 +109,7 @@ npm test
 
 The latest completed backend validation before the current CI workflow fix was 15 test files and 111 tests passing. A fresh CI run is required to validate the current workflow and remote Cloudflare resources end-to-end.
 
-## Current mobile security foundation
+## Current mobile security and pairing foundation
 
 Implemented on the current development branch:
 
@@ -120,12 +120,16 @@ Implemented on the current development branch:
 - TEXT and EMOJI are supported by the prototype codec; media remains deliberately blocked until the full media sync path is implemented.
 - Unit tests cover round-trip encryption, nonce uniqueness, tampering, wrong keys, malformed envelopes, encoding, and secure-identity validation.
 - The native integration harness includes a SecureStore/AES-GCM smoke test using a dedicated test storage key so it cannot overwrite a real paired identity.
+- Pairing now binds the installation-generated relationship key to the Worker invitation through a SHA-256 commitment; the raw relationship key never crosses the Worker API.
+- The mobile pairing protocol persists recoverable `PAIRING` state separately from `ACTIVE` state and can recreate a pending pairing package after restart.
+- The human confirmation is exactly five emojis; the high-entropy invitation token and encryption key remain technical pairing material.
+- Auth probing now exposes the relationship lifecycle state so the initiating device can transition from `PAIRING` to `ACTIVE` after the partner joins.
 
 The implementation is committed, but CI validation of the current head is still pending.
 
 ## Remaining work
 
-1. Complete the pairing protocol and mobile pairing lifecycle, including secure out-of-band relationship-key transfer.
+1. Complete the actual Android pairing UX for the protocol, including secure local QR/camera or equivalent out-of-band relationship-key transfer.
 2. Add the application-owned CloudRuntime and connect the existing `SyncEngine` to the real codec and identity state.
 3. Update the SyncEngine codec contract to pass sender sequence into authenticated encryption.
 4. Wire local TEXT/EMOJI writes into the durable outbox and trigger startup/foreground/after-send synchronization.
