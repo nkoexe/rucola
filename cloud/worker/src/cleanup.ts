@@ -87,15 +87,50 @@ async function cleanupExpiredMailbox(env: Env, now: number): Promise<number> {
   return deleted;
 }
 
-export interface CleanupResult { expiredMailbox: number; expiredReceipts: number; mediaObjectsDeleted: number; }
+async function cleanupExpiredPairingRelationships(env: Env, now: number): Promise<number> {
+  const result = await env.DB.prepare(
+    `SELECT r.id FROM relationships r
+      WHERE r.status = 'PAIRING'
+        AND NOT EXISTS (SELECT 1 FROM invitations i WHERE i.relationship_id = r.id AND i.expires_at > ?)
+        AND NOT EXISTS (SELECT 1 FROM mailbox_messages m WHERE m.relationship_id = r.id)
+        AND NOT EXISTS (SELECT 1 FROM media_uploads m WHERE m.relationship_id = r.id)
+      ORDER BY r.created_at LIMIT ?`,
+  ).bind(now, CLEANUP_BATCH_SIZE).all<{ id: string }>();
+
+  let deleted = 0;
+  for (const row of result.results) {
+    const statements = [
+      env.DB.prepare(`DELETE FROM invitations WHERE relationship_id = ? AND expires_at <= ?`).bind(row.id, now),
+      env.DB.prepare(
+        `DELETE FROM devices WHERE relationship_id = ?
+          AND NOT EXISTS (SELECT 1 FROM invitations WHERE relationship_id = ?)
+          AND NOT EXISTS (SELECT 1 FROM mailbox_messages WHERE relationship_id = ?)
+          AND NOT EXISTS (SELECT 1 FROM media_uploads WHERE relationship_id = ?)`,
+      ).bind(row.id, row.id, row.id, row.id),
+      env.DB.prepare(
+        `DELETE FROM relationships WHERE id = ? AND status = 'PAIRING'
+          AND NOT EXISTS (SELECT 1 FROM invitations WHERE relationship_id = ? AND expires_at > ?)
+          AND NOT EXISTS (SELECT 1 FROM mailbox_messages WHERE relationship_id = ?)
+          AND NOT EXISTS (SELECT 1 FROM media_uploads WHERE relationship_id = ?)
+          AND (SELECT COUNT(*) FROM devices WHERE relationship_id = ?) = 0`,
+      ).bind(row.id, row.id, now, row.id, row.id, row.id),
+    ];
+    const results = await env.DB.batch(statements);
+    if ((results[2]?.meta.changes ?? 0) === 1) deleted += 1;
+  }
+  return deleted;
+}
+
+export interface CleanupResult { expiredMailbox: number; expiredReceipts: number; expiredPairing: number; mediaObjectsDeleted: number; }
 
 export async function runCleanup(env: Env, now = Date.now()): Promise<CleanupResult> {
   // Mailbox rows retain for 14 days. Receipts are retained independently for
   // idempotency and recovery, so mailbox deletion must not be coupled to receipt deletion.
   const expiredMailbox = await cleanupExpiredMailbox(env, now);
   const expiredReceipts = await cleanupExpiredReceipts(env, now);
+  const expiredPairing = await cleanupExpiredPairingRelationships(env, now);
   const expiredMedia = await claimMediaForCleanup(env, now);
   const orphanedAttachedMedia = await claimUnreferencedAttachedMedia(env);
   const mediaObjectsDeleted = await finalizeMediaCleanup(env, [...expiredMedia, ...orphanedAttachedMedia]);
-  return { expiredMailbox, expiredReceipts, mediaObjectsDeleted };
+  return { expiredMailbox, expiredReceipts, expiredPairing, mediaObjectsDeleted };
 }
