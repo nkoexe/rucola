@@ -18,7 +18,7 @@ export interface SyncRepository {
 
 export interface SyncCodec {
   encryptionVersion: number;
-  encrypt(message: Message): Promise<string>;
+  encrypt(message: Message, senderSeq: number): Promise<string>;
   decrypt(message: CloudPulledMessage): Promise<{
     type: CloudMessageType;
     body: string;
@@ -164,7 +164,7 @@ export class SyncEngine {
         if (!message) throw new Error('Local message no longer exists.');
         if (message.participant !== 'ME') throw new Error('Only local messages can be synchronized.');
         if (!isSupportedWithoutMedia(message.type)) throw new Error('Media synchronization is not implemented yet.');
-        const ciphertext = await this.codec.encrypt(message);
+        const ciphertext = await this.codec.encrypt(message, item.senderSeq);
         if (!ciphertext) throw new Error('Sync codec returned empty ciphertext.');
         await this.cloud.pushMessage({
           messageId: message.id,
