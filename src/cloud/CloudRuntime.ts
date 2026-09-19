@@ -1,4 +1,4 @@
-import { initializeDatabase, getDatabase } from '../data/database.ts';
+import { initializeDatabase } from '../data/database.ts';
 import { SQLiteSyncStateStore } from '../data/SQLiteSyncStateStore.ts';
 import type { SQLiteRucolaRepository } from '../data/SQLiteRucolaRepository.ts';
 import { AesGcmSyncCodec } from '../crypto/messageCodec.ts';
@@ -99,8 +99,7 @@ export class CloudRuntime {
   }
 
   private async createSyncEngine(repository: SQLiteRucolaRepository, identity: CloudIdentity, identityKey: string): Promise<SyncEngine> {
-    await initializeDatabase(await getDatabase());
-    const database = await getDatabase();
+    const database = await initializeDatabase();
     const state = new SQLiteSyncStateStore({ database });
     await state.setDevice(identity.deviceId, identity.participant);
     const codec = new AesGcmSyncCodec({
