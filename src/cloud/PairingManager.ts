@@ -7,6 +7,9 @@ import { generateRelationshipKey } from '../crypto/relationshipKey';
 export interface PairingManagerOptions {
   cloud: CloudClient;
   identityStore: CloudIdentityStore;
+  keyGenerator?: () => Promise<string>;
+  keyCommitment?: (relationshipKey: string) => Promise<string>;
+  now?: () => number;
 }
 
 export interface PendingPairingView {
@@ -25,18 +28,24 @@ export interface PairingAcceptResult {
 export class PairingManager {
   private readonly cloud: CloudClient;
   private readonly identityStore: CloudIdentityStore;
+  private readonly keyGenerator: () => Promise<string>;
+  private readonly keyCommitment: (relationshipKey: string) => Promise<string>;
+  private readonly now: () => number;
 
   constructor(options: PairingManagerOptions) {
     this.cloud = options.cloud;
     this.identityStore = options.identityStore;
+    this.keyGenerator = options.keyGenerator ?? generateRelationshipKey;
+    this.keyCommitment = options.keyCommitment ?? relationshipKeyCommitment;
+    this.now = options.now ?? Date.now;
   }
 
   async startPairing(expiresInSeconds?: number): Promise<PendingPairingView> {
     const existing = await this.identityStore.load();
     if (existing) throw new Error('A cloud identity already exists on this device.');
 
-    const relationshipKey = await generateRelationshipKey();
-    const commitment = await relationshipKeyCommitment(relationshipKey);
+    const relationshipKey = await this.keyGenerator();
+    const commitment = await this.keyCommitment(relationshipKey);
     const response = await this.cloud.bootstrapPairing({
       ...(expiresInSeconds === undefined ? {} : { expiresInSeconds }),
       relationshipKeyCommitment: commitment,
@@ -75,7 +84,7 @@ export class PairingManager {
   async resumePendingPairing(): Promise<PendingPairingView | null> {
     const identity = await this.identityStore.load();
     if (!identity || identity.state !== 'PAIRING' || !identity.pendingPairing) return null;
-    if (identity.pendingPairing.expiresAt <= Date.now()) {
+    if (identity.pendingPairing.expiresAt <= this.now()) {
       await this.identityStore.clear();
       this.cloud.clearCredential();
       return null;
@@ -89,7 +98,7 @@ export class PairingManager {
       credential: identity.credential,
       token: identity.pendingPairing.token,
       confirmationCode: identity.pendingPairing.confirmationCode,
-      relationshipKeyCommitment: await relationshipKeyCommitment(identity.relationshipKey),
+      relationshipKeyCommitment: await this.keyCommitment(identity.relationshipKey),
       expiresAt: identity.pendingPairing.expiresAt,
     };
 
@@ -106,7 +115,7 @@ export class PairingManager {
   async acceptPairingPackage(encodedPackage: string, confirmationCode: string): Promise<PairingAcceptResult> {
     if (!isValidPairingConfirmationCode(confirmationCode)) throw new Error('Pairing confirmation must contain exactly five valid emojis.');
     const pairingPackage = await decodePairingPackage(encodedPackage);
-    const commitment = await relationshipKeyCommitment(pairingPackage.relationshipKey);
+    const commitment = await this.keyCommitment(pairingPackage.relationshipKey);
 
     const existing = await this.identityStore.load();
     if (existing) throw new Error('A cloud identity already exists on this device.');
