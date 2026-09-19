@@ -17,6 +17,17 @@ async function createMedia(credential: string): Promise<string> { const response
 async function uploadAndComplete(credential: string, uploadId: string): Promise<void> { const uploadResponse = await exports.default.fetch(`https://rucola.test/v1/media/${uploadId}`, { method: "PUT", headers: { authorization: `Bearer ${credential}`, "content-type": "image/png", "content-length": "4" }, body: new Uint8Array([1, 2, 3, 4]) }); expect(uploadResponse.status).toBe(200); const completeResponse = await exports.default.fetch(`https://rucola.test/v1/media/${uploadId}/complete`, { method: "POST", headers: { authorization: `Bearer ${credential}` } }); expect(completeResponse.status).toBe(200); }
 
 describe("cleanup lifecycle", () => {
+  it("does not remove an active relationship when an old invitation expires", async () => {
+    const { me } = await bootstrapAndAccept();
+    const invitation = await env.DB.prepare("SELECT id FROM invitations WHERE relationship_id = ? ORDER BY created_at DESC LIMIT 1").bind(me.relationshipId).first<{ id: string }>();
+    expect(invitation).not.toBeNull();
+    const now = Date.now();
+    await env.DB.prepare("UPDATE invitations SET expires_at = ? WHERE id = ?").bind(now - 1, invitation!.id).run();
+
+    const result = await runCleanup(env, now);
+    expect(result.expiredPairing).toBe(0);
+    expect(await env.DB.prepare("SELECT status FROM relationships WHERE id = ?").bind(me.relationshipId).first<{ status: string }>()).toEqual({ status: "ACTIVE" });
+  });
   it("removes an expired unpaired relationship and its invitation/device", async () => {
     testId += 1;
     const response = await exports.default.fetch("https://rucola.test/v1/pairing/bootstrap", {
