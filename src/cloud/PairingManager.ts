@@ -1,8 +1,8 @@
 import type { PairingAcceptResponse, PairingBootstrapResponse } from './protocol.ts';
 import { CloudClient } from './CloudClient.ts';
 import { CloudIdentityStore, type CloudIdentity, type PendingPairing } from './CloudIdentityStore.ts';
-import { createPairingPackage, decodePairingPackage, isValidPairingConfirmationCode, relationshipKeyCommitment } from './pairing.ts';
-import { generateRelationshipKey } from '../crypto/relationshipKey.ts';
+import { createPairingPackage, decodePairingPackage } from './pairingPackage.ts';
+import { isValidPairingConfirmationCode } from './pairingCode.ts';
 
 export interface PairingManagerOptions {
   cloud: CloudClient;
@@ -35,8 +35,14 @@ export class PairingManager {
   constructor(options: PairingManagerOptions) {
     this.cloud = options.cloud;
     this.identityStore = options.identityStore;
-    this.keyGenerator = options.keyGenerator ?? generateRelationshipKey;
-    this.keyCommitment = options.keyCommitment ?? relationshipKeyCommitment;
+    this.keyGenerator = options.keyGenerator ?? (async () => {
+      const { generateRelationshipKey } = await import('../crypto/relationshipKey.ts');
+      return generateRelationshipKey();
+    });
+    this.keyCommitment = options.keyCommitment ?? (async (relationshipKey) => {
+      const { relationshipKeyCommitment } = await import('./pairing.ts');
+      return relationshipKeyCommitment(relationshipKey);
+    });
     this.now = options.now ?? Date.now;
   }
 
