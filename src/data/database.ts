@@ -1,7 +1,7 @@
 import * as SQLite from 'expo-sqlite';
 
 const DATABASE_NAME = 'rucola.db';
-const SCHEMA_VERSION = 5;
+const SCHEMA_VERSION = 6;
 
 export const RELATIONSHIP_ID = 'the-one';
 
@@ -42,6 +42,7 @@ async function initializeDatabaseInternal(database: SQLite.SQLiteDatabase): Prom
   else if (version === 2) await migrateSyncSchema(database);
   else if (version === 3) await migrateSyncInboxSchema(database);
   else if (version === 4) await migrateBlockedOutboxSchema(database);
+  else if (version === 5) await migrateEncryptedOutboxSchema(database);
   return verifyDatabase(database);
 }
 
@@ -52,6 +53,7 @@ async function verifyDatabase(db: SQLite.SQLiteDatabase): Promise<SQLite.SQLiteD
   if (requiredTables.length !== 6) throw new Error('Rucola database schema is missing required tables.');
   const outboxColumns = await db.getAllAsync<{ name: string }>('PRAGMA table_info(sync_outbox)');
   if (!outboxColumns.some((column) => column.name === 'blocked')) throw new Error('Rucola database sync_outbox schema is missing the blocked state.');
+  if (!outboxColumns.some((column) => column.name === 'ciphertext') || !outboxColumns.some((column) => column.name === 'encryptionVersion')) throw new Error('Rucola database sync_outbox schema is missing durable ciphertext state.');
   const foreignKeyErrors = await db.getAllAsync('PRAGMA foreign_key_check;');
   if (foreignKeyErrors.length > 0) throw new Error('Rucola database integrity check failed after migration.');
   return db;
@@ -64,7 +66,7 @@ async function createLatestSchema(db: SQLite.SQLiteDatabase): Promise<void> {
     CREATE INDEX messages_relationship_order ON messages (relationshipId, orderIndex DESC, createdAt DESC, id DESC);
     CREATE TABLE active_message_slots (relationshipId TEXT NOT NULL, participant TEXT NOT NULL CHECK (participant IN ('ME', 'PARTNER')), messageId TEXT NOT NULL UNIQUE, PRIMARY KEY (relationshipId, participant), FOREIGN KEY (relationshipId) REFERENCES relationships(id) ON DELETE CASCADE, FOREIGN KEY (relationshipId, participant, messageId) REFERENCES messages(relationshipId, participant, id) ON DELETE RESTRICT);
     CREATE TABLE sync_state (relationshipId TEXT PRIMARY KEY NOT NULL, deviceId TEXT, participant TEXT CHECK (participant IS NULL OR participant IN ('ME', 'PARTNER')), nextSenderSeq INTEGER NOT NULL CHECK (nextSenderSeq >= 1), pullCursor INTEGER NOT NULL CHECK (pullCursor >= 0), updatedAt INTEGER NOT NULL, FOREIGN KEY (relationshipId) REFERENCES relationships(id) ON DELETE CASCADE);
-    CREATE TABLE sync_outbox (relationshipId TEXT NOT NULL, messageId TEXT NOT NULL, senderSeq INTEGER NOT NULL CHECK (senderSeq >= 1), attempts INTEGER NOT NULL CHECK (attempts >= 0), lastError TEXT, nextAttemptAt INTEGER NOT NULL, createdAt INTEGER NOT NULL, blocked INTEGER NOT NULL DEFAULT 0 CHECK (blocked IN (0, 1)), PRIMARY KEY (relationshipId, messageId), UNIQUE (relationshipId, senderSeq), FOREIGN KEY (relationshipId) REFERENCES relationships(id) ON DELETE CASCADE, FOREIGN KEY (messageId) REFERENCES messages(id) ON DELETE CASCADE);
+    CREATE TABLE sync_outbox (relationshipId TEXT NOT NULL, messageId TEXT NOT NULL, senderSeq INTEGER NOT NULL CHECK (senderSeq >= 1), attempts INTEGER NOT NULL CHECK (attempts >= 0), lastError TEXT, nextAttemptAt INTEGER NOT NULL, createdAt INTEGER NOT NULL, blocked INTEGER NOT NULL DEFAULT 0 CHECK (blocked IN (0, 1)), ciphertext TEXT, encryptionVersion INTEGER CHECK (encryptionVersion IS NULL OR (encryptionVersion >= 1 AND encryptionVersion <= 255)), PRIMARY KEY (relationshipId, messageId), UNIQUE (relationshipId, senderSeq), FOREIGN KEY (relationshipId) REFERENCES relationships(id) ON DELETE CASCADE, FOREIGN KEY (messageId) REFERENCES messages(id) ON DELETE CASCADE);
     CREATE INDEX sync_outbox_due ON sync_outbox (relationshipId, blocked, nextAttemptAt, senderSeq);
     CREATE TABLE sync_inbox (relationshipId TEXT NOT NULL, messageId TEXT NOT NULL, serverSeq INTEGER NOT NULL CHECK (serverSeq >= 1), PRIMARY KEY (relationshipId, messageId), UNIQUE (relationshipId, serverSeq), FOREIGN KEY (relationshipId) REFERENCES relationships(id) ON DELETE CASCADE, FOREIGN KEY (messageId) REFERENCES messages(id) ON DELETE CASCADE);
   `);
@@ -74,11 +76,18 @@ async function migrateSyncSchema(db: SQLite.SQLiteDatabase): Promise<void> {
   await db.withTransactionAsync(async () => {
     await db.execAsync(`
       CREATE TABLE sync_state (relationshipId TEXT PRIMARY KEY NOT NULL, deviceId TEXT, participant TEXT CHECK (participant IS NULL OR participant IN ('ME', 'PARTNER')), nextSenderSeq INTEGER NOT NULL CHECK (nextSenderSeq >= 1), pullCursor INTEGER NOT NULL CHECK (pullCursor >= 0), updatedAt INTEGER NOT NULL, FOREIGN KEY (relationshipId) REFERENCES relationships(id) ON DELETE CASCADE);
-      CREATE TABLE sync_outbox (relationshipId TEXT NOT NULL, messageId TEXT NOT NULL, senderSeq INTEGER NOT NULL CHECK (senderSeq >= 1), attempts INTEGER NOT NULL CHECK (attempts >= 0), lastError TEXT, nextAttemptAt INTEGER NOT NULL, createdAt INTEGER NOT NULL, blocked INTEGER NOT NULL DEFAULT 0 CHECK (blocked IN (0, 1)), PRIMARY KEY (relationshipId, messageId), UNIQUE (relationshipId, senderSeq), FOREIGN KEY (relationshipId) REFERENCES relationships(id) ON DELETE CASCADE, FOREIGN KEY (messageId) REFERENCES messages(id) ON DELETE CASCADE);
+      CREATE TABLE sync_outbox (relationshipId TEXT NOT NULL, messageId TEXT NOT NULL, senderSeq INTEGER NOT NULL CHECK (senderSeq >= 1), attempts INTEGER NOT NULL CHECK (attempts >= 0), lastError TEXT, nextAttemptAt INTEGER NOT NULL, createdAt INTEGER NOT NULL, blocked INTEGER NOT NULL DEFAULT 0 CHECK (blocked IN (0, 1)), ciphertext TEXT, encryptionVersion INTEGER CHECK (encryptionVersion IS NULL OR (encryptionVersion >= 1 AND encryptionVersion <= 255)), PRIMARY KEY (relationshipId, messageId), UNIQUE (relationshipId, senderSeq), FOREIGN KEY (relationshipId) REFERENCES relationships(id) ON DELETE CASCADE, FOREIGN KEY (messageId) REFERENCES messages(id) ON DELETE CASCADE);
       CREATE INDEX sync_outbox_due ON sync_outbox (relationshipId, blocked, nextAttemptAt, senderSeq);
       CREATE TABLE sync_inbox (relationshipId TEXT NOT NULL, messageId TEXT NOT NULL, serverSeq INTEGER NOT NULL CHECK (serverSeq >= 1), PRIMARY KEY (relationshipId, messageId), UNIQUE (relationshipId, serverSeq), FOREIGN KEY (relationshipId) REFERENCES relationships(id) ON DELETE CASCADE, FOREIGN KEY (messageId) REFERENCES messages(id) ON DELETE CASCADE);
       PRAGMA user_version = ${SCHEMA_VERSION};
     `);
+  });
+}
+
+async function migrateEncryptedOutboxSchema(db: SQLite.SQLiteDatabase): Promise<void> {
+  await db.withTransactionAsync(async () => {
+    await db.execAsync('ALTER TABLE sync_outbox ADD COLUMN ciphertext TEXT; ALTER TABLE sync_outbox ADD COLUMN encryptionVersion INTEGER CHECK (encryptionVersion IS NULL OR (encryptionVersion >= 1 AND encryptionVersion <= 255));');
+    await db.execAsync(`PRAGMA user_version = ${SCHEMA_VERSION};`);
   });
 }
 
@@ -93,7 +102,7 @@ async function migrateSyncInboxSchema(db: SQLite.SQLiteDatabase): Promise<void> 
 
 async function migrateBlockedOutboxSchema(db: SQLite.SQLiteDatabase): Promise<void> {
   await db.withTransactionAsync(async () => {
-    await db.execAsync('ALTER TABLE sync_outbox ADD COLUMN blocked INTEGER NOT NULL DEFAULT 0 CHECK (blocked IN (0, 1));');
+    await db.execAsync('ALTER TABLE sync_outbox ADD COLUMN blocked INTEGER NOT NULL DEFAULT 0 CHECK (blocked IN (0, 1)); ALTER TABLE sync_outbox ADD COLUMN ciphertext TEXT; ALTER TABLE sync_outbox ADD COLUMN encryptionVersion INTEGER CHECK (encryptionVersion IS NULL OR (encryptionVersion >= 1 AND encryptionVersion <= 255));');
     await db.execAsync('DROP INDEX IF EXISTS sync_outbox_due; CREATE INDEX sync_outbox_due ON sync_outbox (relationshipId, blocked, nextAttemptAt, senderSeq);');
     await db.execAsync(`PRAGMA user_version = ${SCHEMA_VERSION};`);
   });
