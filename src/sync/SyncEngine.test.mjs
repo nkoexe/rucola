@@ -8,6 +8,35 @@ function createHarness({ pullResponse, inboundCommitError } = {}) { const calls 
 function inbound(overrides = {}) { return { messageId: 'remote-1', senderDeviceId: 'device-b', senderParticipant: 'PARTNER', senderSeq: 1, createdAt: 1_700_000_000_100, serverSeq: 7, receivedAt: 1_700_000_000_200, type: 'TEXT', ciphertext: 'hello', encryptionVersion: 1, mediaUploadId: null, ...overrides }; }
 
 test('pushes due local messages with durable sender sequence', async () => { const harness = createHarness(); const engine = new SyncEngine({ ...harness }); const result = await engine.run(); assert.equal(result.pushed, 1); assert.equal(result.failed, 0); assert.deepEqual(harness.calls[1], ['push', { messageId: 'local-1', senderSeq: 1, type: 'TEXT', ciphertext: 'cipher:1:hello', encryptionVersion: 1, createdAt: 1_700_000_000_000 }]); assert.deepEqual(harness.calls[2], ['markSynced', 'local-1']); });
+test('reuses persisted outbound ciphertext without invoking the codec again', async () => {
+  const harness = createHarness();
+  harness.state.getPendingOutbox = async () => [{
+    messageId: 'local-1',
+    senderSeq: 1,
+    attempts: 1,
+    lastError: 'timeout',
+    nextAttemptAt: 0,
+    ciphertext: 'stored-ciphertext',
+    encryptionVersion: 1,
+  }];
+  let encryptCalls = 0;
+  harness.codec.encrypt = async () => {
+    encryptCalls += 1;
+    throw new Error('ciphertext must not be regenerated');
+  };
+  const engine = new SyncEngine({ ...harness });
+  const result = await engine.run();
+  assert.equal(result.pushed, 1);
+  assert.equal(encryptCalls, 0);
+  assert.deepEqual(harness.calls[1], ['push', {
+    messageId: 'local-1',
+    senderSeq: 1,
+    type: 'TEXT',
+    ciphertext: 'stored-ciphertext',
+    encryptionVersion: 1,
+    createdAt: 1_700_000_000_000,
+  }]);
+});
 test('does not ACK inbound data before local commit succeeds', async () => { const harness = createHarness({ pullResponse: { messages: [inbound()], nextCursor: 7, hasMore: false }, inboundCommitError: new Error('sqlite failed') }); const engine = new SyncEngine({ ...harness }); await assert.rejects(() => engine.run(), /sqlite failed/); assert.equal(harness.calls.some(([name]) => name === 'ack'), false); });
 test('ACK happens only after the inbound transaction resolves', async () => { const harness = createHarness({ pullResponse: { messages: [inbound()], nextCursor: 7, hasMore: false } }); const engine = new SyncEngine({ ...harness }); const result = await engine.run(); assert.equal(result.pulled, 1); assert.equal(result.acknowledged, 1); assert.deepEqual(harness.calls.map(([name]) => name), ['reconcileOutbox', 'push', 'markSynced', 'commitInbound', 'ack']); });
 test('retries acknowledgement for a cursor persisted by an earlier successful commit', async () => { const harness = createHarness(); harness.state.getPullCursor = async () => 7; harness.cloud.pullMessages = async (after) => { harness.calls.push(['pull', after]); return { messages: [], nextCursor: after, hasMore: false }; }; const engine = new SyncEngine({ ...harness }); const result = await engine.run(); assert.equal(result.acknowledged, 1); assert.deepEqual(harness.calls.map(([name]) => name), ['reconcileOutbox', 'push', 'markSynced', 'ack', 'pull']); assert.deepEqual(harness.calls.find(([name]) => name === 'ack'), ['ack', 7]); });
