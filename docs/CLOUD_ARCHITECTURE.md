@@ -6,7 +6,7 @@ The cloud backend is the synchronization service for exactly one two-person rela
 
 The mobile device owns durable history in local SQLite. The cloud temporarily holds encrypted/opaque message payloads and temporary media until the receiving device has durably persisted them locally.
 
-The initial transport/storage protocol is deliberately independent of the eventual end-to-end encryption design. E2E encryption will be added after the synchronization and media boundaries are stable.
+The transport/storage protocol is intentionally opaque to plaintext content. The first online prototype adds an E2E v1 relationship key on top of the existing transport while preserving the Worker as a temporary mailbox.
 
 ## Components
 
@@ -72,7 +72,7 @@ Bootstrap creates the relationship and the first device. The creator can create 
 - an expiry;
 - bounded confirmation attempts and lockout.
 
-The human-facing code is not a standalone credential. Token and code material are stored hashed server-side. Successful acceptance consumes the invitation and creates the partner device.
+The human-facing confirmation is not a standalone credential. Existing invitation/token/code material remains server-side pairing protection. For E2E v1, the high-entropy relationship encryption key is transferred out-of-band and must never be sent to or stored by the Worker. The server may store only a one-way proof/hash needed to bind the secure pairing payload to the invitation. Successful acceptance consumes the invitation and creates the partner device.
 
 ## Message model
 
@@ -211,7 +211,11 @@ Pulling or ACKing a mailbox row is never, by itself, permission to delete the R2
 
 The Worker is designed to operate on opaque encrypted message/media payloads. Server-side synchronization logic may inspect metadata required for routing, authorization, sequencing and lifecycle enforcement, but it must not require plaintext application content.
 
-The current implementation establishes this opaque-payload boundary without committing to a final E2E protocol. Cryptographic protocol selection and implementation belong to a later phase after transport/storage behavior is stable.
+For the first online prototype, E2E v1 uses a random 256-bit relationship key generated on the initiating device and transferred out-of-band to the partner device. The relationship key never crosses the Worker API and is never stored in D1/R2. Message encryption uses AES-256-GCM with a fresh nonce and authenticated additional data.
+
+The user-facing five-emoji confirmation remains a human UX layer; it is not used as cryptographic entropy. The high-entropy pairing secret and any proof/hash sent to the Worker are separate from that human-facing confirmation.
+
+Future key rotation, device recovery, and stronger asymmetric identity protocols remain later hardening work.
 
 ## Failure model
 
