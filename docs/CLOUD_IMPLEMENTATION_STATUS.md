@@ -5,7 +5,7 @@ Branch: `feat/dev-cloud-runtime-wiring`
 
 ## Current status
 
-The cloud backend foundation is implemented and hardened through the temporary mailbox, ACK, media, cleanup, pairing, concurrency, and database-invariant boundaries. The React Native side now has secure identity/key storage, pairing lifecycle state, and the first Android pairing UX; authenticated message synchronization remains the next integration step.
+The cloud backend foundation is implemented and hardened through the temporary mailbox, ACK, media, cleanup, pairing, concurrency, and database-invariant boundaries. The React Native side now has secure identity/key storage, pairing lifecycle state, the first Android pairing UX, and a real application-owned `CloudRuntime` that constructs the encrypted `SyncEngine` from persisted identity state.
 
 ## Sync protocol
 
@@ -124,14 +124,17 @@ Implemented on the current development branch:
 - The mobile pairing protocol persists recoverable `PAIRING` state separately from `ACTIVE` state and can recreate a pending pairing package after restart.
 - The human confirmation is exactly five emojis; the high-entropy invitation token and encryption key remain technical pairing material.
 - Auth probing now exposes the relationship lifecycle state so the initiating device can transition from `PAIRING` to `ACTIVE` after the partner joins.
+- `CloudRuntime` now owns `CloudClient`, `CloudIdentityStore`, `PairingManager`, the SQLite sync-state store, `AesGcmSyncCodec`, and one coalescing `SyncEngine` instance for the active identity.
+- `SyncEngine` now passes the durable sender sequence into the codec, so the sequence is covered by AES-GCM authenticated context exactly as designed.
+- The app triggers synchronization on startup, after pairing, after local message creation, and when returning to the foreground.
 
 The implementation is committed. The Android UX currently uses the native Android share sheet for the out-of-band pairing payload; the intended recipient path is direct device-to-device transfer (for example Quick Share), while the raw pairing payload is never displayed in the app.
 
 ## Remaining work
 
 1. Add an in-app QR/camera transfer path when a dedicated QR dependency is introduced; the current Android prototype uses the native share sheet for direct out-of-band transfer.
-2. Connect the existing `SyncEngine` to the real codec and identity state through the application-owned CloudRuntime.
-3. Update the SyncEngine codec contract to pass sender sequence into authenticated encryption.
+2. Validate the real encrypted TEXT/EMOJI online loop on two Android devices against the dev Worker, including offline bursts and retry/restart behavior.
+3. Expand integration coverage around `CloudRuntime` lifecycle ownership and real-device sync triggers.
 4. Wire local TEXT/EMOJI writes into the durable outbox and trigger startup/foreground/after-send synchronization.
 5. Add two-device integration coverage and validate the signed dev APK on real Android devices.
 6. Finish end-to-end PHOTO_VIDEO synchronization.
