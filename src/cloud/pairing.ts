@@ -1,13 +1,10 @@
 import { CryptoDigestAlgorithm, digestStringAsync } from 'expo-crypto';
-import { PAIRING_EMOJIS } from './pairingCode';
+import { isValidPairingConfirmationCode } from './pairingCode';
 import { type PairingPackage } from './pairingPackage';
 export { PAIRING_PROTOCOL_VERSION, createPairingPackage, decodePairingPackage, type PairingPackage } from './pairingPackage';
 import { normalizeRelationshipKey } from '../crypto/relationshipKey';
 
-export function isValidPairingConfirmationCode(value: string): boolean {
-  const emojis = Array.from(value);
-  return emojis.length === 5 && emojis.every((emoji) => (PAIRING_EMOJIS as readonly string[]).includes(emoji));
-}
+export { isValidPairingConfirmationCode } from './pairingCode';
 
 export async function relationshipKeyCommitment(relationshipKey: string): Promise<string> {
   const normalized = await normalizeRelationshipKey(relationshipKey);
