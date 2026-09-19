@@ -3,6 +3,7 @@ import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import type { getRepository } from '../../data/repository';
 import type { Relationship } from '../../domain/models';
 import { GetRelationship, SaveSetup } from '../../domain/useCases';
+import { PairingScreen } from '../Pairing/PairingScreen';
 
 type Props = {
   repositoryPromise: ReturnType<typeof getRepository>;
@@ -16,6 +17,7 @@ export function SetupScreen({ repositoryPromise, onComplete }: Props) {
   const [partnerNickname, setPartnerNickname] = useState('');
   const [ownName, setOwnName] = useState('');
   const [dateText, setDateText] = useState('');
+  const [savedRelationship, setSavedRelationship] = useState<Relationship | null>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -32,7 +34,7 @@ export function SetupScreen({ repositoryPromise, onComplete }: Props) {
         togetherSince,
       });
       const relationship = await new GetRelationship(repository).execute();
-      if (relationship) onComplete(relationship);
+      if (relationship) setSavedRelationship(relationship);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Could not save setup.');
     } finally {
@@ -41,6 +43,10 @@ export function SetupScreen({ repositoryPromise, onComplete }: Props) {
   };
 
   const parsedDate = parseTogetherSince(dateText);
+
+  if (savedRelationship) {
+    return <PairingScreen relationship={savedRelationship} onComplete={onComplete} />;
+  }
 
   if (step === 'partner') {
     return (
