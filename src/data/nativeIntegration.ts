@@ -190,7 +190,7 @@ async function testCryptoAndSecureStorage(): Promise<void> {
   const relationshipKey = await generateRelationshipKey();
   assert(relationshipKey.length > 0, 'Relationship key generation should return encoded key material');
 
-  const identityStore = new CloudIdentityStore(expoSecureValueStore);
+  const identityStore = new CloudIdentityStore(expoSecureValueStore, 'rucola.native-security-test.v1');
   await identityStore.save({
     relationshipId: 'native-security-test',
     deviceId: 'native-security-device',
