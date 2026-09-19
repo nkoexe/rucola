@@ -1,6 +1,6 @@
-import type { Message, MessageType } from '../domain/models';
-import type { AesGcmParts, AesGcmProvider } from './expoAesGcm';
-import { base64ToBytes, base64UrlToBytes, bytesToBase64Url, utf8Decode, utf8Encode } from './encoding';
+import type { Message, MessageType } from '../domain/models.ts';
+import type { AesGcmParts, AesGcmProvider } from './expoAesGcm.ts';
+import { base64ToBytes, base64UrlToBytes, bytesToBase64Url, utf8Decode, utf8Encode } from './encoding.ts';
 
 export const ENCRYPTION_VERSION = 1;
 const ENVELOPE_VERSION = 'v1';
