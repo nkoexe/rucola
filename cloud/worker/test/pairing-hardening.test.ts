@@ -22,7 +22,7 @@ async function bootstrap(): Promise<Record<string, unknown>> {
 }
 
 function wrongConfirmationCode(correct: unknown): string {
-  return correct === "000000" ? "000001" : "000000";
+  return correct === "😀😀😀😀😀" ? "😃😃😃😃😃" : "😀😀😀😀😀";
 }
 
 async function relationshipCount(): Promise<number> {
