@@ -10,6 +10,7 @@ import { HistoryScreen } from '../screens/History/HistoryScreen';
 import { HomeScreen } from '../screens/Home/HomeScreen';
 import { SettingsScreen } from '../screens/Settings/SettingsScreen';
 import { SetupScreen } from '../screens/Setup/SetupScreen';
+import { checkCloudRuntime } from '../cloud/runtime';
 
 type AppScreen = 'home' | 'history' | 'calendar' | 'settings';
 
@@ -22,6 +23,10 @@ export default function App() {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
+    void checkCloudRuntime().then((status) => {
+      if (!status.reachable) console.warn(`[rucola] dev cloud is unreachable: ${status.baseUrl}`);
+    });
+
     let mounted = true;
     setReady(false);
     setError(null);
