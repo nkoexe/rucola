@@ -1,5 +1,5 @@
 import type { AuthProbeResponse, CloudAckResponse, CloudPullResponse, CloudPushMessage, CloudPushResponse, CompleteMediaResponse, CreateMediaReservationRequest, CreateMediaReservationResponse, MediaUploadResponse, PairingAcceptResponse, PairingBootstrapRequest, PairingBootstrapResponse, PairingCreateResponse } from './protocol';
-import { isValidPairingConfirmationCode } from './pairing';
+import { isValidPairingConfirmationCode } from './pairingCode';
 
 export type CloudFetch = typeof fetch;
 export interface CloudHealthResponse { ok: boolean; service: string; version: string; database: boolean; }
