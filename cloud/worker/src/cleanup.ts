@@ -103,10 +103,11 @@ async function cleanupExpiredPairingRelationships(env: Env, now: number): Promis
       env.DB.prepare(`DELETE FROM invitations WHERE relationship_id = ? AND expires_at <= ?`).bind(row.id, now),
       env.DB.prepare(
         `DELETE FROM devices WHERE relationship_id = ?
+          AND EXISTS (SELECT 1 FROM relationships WHERE id = ? AND status = 'PAIRING')
           AND NOT EXISTS (SELECT 1 FROM invitations WHERE relationship_id = ?)
           AND NOT EXISTS (SELECT 1 FROM mailbox_messages WHERE relationship_id = ?)
           AND NOT EXISTS (SELECT 1 FROM media_uploads WHERE relationship_id = ?)`,
-      ).bind(row.id, row.id, row.id, row.id),
+      ).bind(row.id, row.id, row.id, row.id, row.id),
       env.DB.prepare(
         `DELETE FROM relationships WHERE id = ? AND status = 'PAIRING'
           AND NOT EXISTS (SELECT 1 FROM invitations WHERE relationship_id = ? AND expires_at > ?)
