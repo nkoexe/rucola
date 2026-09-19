@@ -1,4 +1,5 @@
 import { base64ToBytes } from '../crypto/encoding';
+import { isValidPairingConfirmationCode } from './pairingCode';
 
 export type CloudParticipant = 'ME' | 'PARTNER';
 export type CloudRelationshipState = 'PAIRING' | 'ACTIVE';
@@ -63,7 +64,7 @@ function parsePendingPairing(value: unknown): PendingPairing {
   if (
     typeof candidate.invitationId !== 'string' || !/^[A-Za-z0-9_-]{1,128}$/.test(candidate.invitationId) ||
     typeof candidate.token !== 'string' || !/^[A-Za-z0-9_-]{43}$/.test(candidate.token) ||
-    typeof candidate.confirmationCode !== 'string' || Array.from(candidate.confirmationCode).length !== 5 ||
+    typeof candidate.confirmationCode !== 'string' || !isValidPairingConfirmationCode(candidate.confirmationCode) ||
     !Number.isSafeInteger(candidate.expiresAt) || (candidate.expiresAt as number) <= 0
   ) throw new CloudIdentityStoreError('Stored pairing state is invalid.');
   return {
