@@ -8,11 +8,12 @@ import type { PendingPairingView } from '../../cloud/PairingManager';
 type Props = {
   relationship: Relationship;
   onComplete: (relationship: Relationship) => void;
+  onBack?: () => void;
 };
 
 type Mode = 'loading' | 'choice' | 'create' | 'join';
 
-export function PairingScreen({ relationship, onComplete }: Props) {
+export function PairingScreen({ relationship, onComplete, onBack }: Props) {
   const [mode, setMode] = useState<Mode>('loading');
   const [pending, setPending] = useState<PendingPairingView | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -117,6 +118,7 @@ export function PairingScreen({ relationship, onComplete }: Props) {
       onCreate={() => void start()}
       onJoin={() => { setError(null); setMode('join'); }}
       onContinue={() => onComplete(relationship)}
+      onBack={onBack}
     />
   );
 }
@@ -136,6 +138,7 @@ function ChoiceScreen({ relationship, error, onCreate, onJoin, onContinue }: {
   onCreate: () => void;
   onJoin: () => void;
   onContinue: () => void;
+  onBack?: () => void;
 }) {
   return (
     <View style={styles.container}>
@@ -146,6 +149,7 @@ function ChoiceScreen({ relationship, error, onCreate, onJoin, onContinue }: {
 
       <ActionButton label="create pairing" onPress={onCreate} />
       <ActionButton label="join pairing" onPress={onJoin} secondary />
+      {onBack ? <Text style={styles.link} onPress={onBack}>‹ back</Text> : null}
       <Text style={styles.or}>or</Text>
       <Text style={styles.offlineLink} onPress={onContinue}>keep using it on this phone</Text>
     </View>
