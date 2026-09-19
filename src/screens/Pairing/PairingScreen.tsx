@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useState } from 'react';
-import { Share, StyleSheet, Text, TextInput, View } from 'react-native';
+import { useEffect, useState } from 'react';
+import { Pressable, Share, StyleSheet, Text, TextInput, View } from 'react-native';
 import type { Relationship } from '../../domain/models';
 import { cloudRuntime } from '../../cloud/CloudRuntime';
 import { isValidPairingConfirmationCode } from '../../cloud/pairingCode';
@@ -252,15 +252,21 @@ function ActionButton({ label, onPress, secondary = false, disabled = false }: {
   disabled?: boolean;
 }) {
   return (
-    <View
-      style={[styles.button, secondary && styles.secondaryButton, disabled && styles.disabled]}
+    <Pressable
+      disabled={disabled}
+      onPress={onPress}
+      style={({ pressed }) => [
+        styles.button,
+        secondary && styles.secondaryButton,
+        disabled && styles.disabled,
+        pressed && !disabled && styles.pressed,
+      ]}
       accessible
       accessibilityRole="button"
       accessibilityState={{ disabled }}
-      onTouchEnd={disabled ? undefined : onPress}
     >
       <Text style={[styles.buttonText, secondary && styles.secondaryButtonText]}>{label}</Text>
-    </View>
+    </Pressable>
   );
 }
 
@@ -301,10 +307,6 @@ function toUserMessage(cause: unknown) {
   return cause instanceof Error ? cause.message : 'Pairing could not be completed.';
 }
 
-function ActionSpacer() {
-  return null;
-}
-
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#F3F6E9', padding: 28, justifyContent: 'center' },
   logo: { fontSize: 42, fontWeight: '800', alignSelf: 'center', marginBottom: 44 },
@@ -321,6 +323,7 @@ const styles = StyleSheet.create({
   secondaryButton: { backgroundColor: 'transparent', borderWidth: 1, borderColor: '#1D2A1B' },
   secondaryButtonText: { color: '#1D2A1B' },
   disabled: { opacity: 0.35 },
+  pressed: { opacity: 0.75 },
   error: { marginTop: 10, color: '#9B2C2C', lineHeight: 20 },
   securityNote: { marginTop: 14, fontSize: 13, lineHeight: 19, opacity: 0.55 },
   or: { textAlign: 'center', marginVertical: 16, opacity: 0.55 },
