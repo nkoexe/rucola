@@ -50,7 +50,7 @@ test('clear removes all identity material', async () => {
 test('malformed persisted data is rejected without exposing secrets', async () => {
   const backend = createStore();
   const store = new CloudIdentityStore(backend);
-  const secret = 'credential_super_secret';
+  const secret = 'credential secret';
   backend.values.set('rucola.cloud.identity.v1', JSON.stringify({ ...identity(), credential: secret }));
   await assert.rejects(() => store.load(), /Cloud credential is invalid/);
   backend.values.set('rucola.cloud.identity.v1', '{not-json');
