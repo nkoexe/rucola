@@ -87,6 +87,21 @@ export function SettingsScreen({ relationship, repositoryPromise, onBack, onRela
           <Text style={styles.dangerText}>{deleting ? 'clearing...' : 'Clear local data'}</Text>
         </Pressable>
       </View>
+      <View style={styles.section}>
+        <Text style={styles.label}>online</Text>
+        {cloudState === 'active' ? (
+          <Text style={styles.muted}>connected to your person. Messages sync when the app is open.</Text>
+        ) : (
+          <>
+            <Text style={styles.muted}>Connect this phone to your person's phone to exchange messages over the internet.</Text>
+            {onOpenPairing ? (
+              <Pressable onPress={onOpenPairing} style={styles.devButton}>
+                <Text style={styles.devText}>Connect online</Text>
+              </Pressable>
+            ) : null}
+          </>
+        )}
+      </View>
       {__DEV__ ? (
         <View style={styles.section}>
           <Text style={styles.label}>development</Text>
