@@ -136,7 +136,16 @@ function MainApp({ relationship, repositoryPromise, onRelationshipDeleted }: {
       {screen === 'history' && <HistoryScreen relationship={relationship} repositoryPromise={repositoryPromise} onBack={() => setScreen('home')} revision={revision} />}
       {screen === 'calendar' && <CalendarScreen relationship={relationship} repositoryPromise={repositoryPromise} onBack={() => setScreen('home')} />}
       {screen === 'settings' && <SettingsScreen relationship={relationship} repositoryPromise={repositoryPromise} onBack={() => setScreen('home')} onRelationshipDeleted={onRelationshipDeleted} onOpenPairing={() => setScreen('pairing')} />}
-      {screen === 'pairing' && <PairingScreen relationship={relationship} onComplete={onRelationshipDeleted === undefined ? () => {} : (value) => { void value; setScreen('home'); }} onBack={() => setScreen('settings')} />}
+      {screen === 'pairing' && (
+        <PairingScreen
+          relationship={relationship}
+          onComplete={() => {
+            setScreen('home');
+            void repositoryPromise.then((repository) => cloudRuntime.sync(repository)).catch(() => {});
+          }}
+          onBack={() => setScreen('settings')}
+        />
+      )}
       <StatusBar style="dark" />
     </SafeAreaView>
   );
