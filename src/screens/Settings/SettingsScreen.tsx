@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Alert, Pressable, StyleSheet, Text, View } from 'react-native';
 import type { getRepository } from '../../data/repository';
 import type { Relationship } from '../../domain/models';
@@ -22,13 +22,15 @@ export function SettingsScreen({ relationship, repositoryPromise, onBack, onRela
   const [showNativeTests, setShowNativeTests] = useState(false);
   const [nativeIntegrationTestScreen, setNativeIntegrationTestScreen] = useState<NativeIntegrationTestScreenComponent | null>(null);
 
-  useState(() => {
+  useEffect(() => {
+    let mounted = true;
     void cloudRuntime.loadIdentity().then((identity) => {
-      setCloudState(identity?.state === 'ACTIVE' ? 'active' : 'not-paired');
+      if (mounted) setCloudState(identity?.state === 'ACTIVE' ? 'active' : 'not-paired');
     }).catch(() => {
-      setCloudState('not-paired');
+      if (mounted) setCloudState('not-paired');
     });
-  });
+    return () => { mounted = false; };
+  }, []);
 
   if (__DEV__ && showNativeTests) {
     if (!nativeIntegrationTestScreen) {
