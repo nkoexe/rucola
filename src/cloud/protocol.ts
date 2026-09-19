@@ -42,9 +42,12 @@ export interface PairingAcceptResponse {
   relationshipKeyCommitment: string;
 }
 
+export type CloudRelationshipStatus = 'PAIRING' | 'ACTIVE' | 'ENDED';
+
 export interface AuthProbeResponse {
   authenticated: true;
   participant: CloudParticipant;
+  relationshipStatus: CloudRelationshipStatus;
 }
 
 export interface CloudPushMessage {
