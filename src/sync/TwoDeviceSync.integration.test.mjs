@@ -118,13 +118,24 @@ class MemoryState {
 
   seedOutbound(message, senderSeq) {
     this.messages.push(message);
-    this.outbox.push({ messageId: message.id, senderSeq, nextAttemptAt: 0, attempts: 0, blocked: 0, lastError: null, createdAt: message.createdAt });
+    this.outbox.push({ messageId: message.id, senderSeq, nextAttemptAt: 0, attempts: 0, blocked: 0, lastError: null, ciphertext: null, encryptionVersion: null, createdAt: message.createdAt });
   }
 
   async reconcileOutbox() {}
 
   async getPendingOutbox() {
     return this.outbox.filter((item) => item.blocked === 0);
+  }
+
+  async storeOutboundCiphertext(messageId, ciphertext, encryptionVersion) {
+    const item = this.outbox.find((entry) => entry.messageId === messageId);
+    if (!item) throw new Error('Missing outbox item');
+    if (item.ciphertext !== null || item.encryptionVersion !== null) {
+      if (item.ciphertext === ciphertext && item.encryptionVersion === encryptionVersion) return;
+      throw new Error('Outbound ciphertext conflict');
+    }
+    item.ciphertext = ciphertext;
+    item.encryptionVersion = encryptionVersion;
   }
 
   async markSynced(messageId) {
@@ -243,6 +254,10 @@ test('a lost push response is retried without duplicating the server message', a
   assert.equal(a.state.outbox.length, 1);
   assert.equal(a.state.outbox[0].blocked, 0);
   assert.equal(a.state.outbox[0].lastError, 'response lost after acceptance');
+  const acceptedCiphertext = a.state.outbox[0].ciphertext;
+  const acceptedEncryptionVersion = a.state.outbox[0].encryptionVersion;
+  assert.equal(typeof acceptedCiphertext, 'string');
+  assert.equal(acceptedEncryptionVersion, 1);
 
   // Retry scheduling is covered by SyncEngine unit tests. For this integration
   // test, make the classified retry immediately due and exercise server idempotency.
@@ -252,6 +267,8 @@ test('a lost push response is retried without duplicating the server message', a
   assert.equal(second.pushed, 1);
   assert.equal(a.state.outbox.length, 0);
   assert.equal(server.messages.length, 1);
+  assert.equal(server.messages[0].ciphertext, acceptedCiphertext);
+  assert.equal(server.messages[0].encryptionVersion, acceptedEncryptionVersion);
 
   const received = await b.engine.run();
   assert.equal(received.pulled, 1);
