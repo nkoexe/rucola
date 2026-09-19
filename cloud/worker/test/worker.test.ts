@@ -4,7 +4,7 @@ import { sha256Hex } from "../src/auth";
 
 async function json(response: Response): Promise<Record<string, unknown>> { return (await response.json()) as Record<string, unknown>; }
 async function bootstrap(): Promise<Record<string, unknown>> {
-  const response = await exports.default.fetch("https://rucola.test/v1/pairing/bootstrap", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ expiresInSeconds: 3600 }) });
+  const response = await exports.default.fetch("https://rucola.test/v1/pairing/bootstrap", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ expiresInSeconds: 3600, relationshipKeyCommitment: "a".repeat(64) }) });
   expect(response.status).toBe(201); return json(response);
 }
 
