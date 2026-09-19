@@ -24,6 +24,7 @@ export interface PairingCreateResponse {
   invitationId: string;
   token: string;
   confirmationCode: string;
+  relationshipKeyCommitment: string;
   expiresAt: number;
 }
 
