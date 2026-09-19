@@ -52,7 +52,7 @@ async function withTestDatabase<T>(test: (db: SQLite.SQLiteDatabase) => Promise<
 
 async function testFreshDatabase(db: SQLite.SQLiteDatabase): Promise<void> {
   const version = await db.getFirstAsync<{ user_version: number }>('PRAGMA user_version');
-  assertEqual(version?.user_version, 5, 'Fresh database should use schema version 5');
+  assertEqual(version?.user_version, 6, 'Fresh database should use schema version 6');
 
   const tables = await db.getAllAsync<{ name: string }>(
     "SELECT name FROM sqlite_master WHERE type = 'table' AND name IN ('relationships', 'messages', 'active_message_slots', 'sync_state', 'sync_outbox', 'sync_inbox')",
@@ -61,6 +61,9 @@ async function testFreshDatabase(db: SQLite.SQLiteDatabase): Promise<void> {
 
   const foreignKeys = await db.getFirstAsync<{ foreign_keys: number }>('PRAGMA foreign_keys');
   assertEqual(foreignKeys?.foreign_keys, 1, 'Foreign keys must be enabled');
+  const outboxColumns = await db.getAllAsync<{ name: string }>('PRAGMA table_info(sync_outbox)');
+  assert(outboxColumns.some((column) => column.name === 'ciphertext'), 'Fresh database should persist outbound ciphertext');
+  assert(outboxColumns.some((column) => column.name === 'encryptionVersion'), 'Fresh database should persist outbound encryption version');
 }
 
 async function testConcurrentInitialization(db: SQLite.SQLiteDatabase): Promise<void> {
@@ -71,7 +74,7 @@ async function testConcurrentInitialization(db: SQLite.SQLiteDatabase): Promise<
   }
 
   const version = await db.getFirstAsync<{ user_version: number }>('PRAGMA user_version');
-  assertEqual(version?.user_version, 5, 'Concurrent initialization should leave a valid schema');
+  assertEqual(version?.user_version, 6, 'Concurrent initialization should leave a valid schema');
 
   const tables = await db.getAllAsync<{ name: string }>(
     "SELECT name FROM sqlite_master WHERE type = 'table' AND name IN ('relationships', 'messages', 'active_message_slots', 'sync_state', 'sync_outbox', 'sync_inbox')",
