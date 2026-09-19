@@ -1,6 +1,6 @@
 import type { Message, MessageType } from '../domain/models';
 import type { AesGcmParts, AesGcmProvider } from './expoAesGcm';
-import { base64UrlToBytes, bytesToBase64Url, utf8Decode, utf8Encode } from './encoding';
+import { base64ToBytes, base64UrlToBytes, bytesToBase64Url, utf8Decode, utf8Encode } from './encoding';
 
 export const ENCRYPTION_VERSION = 1;
 const ENVELOPE_VERSION = 'v1';
@@ -119,6 +119,11 @@ export class AesGcmSyncCodec {
   constructor(options: AesGcmSyncCodecOptions) {
     assertRelationshipId(options.relationshipId);
     if (!options.relationshipKey) throw new Error('Relationship encryption key is required.');
+    try {
+      if (base64ToBytes(options.relationshipKey).length !== 32) throw new Error();
+    } catch {
+      throw new Error('Relationship encryption key is invalid.');
+    }
     this.relationshipId = options.relationshipId;
     this.relationshipKey = options.relationshipKey;
     this.provider = options.provider;
