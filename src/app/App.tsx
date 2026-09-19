@@ -20,6 +20,7 @@ type RepositoryPromise = ReturnType<typeof getRepository>;
 export default function App() {
   const [repositoryPromise, setRepositoryPromise] = useState<RepositoryPromise>(() => getRepository());
   const [relationship, setRelationship] = useState<Relationship | null>(null);
+  const [pairingComplete, setPairingComplete] = useState(false);
   const [ready, setReady] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -45,6 +46,7 @@ export default function App() {
       .then((value) => {
         if (mounted) {
           setRelationship(value);
+          setPairingComplete(false);
           setReady(true);
         }
       })
@@ -60,17 +62,25 @@ export default function App() {
 
   const retry = () => {
     setRelationship(null);
+    setPairingComplete(false);
     setRepositoryPromise(getRepository());
   };
 
   if (!ready) return <LoadingScreen />;
   if (error && !relationship) return <ErrorScreen message={error} onRetry={retry} />;
-  if (!relationship) return <SetupScreen repositoryPromise={repositoryPromise} onComplete={setRelationship} />;
+  const completePairing = (value: Relationship) => {
+    setRelationship(value);
+    setPairingComplete(true);
+  };
+
+  if (!relationship) return <SetupScreen repositoryPromise={repositoryPromise} onComplete={completePairing} />;
+  if (!pairingComplete) return <PairingScreen relationship={relationship} onComplete={completePairing} />;
 
   return (
-    <PairingScreen
+    <MainApp
       relationship={relationship}
-      onComplete={setRelationship}
+      repositoryPromise={repositoryPromise}
+      onRelationshipDeleted={() => { setRelationship(null); setPairingComplete(false); }}
     />
   );
 }
