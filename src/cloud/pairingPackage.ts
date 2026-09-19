@@ -23,7 +23,7 @@ function assertToken(value: unknown): asserts value is string {
 }
 
 function assertExpiry(value: unknown, now = Date.now()): asserts value is number {
-  if (!Number.isSafeInteger(value) || value <= now) throw new Error('Pairing package is expired or invalid.');
+  if (!Number.isSafeInteger(value) || (value as number) <= now) throw new Error('Pairing package is expired or invalid.');
 }
 
 function encodeJson(value: unknown): string {
