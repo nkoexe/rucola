@@ -16,6 +16,12 @@
         }
       ],
       "expo-sqlite",
+      [
+        "expo-secure-store",
+        {
+          "configureAndroidBackup": true
+        }
+      ],
       "expo-status-bar"
     ],
     "android": {
