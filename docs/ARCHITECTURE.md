@@ -178,7 +178,7 @@ The mobile sync engine deliberately separates expected bad input from unexpected
 - ACK is sent only after that commit succeeds.
 - A failed local commit must therefore never be acknowledged to the server.
 
-The current production E2E codec is not selected yet. Expected cryptographic/decryption failures must use the explicit discardable error contract rather than relying on broad exception swallowing.
+The E2E v1 codec planned for the first online prototype is specified in section 11. It is not implemented yet. Expected cryptographic/decryption failures must use the explicit discardable error contract rather than relying on broad exception swallowing.
 
 ## 10. Prototype cloud runtime
 
@@ -250,11 +250,11 @@ The **user-facing pairing mechanism is exactly five emojis**. Technical pairing 
 
 The current Worker pairing implementation uses a secure invitation/token flow with a bounded confirmation mechanism and expiry. The mobile `CloudClient` already models pairing bootstrap/create/accept responses, but the full application lifecycle for storing and using those credentials is not yet integrated.
 
-The five-emoji sequence is a usability mechanism, not the security credential itself.
+The five-emoji sequence is a human-facing confirmation mechanism, not cryptographic entropy. The first online prototype additionally uses a high-entropy relationship secret transferred out-of-band; that secret never enters the Worker API. The pairing protocol must bind the out-of-band secret to the one-time invitation without storing the secret itself on the server.
 
-Real two-device pairing is not complete until two installations can establish the relationship through the actual remote service and then use the resulting credentials for synchronization.
+Authentication credentials and the relationship encryption key remain separate concerns.
 
-Authentication credentials and future E2E encryption identity must remain separate concerns.
+Real two-device pairing is not complete until two installations can establish the relationship through the actual remote service and then use the resulting credentials and encryption key for synchronization.
 
 ## 13. Cloud backend
 
@@ -275,7 +275,7 @@ The hardened Worker currently lives on `cloud/research`. Its protocol includes:
 - cleanup and retention;
 - concurrency/idempotency hardening.
 
-The Worker stores ciphertext rather than plaintext message contents. The final E2E protocol/library is still an application decision and is not delegated to the Worker.
+The Worker stores ciphertext rather than plaintext message contents. E2E v1 for the first online prototype is an application-level AES-256-GCM design; the Worker remains unaware of the relationship key. Longer-term key rotation/recovery and asymmetric identity protocols remain later application decisions.
 
 The cloud branch is a parallel workstream, not the current `main` application baseline. The next integration milestone is to connect the mobile lifecycle to the already-hardened protocol rather than redesign the transport.
 
