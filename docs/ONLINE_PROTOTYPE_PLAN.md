@@ -287,7 +287,9 @@ The high-entropy transport of the relationship key and the human-readable five-e
 
 ## Phase C — real mobile pairing UX
 
-The UI must hide technical credentials, UUIDs, tokens, and server terminology.
+**Status:** first Android pairing flow implemented; QR/camera transfer remains a follow-up.
+
+The UI hides technical credentials, UUIDs, tokens, and server terminology.
 
 For the first physical test, keep the flow intentionally simple.
 
@@ -300,7 +302,7 @@ connect with your person
         ↓
 five little emojis
         ↓
-secure share / QR / link payload
+secure local share / QR / link payload
         ↓
 waiting for them...
 ```
@@ -312,14 +314,16 @@ connect with your person
 
 [ join pairing ]
         ↓
-scan / receive pairing payload
+paste / receive pairing payload
         ↓
 confirm the five emojis
         ↓
 connected!
 ```
 
-The exact visual presentation can remain rough for the prototype.
+The first prototype accepts the pairing payload through the join screen. An in-app camera/QR path is intentionally left as the next UX increment so QR generation/scanning can be introduced without leaking the secret payload through an uncontrolled service.
+
+The exact visual presentation can remain rough for the prototype. The current Android implementation uses the native share sheet for the pairing payload and instructs users to use a direct trusted transfer such as Quick Share; the payload itself is not displayed or logged.
 
 The pairing UI must handle:
 
