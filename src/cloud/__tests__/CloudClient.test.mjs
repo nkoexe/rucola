@@ -16,7 +16,7 @@ test('authenticated requests send the device credential', async () => {
     credential: 'test-credential',
     fetchImpl: async (url, init) => {
       requests.push({ url, init });
-      return jsonResponse({ authenticated: true, participant: 'ME' });
+      return jsonResponse({ authenticated: true, participant: 'ME', relationshipStatus: 'ACTIVE' });
     },
   });
   const result = await client.authProbe();
@@ -36,11 +36,11 @@ test('pairing bootstrap is intentionally unauthenticated and returns credentials
       captured = { url, init };
       return jsonResponse({
         relationshipId: 'relationship', invitationId: 'invitation', deviceId: 'device', participant: 'ME',
-        credential: 'credential', token: 'token', confirmationCode: '123456', expiresAt: 123,
+        credential: 'credential', token: 'token', confirmationCode: '😀😃😄😁😆', relationshipKeyCommitment: 'a'.repeat(64), expiresAt: 123,
       }, 201);
     },
   });
-  const result = await client.bootstrapPairing({ expiresInSeconds: 60 });
+  const result = await client.bootstrapPairing({ expiresInSeconds: 60, relationshipKeyCommitment: 'a'.repeat(64) });
   assert.equal(result.credential, 'credential');
   assert.equal(captured.url, 'https://cloud.example.test/v1/pairing/bootstrap');
   assert.equal(captured.init.headers.Authorization, undefined);
