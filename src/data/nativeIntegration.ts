@@ -195,6 +195,7 @@ async function testCryptoAndSecureStorage(): Promise<void> {
     relationshipId: 'native-security-test',
     deviceId: 'native-security-device',
     participant: 'ME',
+    state: 'ACTIVE' as const,
     credential: 'native-security-credential',
     relationshipKey,
   });
