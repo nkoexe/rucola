@@ -1,5 +1,6 @@
 import { StatusBar } from 'expo-status-bar';
 import { useEffect, useState } from 'react';
+import { AppState } from 'react-native';
 import { Pressable, SafeAreaView, StyleSheet, Text, View } from 'react-native';
 import { getRepository } from '../data/repository';
 import { recoverPendingPickerResult } from '../data/pendingPicker';
@@ -11,6 +12,7 @@ import { HomeScreen } from '../screens/Home/HomeScreen';
 import { PairingScreen } from '../screens/Pairing/PairingScreen';
 import { SettingsScreen } from '../screens/Settings/SettingsScreen';
 import { SetupScreen } from '../screens/Setup/SetupScreen';
+import { cloudRuntime } from '../cloud/CloudRuntime';
 import { checkCloudRuntime } from '../cloud/runtime';
 
 type AppScreen = 'home' | 'history' | 'calendar' | 'settings';
@@ -45,8 +47,8 @@ export default function App() {
       })
       .then((value) => {
         if (mounted) {
-          setRelationship(value);
-          setPairingComplete(false);
+          setRelationship(value.relationship);
+          setPairingComplete(value.paired);
           setReady(true);
         }
       })
@@ -68,9 +70,29 @@ export default function App() {
 
   if (!ready) return <LoadingScreen />;
   if (error && !relationship) return <ErrorScreen message={error} onRetry={retry} />;
+  useEffect(() => {
+    if (!relationship) return;
+
+    const subscription = AppState.addEventListener('change', (state) => {
+      if (state !== 'active') return;
+      void repositoryPromise
+        .then((repository) => cloudRuntime.refreshAndSync(repository))
+        .catch((cause) => {
+          console.warn('[rucola] foreground sync failed:', cause instanceof Error ? cause.message : 'unknown error');
+        });
+    });
+
+    return () => subscription.remove();
+  }, [relationship, repositoryPromise]);
+
   const completePairing = (value: Relationship) => {
     setRelationship(value);
     setPairingComplete(true);
+    void repositoryPromise
+      .then((repository) => cloudRuntime.sync(repository))
+      .catch((cause) => {
+        console.warn('[rucola] post-pair sync failed:', cause instanceof Error ? cause.message : 'unknown error');
+      });
   };
 
   if (!relationship) return <SetupScreen repositoryPromise={repositoryPromise} onComplete={completePairing} />;
