@@ -8,9 +8,9 @@ async function json(response: Response): Promise<Record<string, unknown>> { retu
 let testId = 1200;
 async function bootstrapAndAccept(): Promise<{ me: PairingBody; partner: PairingBody }> {
   testId += 1;
-  const bootstrapResponse = await exports.default.fetch("https://rucola.test/v1/pairing/bootstrap", { method: "POST", headers: { "content-type": "application/json", "cf-connecting-ip": `198.51.100.${((testId - 1) % 254) + 1}` }, body: JSON.stringify({ expiresInSeconds: 3600 }) });
+  const bootstrapResponse = await exports.default.fetch("https://rucola.test/v1/pairing/bootstrap", { method: "POST", headers: { "content-type": "application/json", "cf-connecting-ip": `198.51.100.${((testId - 1) % 254) + 1}` }, body: JSON.stringify({ expiresInSeconds: 3600, relationshipKeyCommitment: "a".repeat(64) }) });
   expect(bootstrapResponse.status).toBe(201); const me = (await json(bootstrapResponse)) as unknown as PairingBody & { token: string; confirmationCode: string };
-  const acceptResponse = await exports.default.fetch("https://rucola.test/v1/pairing/accept", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ token: me.token, confirmationCode: me.confirmationCode }) });
+  const acceptResponse = await exports.default.fetch("https://rucola.test/v1/pairing/accept", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ token: me.token, confirmationCode: me.confirmationCode, relationshipKeyCommitment: "a".repeat(64) }) });
   expect(acceptResponse.status).toBe(201); return { me, partner: (await json(acceptResponse)) as unknown as PairingBody };
 }
 async function createMedia(credential: string): Promise<string> { const response = await exports.default.fetch("https://rucola.test/v1/media/create", { method: "POST", headers: { authorization: `Bearer ${credential}`, "content-type": "application/json" }, body: JSON.stringify({ type: "PHOTO", mime: "image/png", size: 4 }) }); expect(response.status).toBe(201); return (await json(response)).uploadId as string; }
