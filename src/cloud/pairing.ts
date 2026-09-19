@@ -1,9 +1,9 @@
 import { CryptoDigestAlgorithm, digestStringAsync } from 'expo-crypto';
-export { PAIRING_PROTOCOL_VERSION, createPairingPackage, decodePairingPackage, type PairingPackage } from './pairingPackage';
-import type { PairingPackage } from './pairingPackage';
-import { normalizeRelationshipKey } from '../crypto/relationshipKey';
+export { PAIRING_PROTOCOL_VERSION, createPairingPackage, decodePairingPackage, type PairingPackage } from './pairingPackage.ts';
+import type { PairingPackage } from './pairingPackage.ts';
+import { normalizeRelationshipKey } from '../crypto/relationshipKey.ts';
 
-export { isValidPairingConfirmationCode } from './pairingCode';
+export { isValidPairingConfirmationCode } from './pairingCode.ts';
 
 export async function relationshipKeyCommitment(relationshipKey: string): Promise<string> {
   const normalized = await normalizeRelationshipKey(relationshipKey);
