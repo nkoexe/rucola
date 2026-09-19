@@ -176,38 +176,45 @@ This is a **client transport foundation**, not a complete online application. Pa
 
 ### Remaining backend/workstream work
 
-1. Reconcile the hardened `cloud/research` Worker implementation onto the stable application integration path when the mobile contract is ready.
-2. Finish production operational hardening: rate limits, observability, migration/recovery procedures, and deployment verification.
-3. Finalize any protocol state that is no longer needed after the mobile contract is fixed.
-4. Keep the 14-day mailbox / 30-day durable-receipt retention contract aligned between Worker code, tests, and client behavior.
-5. Finish end-to-end media synchronization between the mobile client and Worker.
-6. Add the final E2E encryption layer after transport/storage semantics are stable.
+1. Keep the hardened Worker implementation and the stable mobile contract aligned.
+2. Adapt the backend pairing protocol so the first online prototype can establish a shared relationship encryption secret without sending that secret to the Worker.
+3. Finish the mobile cloud identity lifecycle: persistent device credential, device identity, participant role, and relationship encryption key.
+4. Implement the real `SyncCodec` using AES-256-GCM with a versioned envelope and authenticated additional data.
+5. Make one application-owned cloud/sync runtime responsible for `CloudClient`, `SyncCodec`, durable sync state, and `SyncEngine`.
+6. Wire local message creation into the durable outbox and trigger foreground synchronization.
+7. Keep the 14-day mailbox / 30-day durable-receipt retention contract aligned between Worker code, tests, and client behavior.
+8. Finish end-to-end photo/video synchronization after TEXT/EMOJI online sync is proven.
+9. Add later E2E hardening such as key rotation/recovery only after the first encrypted two-device prototype works.
 
 ## Phase 4 — First usable online prototype
 
-This is the major halfway milestone.
+This is the major halfway milestone and the first real product checkpoint.
 
 ### Definition
 
 Two real people can use two real Android devices and:
 
-- install the app;
-- complete anonymous setup;
-- pair using the intended five-emoji flow backed by the secure invitation protocol;
-- persist the resulting cloud credentials locally;
-- exchange real text/emoji messages over the Internet;
-- send multiple messages while the other person is offline;
+- install the same signed dev-test APK;
+- complete anonymous local setup;
+- pair using the intended five-emoji human-facing flow;
+- transfer the high-entropy relationship key through the secure pairing payload without exposing it to the Worker;
+- persist the resulting cloud credentials and encryption key locally;
+- exchange encrypted `TEXT` and `EMOJI` messages over the Internet in both directions;
+- queue multiple outbound messages while the other person is offline;
 - reconnect and recover the complete ordered message history;
-- see the correct active message;
-- continue using the app after restart.
+- preserve the one-active-message-per-participant model;
+- continue using the app after restart or normal process death;
+- retry safely after ambiguous network failures without creating duplicate messages;
+- reset the relationship and remove local cloud/encryption secrets.
 
 ### Prototype quality
 
 The UI may still be rough.
 
-The prototype is successful if the central relationship loop works reliably.
+The prototype is successful only when the central relationship loop works across two real devices, not merely in unit tests or on one device.
 
-This milestone should be treated as a real product checkpoint, not just a technical demo.
+The exact test matrix and exit criteria are maintained in `docs/ONLINE_PROTOTYPE_PLAN.md`.
+
 
 ## Phase 5 — Figma implementation
 
@@ -290,7 +297,8 @@ The widget is especially important because it is intended to become an always-vi
 - reactions/replies;
 - multiple relationships;
 - account/login systems;
-- premature E2E implementation before the transport contract is stable;
+- replacing the simple v1 relationship-key design with a more complex asymmetric or ratcheting system before the first online prototype is proven;
+- E2E key rotation/recovery beyond what is needed for the first prototype;
 - statistics before the minimal product is proven;
 - widget work before the online prototype unless needed for architecture validation.
 
