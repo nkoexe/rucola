@@ -120,7 +120,7 @@ export async function acceptInvitation(env: Env, request: Request): Promise<Resp
 
 export async function bootstrapPairing(env: Env, request: Request): Promise<Response> {
   if (!isJsonContentType(request)) return errorResponse("INVALID_REQUEST", "JSON request body required", 400);
-  const body = await readJson<PairingCreateRequest>(request); const lifetime = invitationLifetime(body); if (lifetime <= 0 || !isSha256Hex(body?.relationshipKeyCommitment)) return errorResponse("INVALID_REQUEST", "Invalid pairing request", 400);
+  const body = await readJson<InvitationRequest>(request); const lifetime = invitationLifetime(body); if (lifetime <= 0 || !isSha256Hex(body?.relationshipKeyCommitment)) return errorResponse("INVALID_REQUEST", "Invalid pairing request", 400);
   const relationshipId = randomId(); const deviceId = randomId(); const invitationId = randomId(); const credential = randomToken(CREDENTIAL_BYTES); const token = randomToken(TOKEN_BYTES); const confirmationCode = randomConfirmationCode();
   const credentialHash = await sha256Hex(credential); const tokenHash = await sha256Hex(token); const confirmationCodeHash = await sha256Hex(confirmationCode); const now = Date.now(); const expiresAt = now + lifetime;
   try { await env.DB.batch([
