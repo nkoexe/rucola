@@ -1,11 +1,11 @@
 # Rucola Cloud Implementation Status
 
-Date: 2026-09-19  
-Branch: `main`
+Date: 2026-09-20  
+Branch: `feat/dev-cloud-runtime-wiring`
 
 ## Current status
 
-The cloud backend foundation is implemented and hardened through the temporary mailbox, ACK, media, cleanup, pairing, concurrency, and database-invariant boundaries. The React Native cloud adapter is now partially wired for dev health checks; the complete mobile pairing/crypto/sync lifecycle remains the next integration step.
+The cloud backend foundation is implemented and hardened through the temporary mailbox, ACK, media, cleanup, pairing, concurrency, and database-invariant boundaries. The React Native side now has secure identity/key storage, pairing lifecycle state, and the first Android pairing UX; authenticated message synchronization remains the next integration step.
 
 ## Sync protocol
 
@@ -125,12 +125,12 @@ Implemented on the current development branch:
 - The human confirmation is exactly five emojis; the high-entropy invitation token and encryption key remain technical pairing material.
 - Auth probing now exposes the relationship lifecycle state so the initiating device can transition from `PAIRING` to `ACTIVE` after the partner joins.
 
-The implementation is committed, but CI validation of the current head is still pending.
+The implementation is committed. The Android UX currently uses the native Android share sheet for the out-of-band pairing payload; the intended recipient path is direct device-to-device transfer (for example Quick Share), while the raw pairing payload is never displayed in the app.
 
 ## Remaining work
 
-1. Complete the actual Android pairing UX for the protocol, including secure local QR/camera or equivalent out-of-band relationship-key transfer.
-2. Add the application-owned CloudRuntime and connect the existing `SyncEngine` to the real codec and identity state.
+1. Add an in-app QR/camera transfer path when a dedicated QR dependency is introduced; the current Android prototype uses the native share sheet for direct out-of-band transfer.
+2. Connect the existing `SyncEngine` to the real codec and identity state through the application-owned CloudRuntime.
 3. Update the SyncEngine codec contract to pass sender sequence into authenticated encryption.
 4. Wire local TEXT/EMOJI writes into the durable outbox and trigger startup/foreground/after-send synchronization.
 5. Add two-device integration coverage and validate the signed dev APK on real Android devices.
