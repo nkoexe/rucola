@@ -69,6 +69,7 @@ export class PairingManager {
       relationshipKey,
       pendingPairing,
     };
+    const pairingPackage = await createPairingPackage(response, relationshipKey);
     await this.identityStore.save(identity);
     this.cloud.setCredential(response.credential);
 
@@ -77,7 +78,7 @@ export class PairingManager {
       invitationId: response.invitationId,
       confirmationCode: response.confirmationCode,
       expiresAt: response.expiresAt,
-      package: await createPairingPackage(response, relationshipKey),
+      package: pairingPackage,
     };
   }
 
@@ -122,7 +123,7 @@ export class PairingManager {
 
     const response = await this.cloud.acceptInvitation(pairingPackage.token, confirmationCode, commitment);
     if (response.relationshipId !== pairingPackage.relationshipId) throw new Error('Cloud returned a different relationship ID.');
-    await assertPairingPackageMatchesCommitment(pairingPackage, response.relationshipKeyCommitment);
+    if (response.relationshipKeyCommitment !== commitment) throw new Error('Cloud returned a different relationship key commitment.');
 
     const identity: CloudIdentity = {
       relationshipId: response.relationshipId,
