@@ -39,7 +39,17 @@ export default function App() {
         if (!currentRelationship) return { relationship: null, paired: false };
 
         await recoverPendingPickerResult(repository);
-        const identity = await cloudRuntime.refreshRelationshipState();
+
+        const localIdentity = await cloudRuntime.loadIdentity();
+        let identity = localIdentity;
+        if (localIdentity) {
+          try {
+            identity = await cloudRuntime.refreshRelationshipState();
+          } catch (cause) {
+            console.warn('[rucola] startup cloud refresh failed:', cause instanceof Error ? cause.message : 'unknown error');
+          }
+        }
+
         if (identity?.state === 'ACTIVE') {
           void cloudRuntime.sync(repository).catch((cause) => {
             console.warn('[rucola] startup sync failed:', cause instanceof Error ? cause.message : 'unknown error');
