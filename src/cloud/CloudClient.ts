@@ -1,6 +1,7 @@
 import type { AuthProbeResponse, CloudAckResponse, CloudPullResponse, CloudPushMessage, CloudPushResponse, CompleteMediaResponse, CreateMediaReservationRequest, CreateMediaReservationResponse, MediaUploadResponse, PairingAcceptResponse, PairingBootstrapRequest, PairingBootstrapResponse, PairingCreateResponse } from './protocol';
 
 export type CloudFetch = typeof fetch;
+export interface CloudHealthResponse { ok: boolean; service: string; version: string; database: boolean; }
 export interface CloudClientOptions { baseUrl: string; credential?: string | null; fetchImpl?: CloudFetch; requestTimeoutMs?: number; uploadTimeoutMs?: number; }
 export interface CloudClientErrorDetails { code: string; message: string; status: number; }
 export class CloudClientError extends Error { readonly code: string; readonly status: number; constructor(details: CloudClientErrorDetails) { super(details.message); this.name = 'CloudClientError'; this.code = details.code; this.status = details.status; } }
@@ -26,6 +27,7 @@ function requirePullMessage(message: Record<string, unknown>): boolean { return 
 function assertResponseShape(path: string, body: unknown): void {
   if (!isRecord(body)) invalidResponse(`Cloud returned an invalid response for ${path}.`);
   const requireStrings = (...keys: string[]) => keys.every((key) => isString(body[key]));
+  if (path === '/health') { if (body.ok !== true || !isString(body.service) || !isString(body.version) || body.database !== true) invalidResponse('Cloud returned an invalid health response.'); return; }
   if (path === '/v1/auth/probe') { if (body.authenticated !== true || (body.participant !== 'ME' && body.participant !== 'PARTNER')) invalidResponse('Cloud returned an invalid auth probe response.'); return; }
   if (path === '/v1/pairing/bootstrap') { if (!requireStrings('relationshipId', 'invitationId', 'deviceId', 'credential', 'token', 'confirmationCode') || body.participant !== 'ME' || !isSafePositiveInteger(body.expiresAt)) invalidResponse('Cloud returned an invalid pairing bootstrap response.'); return; }
   if (path === '/v1/pairing/create') { if (!requireStrings('relationshipId', 'invitationId', 'token', 'confirmationCode') || !isSafePositiveInteger(body.expiresAt)) invalidResponse('Cloud returned an invalid pairing creation response.'); return; }
@@ -53,6 +55,7 @@ export class CloudClient {
   setCredential(credential: string | null): void { this.credential = credential?.trim() || null; }
   clearCredential(): void { this.credential = null; }
   hasCredential(): boolean { return this.credential !== null; }
+  async health(): Promise<CloudHealthResponse> { return this.request<CloudHealthResponse>({ method: 'GET', path: '/health' }); }
   async authProbe(): Promise<AuthProbeResponse> { return this.request<AuthProbeResponse>({ method: 'GET', path: '/v1/auth/probe', authenticated: true }); }
   async bootstrapPairing(request: PairingBootstrapRequest = {}): Promise<PairingBootstrapResponse> { return this.request<PairingBootstrapResponse>({ method: 'POST', path: '/v1/pairing/bootstrap', body: request }); }
   async createInvitation(expiresInSeconds?: number): Promise<PairingCreateResponse> { return this.request<PairingCreateResponse>({ method: 'POST', path: '/v1/pairing/create', body: expiresInSeconds === undefined ? {} : { expiresInSeconds }, authenticated: true }); }
