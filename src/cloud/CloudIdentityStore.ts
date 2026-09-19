@@ -1,5 +1,5 @@
-import { base64ToBytes } from '../crypto/encoding';
-import { isValidPairingConfirmationCode } from './pairingCode';
+import { base64ToBytes } from '../crypto/encoding.ts';
+import { isValidPairingConfirmationCode } from './pairingCode.ts';
 
 export type CloudParticipant = 'ME' | 'PARTNER';
 export type CloudRelationshipState = 'PAIRING' | 'ACTIVE';
