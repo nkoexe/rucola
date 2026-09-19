@@ -102,7 +102,7 @@ async function migrateSyncInboxSchema(db: SQLite.SQLiteDatabase): Promise<void> 
 
 async function migrateBlockedOutboxSchema(db: SQLite.SQLiteDatabase): Promise<void> {
   await db.withTransactionAsync(async () => {
-    await db.execAsync('ALTER TABLE sync_outbox ADD COLUMN blocked INTEGER NOT NULL DEFAULT 0 CHECK (blocked IN (0, 1)); ALTER TABLE sync_outbox ADD COLUMN ciphertext TEXT; ALTER TABLE sync_outbox ADD COLUMN encryptionVersion INTEGER CHECK (encryptionVersion IS NULL OR (encryptionVersion >= 1 AND encryptionVersion <= 255));');
+    await db.execAsync('ALTER TABLE sync_outbox ADD COLUMN ciphertext TEXT; ALTER TABLE sync_outbox ADD COLUMN encryptionVersion INTEGER CHECK (encryptionVersion IS NULL OR (encryptionVersion >= 1 AND encryptionVersion <= 255));');
     await db.execAsync('DROP INDEX IF EXISTS sync_outbox_due; CREATE INDEX sync_outbox_due ON sync_outbox (relationshipId, blocked, nextAttemptAt, senderSeq);');
     await db.execAsync(`PRAGMA user_version = ${SCHEMA_VERSION};`);
   });
