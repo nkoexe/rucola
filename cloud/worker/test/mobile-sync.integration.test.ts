@@ -33,7 +33,7 @@ function pairingRequest(): RequestInit {
       "content-type": "application/json",
       "cf-connecting-ip": "203.0.113.10",
     },
-    body: JSON.stringify({ expiresInSeconds: 3600 }),
+    body: JSON.stringify({ expiresInSeconds: 3600, relationshipKeyCommitment: "a".repeat(64) }),
   };
 }
 
@@ -58,7 +58,7 @@ async function pair(): Promise<{
     headers: { "content-type": "application/json" },
     body: JSON.stringify({
       token: invitation.token,
-      confirmationCode: invitation.confirmationCode,
+      confirmationCode: invitation.confirmationCode, relationshipKeyCommitment: "a".repeat(64),
     }),
   });
   expect(accept.status).toBe(201);
