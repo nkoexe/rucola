@@ -15,7 +15,7 @@ async function bootstrap(): Promise<Record<string, unknown>> {
       "content-type": "application/json",
       "cf-connecting-ip": `198.51.100.${bootstrapTestId}`,
     },
-    body: JSON.stringify({ expiresInSeconds: 3600 }),
+    body: JSON.stringify({ expiresInSeconds: 3600, relationshipKeyCommitment: "a".repeat(64) }),
   });
   expect(response.status).toBe(201);
   return json(response);
@@ -33,7 +33,7 @@ async function relationshipCount(): Promise<number> {
 describe("Rucola pairing hardening", () => {
   it("rejects oversized JSON bodies before parsing", async () => {
     const before = await relationshipCount();
-    const response = await exports.default.fetch("https://rucola.test/v1/pairing/bootstrap", { method: "POST", headers: { "content-type": "application/json", "cf-connecting-ip": `198.51.100.${++bootstrapTestId}` }, body: JSON.stringify({ expiresInSeconds: 3600, padding: "x".repeat(20_000) }) });
+    const response = await exports.default.fetch("https://rucola.test/v1/pairing/bootstrap", { method: "POST", headers: { "content-type": "application/json", "cf-connecting-ip": `198.51.100.${++bootstrapTestId}` }, body: JSON.stringify({ expiresInSeconds: 3600, relationshipKeyCommitment: "a".repeat(64), padding: "x".repeat(20_000) }) });
     expect(response.status).toBe(400); expect(await relationshipCount()).toBe(before);
   });
 
@@ -47,9 +47,9 @@ describe("Rucola pairing hardening", () => {
   });
 
   it("requires the exact JSON media type while accepting parameters", async () => {
-    const valid = await exports.default.fetch("https://rucola.test/v1/pairing/bootstrap", { method: "POST", headers: { "content-type": "application/json; charset=utf-8", "cf-connecting-ip": `198.51.100.${++bootstrapTestId}` }, body: JSON.stringify({ expiresInSeconds: 3600 }) });
+    const valid = await exports.default.fetch("https://rucola.test/v1/pairing/bootstrap", { method: "POST", headers: { "content-type": "application/json; charset=utf-8", "cf-connecting-ip": `198.51.100.${++bootstrapTestId}` }, body: JSON.stringify({ expiresInSeconds: 3600, relationshipKeyCommitment: "a".repeat(64) }) });
     expect(valid.status).toBe(201);
-    const invalid = await exports.default.fetch("https://rucola.test/v1/pairing/bootstrap", { method: "POST", headers: { "content-type": "application/json-malicious", "cf-connecting-ip": `198.51.100.${++bootstrapTestId}` }, body: JSON.stringify({ expiresInSeconds: 3600 }) });
+    const invalid = await exports.default.fetch("https://rucola.test/v1/pairing/bootstrap", { method: "POST", headers: { "content-type": "application/json-malicious", "cf-connecting-ip": `198.51.100.${++bootstrapTestId}` }, body: JSON.stringify({ expiresInSeconds: 3600, relationshipKeyCommitment: "a".repeat(64) }) });
     expect(invalid.status).toBe(400);
   });
 
@@ -97,7 +97,7 @@ describe("Rucola pairing hardening", () => {
     const accepted = await exports.default.fetch("https://rucola.test/v1/pairing/accept", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ token: body.token, confirmationCode: body.confirmationCode }) });
     expect(accepted.status).toBe(201);
     const acceptedBody = await json(accepted);
-    const response = await exports.default.fetch("https://rucola.test/v1/pairing/create", { method: "POST", headers: { authorization: `Bearer ${acceptedBody.credential}`, "content-type": "application/json" }, body: JSON.stringify({ expiresInSeconds: 3600 }) });
+    const response = await exports.default.fetch("https://rucola.test/v1/pairing/create", { method: "POST", headers: { authorization: `Bearer ${acceptedBody.credential}`, "content-type": "application/json" }, body: JSON.stringify({ expiresInSeconds: 3600, relationshipKeyCommitment: "a".repeat(64) }) });
     expect(response.status).toBe(409);
   });
 
