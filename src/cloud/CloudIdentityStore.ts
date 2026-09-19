@@ -61,18 +61,17 @@ function requireKey(value: unknown): string {
 function parsePendingPairing(value: unknown): PendingPairing {
   if (value === null || typeof value !== 'object' || Array.isArray(value)) throw new CloudIdentityStoreError('Stored pairing state is invalid.');
   const candidate = value as Record<string, unknown>;
+  const invitationId = candidate.invitationId;
+  const token = candidate.token;
+  const confirmationCode = candidate.confirmationCode;
+  const expiresAt = candidate.expiresAt;
   if (
-    typeof candidate.invitationId !== 'string' || !/^[A-Za-z0-9_-]{1,128}$/.test(candidate.invitationId) ||
-    typeof candidate.token !== 'string' || !/^[A-Za-z0-9_-]{43}$/.test(candidate.token) ||
-    typeof candidate.confirmationCode !== 'string' || !isValidPairingConfirmationCode(candidate.confirmationCode) ||
-    !Number.isSafeInteger(candidate.expiresAt) || (candidate.expiresAt as number) <= 0
+    typeof invitationId !== 'string' || !/^[A-Za-z0-9_-]{1,128}$/.test(invitationId) ||
+    typeof token !== 'string' || !/^[A-Za-z0-9_-]{43}$/.test(token) ||
+    typeof confirmationCode !== 'string' || !isValidPairingConfirmationCode(confirmationCode) ||
+    !Number.isSafeInteger(expiresAt) || (expiresAt as number) <= 0
   ) throw new CloudIdentityStoreError('Stored pairing state is invalid.');
-  return {
-    invitationId: candidate.invitationId,
-    token: candidate.token,
-    confirmationCode: candidate.confirmationCode,
-    expiresAt: candidate.expiresAt,
-  };
+  return { invitationId, token, confirmationCode, expiresAt: expiresAt as number };
 }
 
 function parseIdentity(value: unknown): CloudIdentity {
