@@ -1,5 +1,5 @@
-import { base64ToBytes, base64UrlToBytes, bytesToBase64, bytesToBase64Url, utf8Decode, utf8Encode } from '../crypto/encoding';
-import type { PairingBootstrapResponse } from './protocol';
+import { base64ToBytes, base64UrlToBytes, bytesToBase64, bytesToBase64Url, utf8Decode, utf8Encode } from '../crypto/encoding.ts';
+import type { PairingBootstrapResponse } from './protocol.ts';
 
 export const PAIRING_PROTOCOL_VERSION = 1;
 const PACKAGE_PREFIX = 'rucola-pairing:v1.';
