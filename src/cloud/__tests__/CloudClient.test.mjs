@@ -76,6 +76,11 @@ test('server protocol errors become typed CloudClientError values', async () => 
   });
 });
 
+test('parses the worker health response', async () => {
+  const client = new CloudClient({ baseUrl: 'https://cloud.example.test', fetchImpl: async () => new Response(JSON.stringify({ ok: true, service: 'rucola-cloud-dev', version: 'sync-hardening-1', database: true }), { status: 200, headers: { 'content-type': 'application/json' } }) });
+  await assert.deepEqual(await client.health(), { ok: true, service: 'rucola-cloud-dev', version: 'sync-hardening-1', database: true });
+});
+
 test('authenticated operations fail locally when no credential exists', async () => {
   const client = new CloudClient({ baseUrl: 'https://cloud.example.test', fetchImpl: async () => { throw new Error('network should not be reached'); } });
   await assert.rejects(() => client.pullMessages(), (error) => error instanceof CloudClientError && error.code === 'CLIENT_UNAUTHENTICATED' && error.status === 0);
