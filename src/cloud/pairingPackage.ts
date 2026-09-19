@@ -37,7 +37,7 @@ function decodeJson(value: string): unknown {
 export async function createPairingPackage(response: PairingBootstrapResponse, relationshipKey: string): Promise<string> {
   let normalizedKey: string;
   try {
-    const bytes = base64UrlToBytes(relationshipKey.replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, ''));
+    const bytes = base64ToBytes(relationshipKey);
     if (bytes.length !== 32) throw new Error();
     normalizedKey = bytesToBase64(bytes);
   } catch {
