@@ -150,7 +150,13 @@ export class SyncEngine {
     const now = this.now();
     const pending = await this.state.getPendingOutbox(Math.max(this.outboxBatchSize, 100));
     if (pending.length === 0) return;
-    const due: Array<{ messageId: string; senderSeq: number; nextAttemptAt: number }> = [];
+    const due: Array<{
+      messageId: string;
+      senderSeq: number;
+      nextAttemptAt: number;
+      ciphertext: string | null;
+      encryptionVersion: number | null;
+    }> = [];
     for (const item of pending) {
       if (item.nextAttemptAt > now) break;
       due.push(item);
