@@ -49,6 +49,13 @@ export class SyncDecryptionError extends Error {
   }
 }
 
+export class SyncStatePersistenceError extends Error {
+  constructor(message = 'Unable to persist local sync state.', cause?: unknown) {
+    super(message, { cause });
+    this.name = 'SyncStatePersistenceError';
+  }
+}
+
 export interface SyncEngineOptions {
   cloud: CloudClient;
   state: SyncStateStore;
@@ -180,7 +187,11 @@ export class SyncEngine {
           ciphertext = await this.codec.encrypt(message, item.senderSeq);
           if (!ciphertext) throw new Error('Sync codec returned empty ciphertext.');
           encryptionVersion = this.codec.encryptionVersion;
-          await this.state.storeOutboundCiphertext(message.id, ciphertext, encryptionVersion);
+          try {
+            await this.state.storeOutboundCiphertext(message.id, ciphertext, encryptionVersion);
+          } catch (cause) {
+            throw new SyncStatePersistenceError('Unable to persist outbound ciphertext before network delivery.', cause);
+          }
         }
 
         await this.cloud.pushMessage({
@@ -194,6 +205,7 @@ export class SyncEngine {
         await this.state.markSynced(message.id);
         result.pushed += 1;
       } catch (cause) {
+        if (cause instanceof SyncStatePersistenceError) throw cause;
         if (isBlockedSyncError(cause)) {
           await this.state.markBlocked(item.messageId, cause);
           result.failed += 1;
