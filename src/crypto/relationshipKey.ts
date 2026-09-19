@@ -1,5 +1,5 @@
 import { AESEncryptionKey } from 'expo-crypto';
-import { base64ToBytes, bytesToBase64 } from './encoding';
+import { base64ToBytes, bytesToBase64 } from './encoding.ts';
 
 export const RELATIONSHIP_KEY_BYTES = 32;
 
