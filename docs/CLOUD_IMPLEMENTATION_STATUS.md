@@ -127,6 +127,7 @@ Implemented on the current development branch:
 - `CloudRuntime` now owns `CloudClient`, `CloudIdentityStore`, `PairingManager`, the SQLite sync-state store, `AesGcmSyncCodec`, and one coalescing `SyncEngine` instance for the active identity.
 - `SyncEngine` now passes the durable sender sequence into the codec, so the sequence is covered by AES-GCM authenticated context exactly as designed.
 - The app triggers synchronization on startup, after pairing, after local message creation, and when returning to the foreground.
+- Settings exposes an explicit `sync now` retry control for physical prototype testing and recovery.
 - SQLite schema v6 persists the encrypted outbound envelope in `sync_outbox` before the first network push, so AES-GCM ciphertext is reused across ambiguous retries instead of being regenerated with a fresh nonce.
 - The sync test suite now exercises a simulated two-device encrypted TEXT burst in both directions and a lost-response/idempotent retry.
 - The Worker cleanup suite now covers expiry of an unpaired pairing relationship without touching active relationships.
