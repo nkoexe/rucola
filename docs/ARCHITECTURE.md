@@ -33,7 +33,7 @@ The product-level source of truth is `docs/PRODUCT_SPEC.md`; the phased implemen
    └──────────────────────────────┘
 ```
 
-The cloud service is a temporary transport/mailbox layer, not permanent message history. Local SQLite remains authoritative for a device's durable history. The hardened Worker currently lives on `cloud/research`; the mobile sync foundation is on `main`.
+The cloud service is a temporary transport/mailbox layer, not permanent message history. Local SQLite remains authoritative for a device's durable history. The hardened Worker currently lives on `cloud/research`; the mobile integration work is on the focused runtime branch and is intended for `main` after validation.
 
 The central architecture rule is that UI code consumes application/domain state and does not call HTTP or SQLite directly.
 
@@ -65,7 +65,7 @@ expo-sqlite + app-owned media
 
 The repository/domain boundary is already real. The cloud layer is also real at the client-transport level: `CloudClient` knows the typed pairing, sync, and media endpoints, while `SyncEngine` coordinates durable outbox/pull-cursor/ACK semantics.
 
-The application still uses hand-rolled screen/navigation state and is scheduled for a later Expo Router/application-lifecycle cleanup. The online sync engine is not yet owned by that application lifecycle.
+The application still uses hand-rolled screen/navigation state and is scheduled for a later Expo Router cleanup. `CloudRuntime` now owns the online sync lifecycle instead of screens constructing `SyncEngine` or `CloudClient` directly.
 
 Screens must not depend directly on SQLite or HTTP. Domain code must not depend on React Native.
 
@@ -154,10 +154,10 @@ Pull is directional: the recipient does not receive its own outbound mailbox row
 
 ## 8. Durable sync state and retention
 
-The current SQLite schema is **version 5** and contains:
+The current SQLite schema is **version 6** and contains:
 
 - `sync_state` — device identity/participant metadata, next sender sequence, durable pull cursor;
-- `sync_outbox` — pending outbound messages, sender sequence, retry timing, attempts, and blocked state;
+- `sync_outbox` — pending outbound messages, sender sequence, retry timing, attempts, blocked state, and the encrypted envelope persisted for retry idempotency;
 - `sync_inbox` — locally applied inbound messages keyed by relationship/message ID and server sequence.
 
 Outbound unsynchronized work has a **30-day local retention window**. At expiry, stale outbound messages are terminally removed rather than retried forever, including their local history entries. The active slot is cleared when the stale local message is removed.
@@ -178,7 +178,7 @@ The mobile sync engine deliberately separates expected bad input from unexpected
 - ACK is sent only after that commit succeeds.
 - A failed local commit must therefore never be acknowledged to the server.
 
-The E2E v1 codec planned for the first online prototype is specified in section 11. It is not implemented yet. Expected cryptographic/decryption failures must use the explicit discardable error contract rather than relying on broad exception swallowing.
+The E2E v1 codec is implemented for TEXT/EMOJI. `CloudRuntime` constructs it only for an active persisted relationship identity. Expected cryptographic/decryption failures use the explicit discardable error contract rather than broad exception swallowing. Outbound ciphertext is generated once and durably stored before the first network push so an ambiguous retry reuses the exact AES-GCM envelope.
 
 ## 10. Prototype cloud runtime
 
