@@ -39,8 +39,9 @@ test('pairing package canonicalizes the relationship key', async () => {
 });
 
 test('pairing package rejects expired payloads', async () => {
-  const encoded = await createPairingPackage({ ...RESPONSE, expiresAt: 2_000 }, KEY);
-  await assert.rejects(() => decodePairingPackage(encoded, 2_001), /Pairing package is invalid/);
+  const expiresAt = 3_000_000_000_000;
+  const encoded = await createPairingPackage({ ...RESPONSE, expiresAt }, KEY);
+  await assert.rejects(() => decodePairingPackage(encoded, expiresAt + 1), /Pairing package is invalid/);
 });
 
 test('pairing package rejects tampered payloads', async () => {
