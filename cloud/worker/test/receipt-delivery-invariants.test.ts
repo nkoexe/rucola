@@ -17,14 +17,14 @@ async function pair(): Promise<{ me: DeviceBody; partner: DeviceBody }> {
   const bootstrap = await exports.default.fetch("https://rucola.test/v1/pairing/bootstrap", {
     method: "POST",
     headers: { "content-type": "application/json", "cf-connecting-ip": `192.0.2.${Math.floor(Math.random() * 200) + 1}` },
-    body: JSON.stringify({ expiresInSeconds: 3600 }),
+    body: JSON.stringify({ expiresInSeconds: 3600, relationshipKeyCommitment: "a".repeat(64) }),
   });
   expect(bootstrap.status).toBe(201);
   const me = (await json(bootstrap)) as unknown as DeviceBody;
   const accept = await exports.default.fetch("https://rucola.test/v1/pairing/accept", {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ token: me.token, confirmationCode: me.confirmationCode }),
+    body: JSON.stringify({ token: me.token, confirmationCode: me.confirmationCode, relationshipKeyCommitment: "a".repeat(64) }),
   });
   expect(accept.status).toBe(201);
   return { me, partner: (await json(accept)) as unknown as DeviceBody };
