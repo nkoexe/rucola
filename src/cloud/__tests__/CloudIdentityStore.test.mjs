@@ -17,6 +17,7 @@ function identity(overrides = {}) {
     relationshipId: 'relationship-1',
     deviceId: 'device-1',
     participant: 'ME',
+    state: 'ACTIVE',
     credential: 'credential_abc123',
     relationshipKey: Buffer.alloc(32, 7).toString('base64'),
     ...overrides,
