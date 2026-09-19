@@ -1,8 +1,8 @@
-import type { PairingAcceptResponse, PairingBootstrapResponse } from './protocol';
-import { CloudClient } from './CloudClient';
-import { CloudIdentityStore, type CloudIdentity, type PendingPairing } from './CloudIdentityStore';
-import { createPairingPackage, decodePairingPackage, isValidPairingConfirmationCode, relationshipKeyCommitment } from './pairing';
-import { generateRelationshipKey } from '../crypto/relationshipKey';
+import type { PairingAcceptResponse, PairingBootstrapResponse } from './protocol.ts';
+import { CloudClient } from './CloudClient.ts';
+import { CloudIdentityStore, type CloudIdentity, type PendingPairing } from './CloudIdentityStore.ts';
+import { createPairingPackage, decodePairingPackage, isValidPairingConfirmationCode, relationshipKeyCommitment } from './pairing.ts';
+import { generateRelationshipKey } from '../crypto/relationshipKey.ts';
 
 export interface PairingManagerOptions {
   cloud: CloudClient;
