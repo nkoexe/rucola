@@ -87,6 +87,7 @@ async function cleanupExpiredMailbox(env: Env, now: number): Promise<number> {
   return deleted;
 }
 
+// Remove only relationships that never became active and have no remaining deliverable data.
 async function cleanupExpiredPairingRelationships(env: Env, now: number): Promise<number> {
   const result = await env.DB.prepare(
     `SELECT r.id FROM relationships r
