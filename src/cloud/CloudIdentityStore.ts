@@ -1,13 +1,23 @@
 import { base64ToBytes } from '../crypto/encoding';
 
 export type CloudParticipant = 'ME' | 'PARTNER';
+export type CloudRelationshipState = 'PAIRING' | 'ACTIVE';
+
+export interface PendingPairing {
+  invitationId: string;
+  token: string;
+  confirmationCode: string;
+  expiresAt: number;
+}
 
 export interface CloudIdentity {
   relationshipId: string;
   deviceId: string;
   participant: CloudParticipant;
+  state: CloudRelationshipState;
   credential: string;
   relationshipKey: string;
+  pendingPairing?: PendingPairing;
 }
 
 export interface SecureValueStore {
@@ -47,17 +57,41 @@ function requireKey(value: unknown): string {
   return value;
 }
 
+function parsePendingPairing(value: unknown): PendingPairing {
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) throw new CloudIdentityStoreError('Stored pairing state is invalid.');
+  const candidate = value as Record<string, unknown>;
+  if (
+    typeof candidate.invitationId !== 'string' || !/^[A-Za-z0-9_-]{1,128}$/.test(candidate.invitationId) ||
+    typeof candidate.token !== 'string' || !/^[A-Za-z0-9_-]{43}$/.test(candidate.token) ||
+    typeof candidate.confirmationCode !== 'string' || Array.from(candidate.confirmationCode).length !== 5 ||
+    !Number.isSafeInteger(candidate.expiresAt) || (candidate.expiresAt as number) <= 0
+  ) throw new CloudIdentityStoreError('Stored pairing state is invalid.');
+  return {
+    invitationId: candidate.invitationId,
+    token: candidate.token,
+    confirmationCode: candidate.confirmationCode,
+    expiresAt: candidate.expiresAt,
+  };
+}
+
 function parseIdentity(value: unknown): CloudIdentity {
   if (value === null || typeof value !== 'object' || Array.isArray(value)) throw new CloudIdentityStoreError();
   const candidate = value as Record<string, unknown>;
   const participant = candidate.participant;
+  const state = candidate.state;
   if (participant !== 'ME' && participant !== 'PARTNER') throw new CloudIdentityStoreError('Stored cloud participant is invalid.');
+  if (state !== 'PAIRING' && state !== 'ACTIVE') throw new CloudIdentityStoreError('Stored cloud relationship state is invalid.');
+  const pendingPairing = candidate.pendingPairing === undefined ? undefined : parsePendingPairing(candidate.pendingPairing);
+  if (state === 'PAIRING' && !pendingPairing) throw new CloudIdentityStoreError('Stored pairing state is missing.');
+  if (state === 'ACTIVE' && pendingPairing) throw new CloudIdentityStoreError('Active cloud identity cannot have pending pairing state.');
   return {
     relationshipId: requireId(candidate.relationshipId, 'Relationship ID'),
     deviceId: requireId(candidate.deviceId, 'Device ID'),
     participant,
+    state,
     credential: requireCredential(candidate.credential),
     relationshipKey: requireKey(candidate.relationshipKey),
+    pendingPairing,
   };
 }
 
