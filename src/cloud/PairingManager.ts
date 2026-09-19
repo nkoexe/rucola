@@ -1,7 +1,7 @@
 import type { PairingAcceptResponse, PairingBootstrapResponse } from './protocol';
 import { CloudClient } from './CloudClient';
 import { CloudIdentityStore, type CloudIdentity, type PendingPairing } from './CloudIdentityStore';
-import { assertPairingPackageMatchesCommitment, createPairingPackage, decodePairingPackage, isValidPairingConfirmationCode, relationshipKeyCommitment, type PairingPackage } from './pairing';
+import { assertPairingPackageMatchesCommitment, createPairingPackage, decodePairingPackage, isValidPairingConfirmationCode, relationshipKeyCommitment  } from './pairing';
 import { generateRelationshipKey } from '../crypto/relationshipKey';
 
 export interface PairingManagerOptions {
