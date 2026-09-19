@@ -10,7 +10,8 @@ const MAX_JSON_BODY_BYTES = 16 * 1024;
 const MAX_CONFIRMATION_ATTEMPTS = 5;
 const CONFIRMATION_LOCKOUT_MS = 15 * 60 * 1000;
 
-interface PairingCreateRequest { expiresInSeconds?: unknown; relationshipKeyCommitment?: unknown; }
+interface InvitationRequest { expiresInSeconds?: unknown; }
+interface PairingBootstrapRequest { expiresInSeconds?: unknown; relationshipKeyCommitment?: unknown; }
 interface PairingAcceptRequest { token?: unknown; confirmationCode?: unknown; relationshipKeyCommitment?: unknown; }
 
 function randomToken(byteLength: number): string { const bytes = new Uint8Array(byteLength); crypto.getRandomValues(bytes); return base64Url(bytes); }
@@ -24,10 +25,20 @@ const PAIRING_EMOJIS = [
   "😴",
 ] as const;
 
+function randomPairingEmoji(): string {
+  const range = 0x1_0000_0000;
+  const limit = Math.floor(range / PAIRING_EMOJIS.length) * PAIRING_EMOJIS.length;
+  const bytes = new Uint32Array(1);
+  let value = 0;
+  do {
+    crypto.getRandomValues(bytes);
+    value = bytes[0] ?? 0;
+  } while (value >= limit);
+  return PAIRING_EMOJIS[value % PAIRING_EMOJIS.length];
+}
+
 function randomConfirmationCode(): string {
-  const bytes = new Uint32Array(5);
-  crypto.getRandomValues(bytes);
-  return Array.from(bytes, (value) => PAIRING_EMOJIS[value % PAIRING_EMOJIS.length]).join("");
+  return Array.from({ length: 5 }, () => randomPairingEmoji()).join("");
 }
 
 function isPairingConfirmationCode(value: string): boolean {
@@ -46,7 +57,7 @@ async function readJson<T extends object>(request: Request): Promise<T | null> {
   if (!request.body) return null;
   try { const body = new Uint8Array(await request.arrayBuffer()); if (body.byteLength > MAX_JSON_BODY_BYTES) return null; return parseJsonObject(JSON.parse(new TextDecoder().decode(body))) as T | null; } catch { return null; }
 }
-function invitationLifetime(body: PairingCreateRequest | null): number {
+function invitationLifetime(body: InvitationRequest | PairingBootstrapRequest | null): number {
   if (!body) return 0;
   if (body.expiresInSeconds === undefined) return DEFAULT_INVITATION_LIFETIME_MS;
   if (typeof body.expiresInSeconds !== "number" || !Number.isFinite(body.expiresInSeconds)) return 0;
@@ -69,7 +80,7 @@ async function insertInvitation(env: Env, relationshipId: string, deviceId: stri
 export async function createInvitation(env: Env, request: Request, device: AuthenticatedDevice): Promise<Response> {
   if (!isJsonContentType(request)) return errorResponse("INVALID_REQUEST", "JSON request body required", 400);
   if (device.participant !== "ME") return errorResponse("PAIRING_CLOSED", "Only the first device can create invitations", 409);
-  const body = await readJson<PairingCreateRequest>(request); const lifetime = invitationLifetime(body); if (lifetime <= 0) return errorResponse("INVALID_REQUEST", "Invalid invitation lifetime", 400);
+  const body = await readJson<InvitationRequest>(request); const lifetime = invitationLifetime(body); if (lifetime <= 0) return errorResponse("INVALID_REQUEST", "Invalid invitation lifetime", 400);
   const relationship = await env.DB.prepare(`SELECT status, relationship_key_commitment FROM relationships WHERE id = ?1`).bind(device.relationshipId).first<{ status: "PAIRING" | "ACTIVE" | "ENDED"; relationship_key_commitment: string | null }>();
   if (!relationship || relationship.status !== "PAIRING" || !relationship.relationship_key_commitment) return errorResponse("PAIRING_CLOSED", "Relationship is not currently pairable", 409);
   try { const invitation = await insertInvitation(env, device.relationshipId, device.id, lifetime); if (!invitation) return errorResponse("PAIRING_CLOSED", "Relationship is not currently pairable", 409); const relationship = await env.DB.prepare(`SELECT relationship_key_commitment FROM relationships WHERE id = ?1`).bind(device.relationshipId).first<{ relationship_key_commitment: string | null }>(); if (!relationship?.relationship_key_commitment) return errorResponse("PAIRING_CLOSED", "Pairing encryption state is unavailable", 409); return json({ relationshipId: device.relationshipId, relationshipKeyCommitment: relationship.relationship_key_commitment, ...invitation }, 201); }
