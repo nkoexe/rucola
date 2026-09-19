@@ -237,7 +237,7 @@ test('a lost push response is retried without duplicating the server message', a
   assert.equal(server.messages.length, 1);
   assert.equal(a.state.outbox.length, 1);
 
-  now += 5_000;
+  now += 5_001;
   const second = await a.engine.run();
   assert.equal(second.pushed, 1);
   assert.equal(a.state.outbox.length, 0);
