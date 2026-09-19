@@ -180,7 +180,47 @@ The mobile sync engine deliberately separates expected bad input from unexpected
 
 The current production E2E codec is not selected yet. Expected cryptographic/decryption failures must use the explicit discardable error contract rather than relying on broad exception swallowing.
 
-## 10. Media lifecycle
+## 10. Prototype cloud runtime
+
+The first real online milestone uses one application-owned cloud runtime:
+
+```text
+CloudRuntime
+ ├─ CloudIdentityStore
+ ├─ CloudClient
+ ├─ SyncCodec
+ ├─ SQLiteSyncStateStore
+ └─ SyncEngine
+```
+
+The runtime owns startup/foreground/after-send synchronization and keeps screens independent from HTTP and SQLite implementation details.
+
+The existing health probe belongs inside this lifecycle. A successful health request means only that the configured Worker is reachable; it is not evidence that pairing or message synchronization is configured.
+
+The runtime loads persisted cloud identity state and constructs the authenticated sync path only when the relationship is paired and the required encryption key is present.
+
+## 11. Prototype E2E v1
+
+The first two-device prototype uses a random 256-bit relationship key generated locally by the initiating device.
+
+The key is transferred to the second device through an out-of-band secure pairing payload. The Worker must never receive or store this key. The Worker may receive a one-way proof/hash needed to bind the pairing request, plus the normal device/relationship metadata and authentication credential.
+
+This is deliberately simpler than adding X25519 or a ratcheting protocol at this stage. A server-mediated public-key exchange by itself would not establish peer authenticity against a malicious server.
+
+Message payload encryption uses AES-256-GCM with:
+
+- a fresh nonce/IV for every message;
+- a 16-byte authentication tag;
+- a versioned wire envelope;
+- authenticated additional data binding relationship/message context.
+
+At minimum, the authenticated context covers relationship ID, message ID, message type, sender sequence, and encryption version.
+
+The relationship key and cloud authentication credential are separate secrets and are stored locally through a secure secret-storage abstraction.
+
+This E2E v1 design protects message content from the cloud service under the intended server-storage threat model. It does not claim protection against a compromised device or malicious software running on the user's endpoint.
+
+## 12. Media lifecycle
 
 Photo/video messages use the real device picker/camera path. Selected or captured media is copied into an app-owned document `media/` directory before the message is persisted. Message history stores the durable local URI and can render images or videos from that URI.
 
