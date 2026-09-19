@@ -1,7 +1,6 @@
 import { StatusBar } from 'expo-status-bar';
+import { AppState, Pressable, SafeAreaView, StyleSheet, Text, View } from 'react-native';
 import { useEffect, useState } from 'react';
-import { AppState } from 'react-native';
-import { Pressable, SafeAreaView, StyleSheet, Text, View } from 'react-native';
 import { getRepository } from '../data/repository';
 import { recoverPendingPickerResult } from '../data/pendingPicker';
 import type { Relationship } from '../domain/models';
@@ -16,7 +15,6 @@ import { cloudRuntime } from '../cloud/CloudRuntime';
 import { checkCloudRuntime } from '../cloud/runtime';
 
 type AppScreen = 'home' | 'history' | 'calendar' | 'settings';
-
 type RepositoryPromise = ReturnType<typeof getRepository>;
 
 export default function App() {
@@ -38,40 +36,35 @@ export default function App() {
     void repositoryPromise
       .then(async (repository) => {
         const currentRelationship = await new GetRelationship(repository).execute();
+        if (!currentRelationship) return { relationship: null, paired: false };
 
-        if (currentRelationship) {
-          await recoverPendingPickerResult(repository);
+        await recoverPendingPickerResult(repository);
+        const identity = await cloudRuntime.refreshRelationshipState();
+        if (identity?.state === 'ACTIVE') {
+          void cloudRuntime.sync(repository).catch((cause) => {
+            console.warn('[rucola] startup sync failed:', cause instanceof Error ? cause.message : 'unknown error');
+          });
         }
 
-        return currentRelationship;
+        return { relationship: currentRelationship, paired: identity?.state === 'ACTIVE' };
       })
       .then((value) => {
-        if (mounted) {
-          setRelationship(value.relationship);
-          setPairingComplete(value.paired);
-          setReady(true);
-        }
+        if (!mounted) return;
+        setRelationship(value.relationship);
+        setPairingComplete(value.paired);
+        setReady(true);
       })
       .catch((cause) => {
-        if (mounted) {
-          setError(cause instanceof Error ? cause.message : 'Could not initialize Rucola.');
-          setReady(true);
-        }
+        if (!mounted) return;
+        setError(cause instanceof Error ? cause.message : 'Could not initialize Rucola.');
+        setReady(true);
       });
 
     return () => { mounted = false; };
   }, [repositoryPromise]);
 
-  const retry = () => {
-    setRelationship(null);
-    setPairingComplete(false);
-    setRepositoryPromise(getRepository());
-  };
-
-  if (!ready) return <LoadingScreen />;
-  if (error && !relationship) return <ErrorScreen message={error} onRetry={retry} />;
   useEffect(() => {
-    if (!relationship) return;
+    if (!relationship || !pairingComplete) return;
 
     const subscription = AppState.addEventListener('change', (state) => {
       if (state !== 'active') return;
@@ -83,7 +76,13 @@ export default function App() {
     });
 
     return () => subscription.remove();
-  }, [relationship, repositoryPromise]);
+  }, [relationship, pairingComplete, repositoryPromise]);
+
+  const retry = () => {
+    setRelationship(null);
+    setPairingComplete(false);
+    setRepositoryPromise(getRepository());
+  };
 
   const completePairing = (value: Relationship) => {
     setRelationship(value);
@@ -95,6 +94,13 @@ export default function App() {
       });
   };
 
+  const resetToSetup = () => {
+    setRelationship(null);
+    setPairingComplete(false);
+  };
+
+  if (!ready) return <LoadingScreen />;
+  if (error && !relationship) return <ErrorScreen message={error} onRetry={retry} />;
   if (!relationship) return <SetupScreen repositoryPromise={repositoryPromise} onComplete={completePairing} />;
   if (!pairingComplete) return <PairingScreen relationship={relationship} onComplete={completePairing} />;
 
@@ -102,7 +108,7 @@ export default function App() {
     <MainApp
       relationship={relationship}
       repositoryPromise={repositoryPromise}
-      onRelationshipDeleted={() => { setRelationship(null); setPairingComplete(false); }}
+      onRelationshipDeleted={resetToSetup}
     />
   );
 }
