@@ -1,4 +1,5 @@
 import type { AuthProbeResponse, CloudAckResponse, CloudPullResponse, CloudPushMessage, CloudPushResponse, CompleteMediaResponse, CreateMediaReservationRequest, CreateMediaReservationResponse, MediaUploadResponse, PairingAcceptResponse, PairingBootstrapRequest, PairingBootstrapResponse, PairingCreateResponse } from './protocol';
+import { isValidPairingConfirmationCode } from './pairing';
 
 export type CloudFetch = typeof fetch;
 export interface CloudHealthResponse { ok: boolean; service: string; version: string; database: boolean; }
@@ -22,6 +23,7 @@ function isString(value: unknown): value is string { return typeof value === 'st
 function isSafePositiveInteger(value: unknown): value is number { return Number.isSafeInteger(value) && (value as number) > 0; }
 function isSafeNonNegativeInteger(value: unknown): value is number { return Number.isSafeInteger(value) && (value as number) >= 0; }
 function isEncryptionVersion(value: unknown): value is number { return isSafePositiveInteger(value) && (value as number) <= MAX_ENCRYPTION_VERSION; }
+function isSha256Hex(value: unknown): value is string { return typeof value === 'string' && /^[0-9a-f]{64}$/.test(value); }
 function isMessageType(value: unknown): boolean { return value === 'TEXT' || value === 'EMOJI' || value === 'PHOTO_VIDEO' || value === 'DRAWING'; }
 function requirePullMessage(message: Record<string, unknown>): boolean { return isString(message.messageId) && isString(message.senderDeviceId) && (message.senderParticipant === 'ME' || message.senderParticipant === 'PARTNER') && isSafePositiveInteger(message.senderSeq) && isSafeNonNegativeInteger(message.createdAt) && isSafePositiveInteger(message.serverSeq) && isSafeNonNegativeInteger(message.receivedAt) && isMessageType(message.type) && isString(message.ciphertext) && isEncryptionVersion(message.encryptionVersion) && (message.mediaUploadId === null || isString(message.mediaUploadId)); }
 function assertResponseShape(path: string, body: unknown): void {
@@ -29,9 +31,9 @@ function assertResponseShape(path: string, body: unknown): void {
   const requireStrings = (...keys: string[]) => keys.every((key) => isString(body[key]));
   if (path === '/health') { if (body.ok !== true || !isString(body.service) || !isString(body.version) || body.database !== true) invalidResponse('Cloud returned an invalid health response.'); return; }
   if (path === '/v1/auth/probe') { if (body.authenticated !== true || (body.participant !== 'ME' && body.participant !== 'PARTNER')) invalidResponse('Cloud returned an invalid auth probe response.'); return; }
-  if (path === '/v1/pairing/bootstrap') { if (!requireStrings('relationshipId', 'invitationId', 'deviceId', 'credential', 'token', 'confirmationCode') || body.participant !== 'ME' || !isSafePositiveInteger(body.expiresAt)) invalidResponse('Cloud returned an invalid pairing bootstrap response.'); return; }
-  if (path === '/v1/pairing/create') { if (!requireStrings('relationshipId', 'invitationId', 'token', 'confirmationCode') || !isSafePositiveInteger(body.expiresAt)) invalidResponse('Cloud returned an invalid pairing creation response.'); return; }
-  if (path === '/v1/pairing/accept') { if (!requireStrings('relationshipId', 'deviceId', 'credential') || body.participant !== 'PARTNER') invalidResponse('Cloud returned an invalid pairing acceptance response.'); return; }
+  if (path === '/v1/pairing/bootstrap') { if (!requireStrings('relationshipId', 'invitationId', 'deviceId', 'credential', 'token', 'confirmationCode', 'relationshipKeyCommitment') || body.participant !== 'ME' || !isSafePositiveInteger(body.expiresAt) || !isValidPairingConfirmationCode(String(body.confirmationCode)) || !isSha256Hex(body.relationshipKeyCommitment)) invalidResponse('Cloud returned an invalid pairing bootstrap response.'); return; }
+  if (path === '/v1/pairing/create') { if (!requireStrings('relationshipId', 'invitationId', 'token', 'confirmationCode') || !isSafePositiveInteger(body.expiresAt) || !isValidPairingConfirmationCode(String(body.confirmationCode))) invalidResponse('Cloud returned an invalid pairing creation response.'); return; }
+  if (path === '/v1/pairing/accept') { if (!requireStrings('relationshipId', 'deviceId', 'credential', 'relationshipKeyCommitment') || body.participant !== 'PARTNER' || !isSha256Hex(body.relationshipKeyCommitment)) invalidResponse('Cloud returned an invalid pairing acceptance response.'); return; }
   if (path === '/v1/sync/push') {
     if (!requireStrings('messageId') || !isSafePositiveInteger(body.senderSeq) || !isSafePositiveInteger(body.serverSeq) || !isSafePositiveInteger(body.acceptedAt)) {
       invalidResponse('Cloud returned an invalid sync push response.');
@@ -57,9 +59,9 @@ export class CloudClient {
   hasCredential(): boolean { return this.credential !== null; }
   async health(): Promise<CloudHealthResponse> { return this.request<CloudHealthResponse>({ method: 'GET', path: '/health' }); }
   async authProbe(): Promise<AuthProbeResponse> { return this.request<AuthProbeResponse>({ method: 'GET', path: '/v1/auth/probe', authenticated: true }); }
-  async bootstrapPairing(request: PairingBootstrapRequest = {}): Promise<PairingBootstrapResponse> { return this.request<PairingBootstrapResponse>({ method: 'POST', path: '/v1/pairing/bootstrap', body: request }); }
+  async bootstrapPairing(request: PairingBootstrapRequest): Promise<PairingBootstrapResponse> { return this.request<PairingBootstrapResponse>({ method: 'POST', path: '/v1/pairing/bootstrap', body: request }); }
   async createInvitation(expiresInSeconds?: number): Promise<PairingCreateResponse> { return this.request<PairingCreateResponse>({ method: 'POST', path: '/v1/pairing/create', body: expiresInSeconds === undefined ? {} : { expiresInSeconds }, authenticated: true }); }
-  async acceptInvitation(token: string, confirmationCode: string): Promise<PairingAcceptResponse> { return this.request<PairingAcceptResponse>({ method: 'POST', path: '/v1/pairing/accept', body: { token, confirmationCode } }); }
+  async acceptInvitation(token: string, confirmationCode: string, relationshipKeyCommitment: string): Promise<PairingAcceptResponse> { return this.request<PairingAcceptResponse>({ method: 'POST', path: '/v1/pairing/accept', body: { token, confirmationCode, relationshipKeyCommitment } }); }
   async pushMessage(message: CloudPushMessage): Promise<CloudPushResponse> { return this.request<CloudPushResponse>({ method: 'POST', path: '/v1/sync/push', body: message, authenticated: true }); }
   async pullMessages(after = 0, limit = 50): Promise<CloudPullResponse> { const params = new URLSearchParams({ after: String(after), limit: String(limit) }); return this.request<CloudPullResponse>({ method: 'GET', path: `/v1/sync/pull?${params.toString()}`, authenticated: true }); }
   async acknowledgeMessages(throughServerSeq: number): Promise<CloudAckResponse> { return this.request<CloudAckResponse>({ method: 'POST', path: '/v1/sync/ack', body: { throughServerSeq }, authenticated: true }); }
