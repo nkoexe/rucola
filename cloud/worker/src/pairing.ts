@@ -10,17 +10,33 @@ const MAX_JSON_BODY_BYTES = 16 * 1024;
 const MAX_CONFIRMATION_ATTEMPTS = 5;
 const CONFIRMATION_LOCKOUT_MS = 15 * 60 * 1000;
 
-interface PairingCreateRequest { expiresInSeconds?: unknown; }
-interface PairingAcceptRequest { token?: unknown; confirmationCode?: unknown; }
+interface PairingCreateRequest { expiresInSeconds?: unknown; relationshipKeyCommitment?: unknown; }
+interface PairingAcceptRequest { token?: unknown; confirmationCode?: unknown; relationshipKeyCommitment?: unknown; }
 
 function randomToken(byteLength: number): string { const bytes = new Uint8Array(byteLength); crypto.getRandomValues(bytes); return base64Url(bytes); }
 function base64Url(bytes: Uint8Array): string { let binary = ""; for (const byte of bytes) binary += String.fromCharCode(byte); return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, ""); }
 function randomId(): string { return crypto.randomUUID(); }
+const PAIRING_EMOJIS = [
+  "😀", "😃", "😄", "😁", "😆", "😅", "😂", "🤣",
+  "😊", "😇", "🙂", "🙃", "😉", "😌", "😍", "🥰",
+  "😘", "😗", "😙", "😚", "😋", "😛", "😜", "🤪",
+  "😎", "🤩", "🥳", "🤗", "🤔", "🥺", "😭", "😡",
+  "😴",
+] as const;
+
 function randomConfirmationCode(): string {
-  const limit = Math.floor(0x1_0000_0000 / 1_000_000) * 1_000_000;
-  const bytes = new Uint32Array(1); let value = 0;
-  do { crypto.getRandomValues(bytes); value = bytes[0] ?? 0; } while (value >= limit);
-  return String(value % 1_000_000).padStart(6, "0");
+  const bytes = new Uint32Array(5);
+  crypto.getRandomValues(bytes);
+  return Array.from(bytes, (value) => PAIRING_EMOJIS[value % PAIRING_EMOJIS.length]).join("");
+}
+
+function isPairingConfirmationCode(value: string): boolean {
+  const emojis = Array.from(value);
+  return emojis.length === 5 && emojis.every((emoji) => (PAIRING_EMOJIS as readonly string[]).includes(emoji));
+}
+
+function isSha256Hex(value: unknown): value is string {
+  return typeof value === "string" && /^[0-9a-f]{64}$/.test(value);
 }
 function parseJsonObject(value: unknown): Record<string, unknown> | null { return value !== null && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : null; }
 function isJsonContentType(request: Request): boolean { const contentType = request.headers.get("content-type"); return contentType?.split(";", 1)[0]?.trim().toLowerCase() === "application/json"; }
@@ -55,16 +71,16 @@ export async function createInvitation(env: Env, request: Request, device: Authe
   if (device.participant !== "ME") return errorResponse("PAIRING_CLOSED", "Only the first device can create invitations", 409);
   const body = await readJson<PairingCreateRequest>(request); const lifetime = invitationLifetime(body);
   if (lifetime <= 0) return errorResponse("INVALID_REQUEST", "Invalid invitation lifetime", 400);
-  const relationship = await env.DB.prepare(`SELECT status FROM relationships WHERE id = ?1`).bind(device.relationshipId).first<{ status: "PAIRING" | "ACTIVE" | "ENDED" }>();
-  if (!relationship || relationship.status !== "PAIRING") return errorResponse("PAIRING_CLOSED", "Relationship is not currently pairable", 409);
-  try { const invitation = await insertInvitation(env, device.relationshipId, device.id, lifetime); if (!invitation) return errorResponse("PAIRING_CLOSED", "Relationship is not currently pairable", 409); return json({ relationshipId: device.relationshipId, ...invitation }, 201); }
+  const relationship = await env.DB.prepare(`SELECT status, relationship_key_commitment FROM relationships WHERE id = ?1`).bind(device.relationshipId).first<{ status: "PAIRING" | "ACTIVE" | "ENDED"; relationship_key_commitment: string | null }>();
+  if (!relationship || relationship.status !== "PAIRING" || !relationship.relationship_key_commitment) return errorResponse("PAIRING_CLOSED", "Relationship is not currently pairable", 409);
+  try { const invitation = await insertInvitation(env, device.relationshipId, device.id, lifetime); if (!invitation) return errorResponse("PAIRING_CLOSED", "Relationship is not currently pairable", 409); const relationship = await env.DB.prepare(`SELECT relationship_key_commitment FROM relationships WHERE id = ?1`).bind(device.relationshipId).first<{ relationship_key_commitment: string | null }>(); if (!relationship?.relationship_key_commitment) return errorResponse("PAIRING_CLOSED", "Pairing encryption state is unavailable", 409); return json({ relationshipId: device.relationshipId, relationshipKeyCommitment: relationship.relationship_key_commitment, ...invitation }, 201); }
   catch { return errorResponse("INTERNAL_ERROR", "Invitation could not be created", 500); }
 }
 
 export async function acceptInvitation(env: Env, request: Request): Promise<Response> {
   if (!isJsonContentType(request)) return errorResponse("INVALID_REQUEST", "JSON request body required", 400);
-  const body = await readJson<PairingAcceptRequest>(request); const token = typeof body?.token === "string" ? body.token : null; const confirmationCode = typeof body?.confirmationCode === "string" ? body.confirmationCode : null;
-  if (!token || !confirmationCode || !/^\d{6}$/.test(confirmationCode)) return errorResponse("INVALID_REQUEST", "Invalid pairing request", 400);
+  const body = await readJson<PairingAcceptRequest>(request); const token = typeof body?.token === "string" ? body.token : null; const confirmationCode = typeof body?.confirmationCode === "string" ? body.confirmationCode : null; const relationshipKeyCommitment = body?.relationshipKeyCommitment;
+  if (!token || !confirmationCode || !isPairingConfirmationCode(confirmationCode) || !isSha256Hex(relationshipKeyCommitment)) return errorResponse("INVALID_REQUEST", "Invalid pairing request", 400);
   const tokenHash = await sha256Hex(token);
   const invitation = await env.DB.prepare(`SELECT id, relationship_id, confirmation_code_hash, expires_at, consumed_at, failed_attempts, locked_until FROM invitations WHERE token_hash = ?1`).bind(tokenHash).first<{ id:string; relationship_id:string; confirmation_code_hash:string; expires_at:number; consumed_at:number|null; failed_attempts:number; locked_until:number|null; }>();
   if (!invitation) return errorResponse("INVALID_INVITATION", "Invalid invitation", 400);
@@ -73,8 +89,9 @@ export async function acceptInvitation(env: Env, request: Request): Promise<Resp
   if (invitation.locked_until !== null && invitation.locked_until > now) { const retryAfter = Math.max(1, Math.ceil((invitation.locked_until - now) / 1000)); return new Response(JSON.stringify({ error: { code:"PAIRING_RATE_LIMITED", message:"Too many invalid confirmation attempts" } }), { status:429, headers:{"content-type":"application/json; charset=utf-8","cache-control":"no-store","x-content-type-options":"nosniff","referrer-policy":"no-referrer","retry-after":String(retryAfter)} }); }
   const suppliedCodeHash = await sha256Hex(confirmationCode);
   if (!equalHex(suppliedCodeHash, invitation.confirmation_code_hash)) { const lockUntil = now + CONFIRMATION_LOCKOUT_MS; await env.DB.prepare(`UPDATE invitations SET failed_attempts = failed_attempts + 1, locked_until = CASE WHEN failed_attempts + 1 >= ?1 THEN ?2 ELSE locked_until END WHERE id = ?3 AND consumed_at IS NULL AND expires_at > ?4`).bind(MAX_CONFIRMATION_ATTEMPTS, lockUntil, invitation.id, now).run(); return errorResponse("INVALID_INVITATION", "Invalid invitation", 400); }
-  const relationship = await env.DB.prepare(`SELECT status FROM relationships WHERE id = ?1`).bind(invitation.relationship_id).first<{ status: "PAIRING"|"ACTIVE"|"ENDED" }>();
-  if (!relationship || relationship.status !== "PAIRING") return errorResponse("PAIRING_CLOSED", "Pairing is no longer open", 409);
+  const relationship = await env.DB.prepare(`SELECT status, relationship_key_commitment FROM relationships WHERE id = ?1`).bind(invitation.relationship_id).first<{ status: "PAIRING"|"ACTIVE"|"ENDED"; relationship_key_commitment: string | null }>();
+  if (!relationship || relationship.status !== "PAIRING" || !relationship.relationship_key_commitment) return errorResponse("PAIRING_CLOSED", "Pairing is no longer open", 409);
+  if (!equalHex(relationship.relationship_key_commitment, relationshipKeyCommitment)) return errorResponse("INVALID_INVITATION", "Invalid invitation", 400);
   const activeDevices = await env.DB.prepare(`SELECT COUNT(*) AS count FROM devices WHERE relationship_id = ?1 AND revoked_at IS NULL`).bind(invitation.relationship_id).first<{count:number}>();
   if (activeDevices?.count !== 1) return errorResponse("PAIRING_CONFLICT", "Pairing state is invalid", 409);
   const activeDevice = await env.DB.prepare(`SELECT id FROM devices WHERE relationship_id = ?1 AND participant = 'ME' AND revoked_at IS NULL`).bind(invitation.relationship_id).first<{id:string}>();
@@ -88,18 +105,18 @@ export async function acceptInvitation(env: Env, request: Request): Promise<Resp
     ]);
     if ((results[0]?.meta.changes ?? 0) !== 1 || (results[1]?.meta.changes ?? 0) !== 1 || (results[2]?.meta.changes ?? 0) !== 1) return errorResponse("PAIRING_CONFLICT", "Invitation was already consumed", 409);
   } catch { return errorResponse("PAIRING_CONFLICT", "Pairing could not be completed", 409); }
-  return json({ relationshipId:invitation.relationship_id, deviceId, participant:"PARTNER" satisfies Participant, credential }, 201);
+  return json({ relationshipId:invitation.relationship_id, deviceId, participant:"PARTNER" satisfies Participant, credential, relationshipKeyCommitment: relationship.relationship_key_commitment }, 201);
 }
 
 export async function bootstrapPairing(env: Env, request: Request): Promise<Response> {
   if (!isJsonContentType(request)) return errorResponse("INVALID_REQUEST", "JSON request body required", 400);
-  const body = await readJson<PairingCreateRequest>(request); const lifetime = invitationLifetime(body); if (lifetime <= 0) return errorResponse("INVALID_REQUEST", "Invalid invitation lifetime", 400);
+  const body = await readJson<PairingCreateRequest>(request); const lifetime = invitationLifetime(body); if (lifetime <= 0 || !isSha256Hex(body?.relationshipKeyCommitment)) return errorResponse("INVALID_REQUEST", "Invalid pairing request", 400);
   const relationshipId = randomId(); const deviceId = randomId(); const invitationId = randomId(); const credential = randomToken(CREDENTIAL_BYTES); const token = randomToken(TOKEN_BYTES); const confirmationCode = randomConfirmationCode();
   const credentialHash = await sha256Hex(credential); const tokenHash = await sha256Hex(token); const confirmationCodeHash = await sha256Hex(confirmationCode); const now = Date.now(); const expiresAt = now + lifetime;
   try { await env.DB.batch([
-    env.DB.prepare(`INSERT INTO relationships (id, status, next_server_seq, created_at) VALUES (?1, 'PAIRING', 1, ?2)`).bind(relationshipId, now),
+    env.DB.prepare(`INSERT INTO relationships (id, status, next_server_seq, created_at, relationship_key_commitment) VALUES (?1, 'PAIRING', 1, ?2, ?3)`).bind(relationshipId, now, body?.relationshipKeyCommitment),
     env.DB.prepare(`INSERT INTO devices (id, relationship_id, participant, credential_hash, created_at, last_seen_at) VALUES (?1, ?2, 'ME', ?3, ?4, ?4)`).bind(deviceId, relationshipId, credentialHash, now),
     env.DB.prepare(`INSERT INTO invitations (id, relationship_id, token_hash, confirmation_code_hash, created_by_device_id, created_at, expires_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)`).bind(invitationId, relationshipId, tokenHash, confirmationCodeHash, deviceId, now, expiresAt),
   ]); } catch { return errorResponse("INTERNAL_ERROR", "Pairing could not be initialized", 500); }
-  return json({ relationshipId, invitationId, deviceId, participant:"ME" satisfies Participant, credential, token, confirmationCode, expiresAt }, 201);
+  return json({ relationshipId, invitationId, deviceId, participant:"ME" satisfies Participant, credential, token, confirmationCode, relationshipKeyCommitment: body?.relationshipKeyCommitment, expiresAt }, 201);
 }
