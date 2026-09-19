@@ -121,7 +121,14 @@ function MainApp({ relationship, repositoryPromise, onRelationshipDeleted }: {
   const [screen, setScreen] = useState<AppScreen>('home');
   const [revision, setRevision] = useState(0);
 
-  const refresh = () => setRevision((value) => value + 1);
+  const refresh = () => {
+    setRevision((value) => value + 1);
+    void repositoryPromise
+      .then((repository) => cloudRuntime.sync(repository))
+      .catch((cause) => {
+        console.warn('[rucola] after-send sync failed:', cause instanceof Error ? cause.message : 'unknown error');
+      });
+  };
 
   return (
     <SafeAreaView style={styles.safe}>
