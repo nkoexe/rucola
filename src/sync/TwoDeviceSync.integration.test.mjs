@@ -1,8 +1,7 @@
 import assert from 'node:assert/strict';
 import { webcrypto } from 'node:crypto';
 import test from 'node:test';
-import { CloudClientError } from '../cloud/CloudClient.ts';
-import { AesGcmSyncCodec } from '../crypto/messageCodec.ts';
+import { SyncEngine } from './SyncEngine.ts';import { AesGcmSyncCodec } from '../crypto/messageCodec.ts';
 import { SyncEngine } from './SyncEngine.ts';
 
 const provider = {
@@ -68,11 +67,17 @@ class MemoryServer {
           existing.encryptionVersion !== payload.encryptionVersion ||
           existing.createdAt !== payload.createdAt
         ) {
-          throw new CloudClientError({ code: 'MESSAGE_ID_CONFLICT', message: 'message identity conflict', status: 409 });
+          const conflict = new Error('message identity conflict');
+          conflict.code = 'MESSAGE_ID_CONFLICT';
+          conflict.status = 409;
+          throw conflict;
         }
 
         if (this.dropNextPushResponse.delete(deviceId)) {
-          throw new CloudClientError({ code: 'CLIENT_TIMEOUT', message: 'response lost after acceptance', status: 0 });
+          const timeout = new Error('response lost after acceptance');
+          timeout.code = 'CLIENT_TIMEOUT';
+          timeout.status = 0;
+          throw timeout;
         }
 
         return {
