@@ -7,13 +7,28 @@ import { cloudRuntime } from '../../cloud/CloudRuntime';
 
 type NativeIntegrationTestScreenComponent = typeof import('../Dev/NativeIntegrationTestScreen')['NativeIntegrationTestScreen'];
 
-type Props = { relationship: Relationship; repositoryPromise: ReturnType<typeof getRepository>; onBack: () => void; onRelationshipDeleted: () => void };
+type Props = {
+  relationship: Relationship;
+  repositoryPromise: ReturnType<typeof getRepository>;
+  onBack: () => void;
+  onRelationshipDeleted: () => void;
+  onOpenPairing?: () => void;
+};
 
-export function SettingsScreen({ relationship, repositoryPromise, onBack, onRelationshipDeleted }: Props) {
+export function SettingsScreen({ relationship, repositoryPromise, onBack, onRelationshipDeleted, onOpenPairing }: Props) {
+  const [cloudState, setCloudState] = useState<'loading' | 'active' | 'not-paired'>('loading');
   const [deleting, setDeleting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showNativeTests, setShowNativeTests] = useState(false);
   const [nativeIntegrationTestScreen, setNativeIntegrationTestScreen] = useState<NativeIntegrationTestScreenComponent | null>(null);
+
+  useState(() => {
+    void cloudRuntime.loadIdentity().then((identity) => {
+      setCloudState(identity?.state === 'ACTIVE' ? 'active' : 'not-paired');
+    }).catch(() => {
+      setCloudState('not-paired');
+    });
+  });
 
   if (__DEV__ && showNativeTests) {
     if (!nativeIntegrationTestScreen) {
