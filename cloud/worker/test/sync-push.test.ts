@@ -38,7 +38,7 @@ async function bootstrapAndAccept(): Promise<{ me: BootstrapBody; partner: Accep
       "content-type": "application/json",
       "cf-connecting-ip": `198.51.100.${bootstrapTestId}`,
     },
-    body: JSON.stringify({ expiresInSeconds: 3600 }),
+    body: JSON.stringify({ expiresInSeconds: 3600, relationshipKeyCommitment: "a".repeat(64) }),
   });
   expect(bootstrapResponse.status).toBe(201);
   const me = (await json(bootstrapResponse)) as unknown as BootstrapBody;
@@ -48,7 +48,7 @@ async function bootstrapAndAccept(): Promise<{ me: BootstrapBody; partner: Accep
     headers: { "content-type": "application/json" },
     body: JSON.stringify({
       token: me.token,
-      confirmationCode: me.confirmationCode,
+      confirmationCode: me.confirmationCode, relationshipKeyCommitment: "a".repeat(64),
     }),
   });
   expect(acceptResponse.status).toBe(201);
@@ -281,7 +281,7 @@ describe("Rucola mailbox push", () => {
         "content-type": "application/json",
         "cf-connecting-ip": `198.51.100.${bootstrapTestId}`,
       },
-      body: JSON.stringify({ expiresInSeconds: 3600 }),
+      body: JSON.stringify({ expiresInSeconds: 3600, relationshipKeyCommitment: "a".repeat(64) }),
     });
     const me = (await json(bootstrapResponse)) as unknown as BootstrapBody;
     const response = await push(me.credential, { senderSeq: 1 });
