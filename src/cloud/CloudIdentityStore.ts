@@ -63,13 +63,16 @@ function parseIdentity(value: unknown): CloudIdentity {
 
 export class CloudIdentityStore {
   private readonly store: SecureValueStore;
+  private readonly storageKey: string;
 
-  constructor(store: SecureValueStore) {
+  constructor(store: SecureValueStore, storageKey = STORAGE_KEY) {
+    if (!storageKey || storageKey.length > 128) throw new Error('Cloud identity storage key is invalid.');
     this.store = store;
+    this.storageKey = storageKey;
   }
 
   async load(): Promise<CloudIdentity | null> {
-    const value = await this.store.getItem(STORAGE_KEY);
+    const value = await this.store.getItem(this.storageKey);
     if (value === null) return null;
 
     try {
@@ -82,11 +85,11 @@ export class CloudIdentityStore {
 
   async save(identity: CloudIdentity): Promise<void> {
     const normalized = parseIdentity(identity);
-    await this.store.setItem(STORAGE_KEY, JSON.stringify(normalized));
+    await this.store.setItem(this.storageKey, JSON.stringify(normalized));
   }
 
   async clear(): Promise<void> {
-    await this.store.deleteItem(STORAGE_KEY);
+    await this.store.deleteItem(this.storageKey);
   }
 }
 
