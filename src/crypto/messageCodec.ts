@@ -130,7 +130,6 @@ export class AesGcmSyncCodec {
   }
 
   async encrypt(message: Message, senderSeq: number): Promise<string> {
-    if (message.relationshipId !== this.relationshipId) throw new Error('Message belongs to a different relationship.');
     if (message.participant !== 'ME') throw new Error('Only local messages can be encrypted.');
     assertMessageContext(this.relationshipId, message.id, message.type, senderSeq, this.encryptionVersion);
 
