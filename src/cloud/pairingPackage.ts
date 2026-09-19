@@ -1,5 +1,4 @@
-import { base64UrlToBytes, bytesToBase64Url, utf8Decode, utf8Encode } from '../crypto/encoding';
-import { normalizeRelationshipKey } from '../crypto/relationshipKey';
+import { base64ToBytes, base64UrlToBytes, bytesToBase64, bytesToBase64Url, utf8Decode, utf8Encode } from '../crypto/encoding';
 import type { PairingBootstrapResponse } from './protocol';
 
 export const PAIRING_PROTOCOL_VERSION = 1;
@@ -36,7 +35,14 @@ function decodeJson(value: string): unknown {
 }
 
 export async function createPairingPackage(response: PairingBootstrapResponse, relationshipKey: string): Promise<string> {
-  const normalizedKey = await normalizeRelationshipKey(relationshipKey);
+  let normalizedKey: string;
+  try {
+    const bytes = base64UrlToBytes(relationshipKey.replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, ''));
+    if (bytes.length !== 32) throw new Error();
+    normalizedKey = bytesToBase64(bytes);
+  } catch {
+    throw new Error('Relationship encryption key is invalid.');
+  }
   assertIdentifier(response.relationshipId, 'Relationship ID');
   assertIdentifier(response.invitationId, 'Invitation ID');
   assertIdentifier(response.deviceId, 'Device ID');
@@ -71,7 +77,9 @@ export async function decodePairingPackage(value: string, now = Date.now()): Pro
     assertToken(candidate.token);
     assertExpiry(candidate.expiresAt, now);
     if (typeof candidate.relationshipKey !== 'string') throw new Error();
-    const relationshipKey = await normalizeRelationshipKey(candidate.relationshipKey);
+    const relationshipKeyBytes = base64ToBytes(candidate.relationshipKey);
+    if (relationshipKeyBytes.length !== 32) throw new Error();
+    const relationshipKey = bytesToBase64(relationshipKeyBytes);
     return {
       version: PAIRING_PROTOCOL_VERSION,
       relationshipId: candidate.relationshipId,
