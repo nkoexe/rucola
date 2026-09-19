@@ -54,7 +54,7 @@ Screens must not depend directly on SQLite or HTTP. Domain code must not depend 
 
 The mobile sync foundation is already present. `CloudClient` owns typed HTTP protocol access, while `SyncEngine` owns push/pull/ACK coordination and durable cursor/outbox semantics. Do not describe networking as wholly unimplemented.
 
-The application has not yet integrated pairing credentials and sync into one application/background lifecycle. Do not claim that two separate devices can already pair and exchange messages through the UI.
+The application now owns pairing credentials and the foreground sync lifecycle through `CloudRuntime`. Do not claim the complete two-device milestone is validated until real Android devices have exercised pairing, encrypted exchange, offline recovery, and reset.
 
 ## Product invariants
 
@@ -85,7 +85,7 @@ Photo/video uses the system library/camera picker, copies the selected asset int
 The React Native implementation currently has:
 
 - Expo/RN/TypeScript foundation and Android development build setup.
-- Local SQLite schema and repository, currently schema version 5.
+- Local SQLite schema and repository, currently schema version 6.
 - Relationship setup with partner name, own name, and optional together-since date.
 - Partner active-message home screen.
 - Local text and emoji message creation and active-message replacement.
@@ -94,7 +94,7 @@ The React Native implementation currently has:
 - Month/date calendar browsing of historical messages, including media messages.
 - Local-data reset from settings, including cleanup of owned media files.
 - Domain use-case boundary used by the app screens.
-- Explicit legacy database migrations and integrity validation through current schema v5.
+- Explicit legacy database migrations and integrity validation through current schema v6.
 - Durable sync state with sender sequence, pull cursor, outbox retry state, inbox receipts, and blocked terminal state.
 - Typed cloud protocol client for authentication, pairing, synchronization, and media endpoints.
 - Hardened sync engine with ordered bounded batches, post-commit ACK, sender/participant validation, and explicit handling for expected undecryptable inbound messages.
@@ -124,7 +124,7 @@ paired relationship
 
 The five-emoji sequence is the user-facing mechanism, not a security credential. The real invitation token uses high-entropy server-side protocol machinery with expiry, bounded confirmation attempts, and one-time consumption. Pairing state should remain behind an abstraction so screens are not coupled directly to HTTP.
 
-Until credential persistence, onboarding integration, and real two-device acceptance/exchange are wired together, do not claim that the product can already pair or synchronize end-to-end.
+The product now has the pairing and sync plumbing wired together, but do not claim the online milestone is complete until real two-device acceptance/exchange has been validated.
 
 ## Onboarding
 
@@ -172,7 +172,7 @@ The current Worker implementation is on `cloud/research` and already covers the 
 
 The Worker stores ciphertext and envelope metadata; it is not the permanent history store. The current retention contract is 14 days for mailbox messages and 30 days for durable delivery receipts. Local outbound synchronization has a separate 30-day terminal retention window.
 
-The stable application branch has the mobile protocol/sync foundation but has not yet completed full pairing-credential persistence, background synchronization, or end-to-end media synchronization. Keep the two workstreams distinct until integration is intentional.
+The mobile branch now has persistent pairing credentials, an application-owned encrypted SyncEngine runtime, and foreground synchronization. Background scheduling and end-to-end media synchronization remain separate work.
 
 ## UI direction
 
@@ -197,7 +197,7 @@ Tests are required for important domain/repository behavior:
 - one-active-message-per-participant invariant;
 - migration and malformed-data handling;
 - media cleanup and failure recovery;
-- synchronization ordering and durable acknowledgement;
+- synchronization ordering, durable acknowledgement, and ciphertext reuse across retries;
 - dropped/undecryptable inbound handling;
 - 30-day outbound retention/terminal deletion;
 - the three-day Home rule once it is represented in testable application/domain logic.
