@@ -241,8 +241,13 @@ test('a lost push response is retried without duplicating the server message', a
   assert.equal(first.failed, 1);
   assert.equal(server.messages.length, 1);
   assert.equal(a.state.outbox.length, 1);
+  assert.equal(a.state.outbox[0].blocked, 0);
+  assert.equal(a.state.outbox[0].lastError, 'response lost after acceptance');
 
-  now += 5_001;
+  // Retry scheduling is covered by SyncEngine unit tests. For this integration
+  // test, make the classified retry immediately due and exercise server idempotency.
+  a.state.outbox[0].nextAttemptAt = 0;
+  now += 1;
   const second = await a.engine.run();
   assert.equal(second.pushed, 1);
   assert.equal(a.state.outbox.length, 0);
