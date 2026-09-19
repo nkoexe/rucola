@@ -1,4 +1,5 @@
 import { CryptoDigestAlgorithm, digestStringAsync } from 'expo-crypto';
+import { PAIRING_EMOJIS } from './pairingCode';
 import { base64UrlToBytes, bytesToBase64Url, utf8Decode, utf8Encode } from '../crypto/encoding';
 import { normalizeRelationshipKey } from '../crypto/relationshipKey';
 import type { PairingBootstrapResponse } from './protocol';
@@ -7,14 +8,6 @@ export const PAIRING_PROTOCOL_VERSION = 1;
 const PACKAGE_PREFIX = 'rucola-pairing:v1.';
 const MAX_PACKAGE_LENGTH = 16 * 1024;
 
-export const PAIRING_EMOJIS = [
-  '😀', '😃', '😄', '😁', '😆', '😅', '😂', '🤣',
-  '😊', '😇', '🙂', '🙃', '😉', '😌', '😍', '🥰',
-  '😘', '😗', '😙', '😚', '😋', '😛', '😜', '🤪',
-  '😎', '🤩', '🥳', '🤗', '🤔', '🥺', '😭', '😡',
-  '😴',
-] as const;
-
 export interface PairingPackage {
   version: typeof PAIRING_PROTOCOL_VERSION;
   relationshipId: string;
@@ -22,10 +15,6 @@ export interface PairingPackage {
   token: string;
   expiresAt: number;
   relationshipKey: string;
-}
-
-export function isValidPairingConfirmationCode(value: string): boolean {
-  return Array.from(value).length === 5 && Array.from(value).every((emoji) => (PAIRING_EMOJIS as readonly string[]).includes(emoji));
 }
 
 function assertIdentifier(value: unknown, label: string): asserts value is string {
