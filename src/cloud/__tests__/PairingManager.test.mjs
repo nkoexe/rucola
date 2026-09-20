@@ -49,7 +49,7 @@ test('pairing acceptance uses the server relationship binding, not advisory pack
     token: 'a'.repeat(43),
     confirmationCode: CODE,
     relationshipKeyCommitment: COMMITMENT,
-    expiresAt: 1_000_000_000_000 + 60_000,
+    expiresAt: 4_000_000_000_000,
   }, KEY);
 
   const payload = JSON.parse(Buffer.from(
