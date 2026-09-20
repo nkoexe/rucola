@@ -21,6 +21,7 @@ test('pairing acceptance uses the server relationship binding, not advisory pack
   const store = identityStore();
   const calls = [];
   const cloud = {
+    setCredential() {},
     async acceptInvitation(token, confirmationCode, relationshipKeyCommitment) {
       calls.push({ token, confirmationCode, relationshipKeyCommitment });
       return {
