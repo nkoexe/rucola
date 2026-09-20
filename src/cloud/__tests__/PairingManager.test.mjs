@@ -20,8 +20,9 @@ function identityStore() {
 test('pairing acceptance uses the server relationship binding, not advisory package IDs', async () => {
   const store = identityStore();
   const calls = [];
+  let configuredCredential = null;
   const cloud = {
-    setCredential() {},
+    setCredential(credential) { configuredCredential = credential; },
     async acceptInvitation(token, confirmationCode, relationshipKeyCommitment) {
       calls.push({ token, confirmationCode, relationshipKeyCommitment });
       return {
@@ -72,4 +73,5 @@ test('pairing acceptance uses the server relationship binding, not advisory pack
     relationshipKeyCommitment: COMMITMENT,
   });
   assert.equal(store.getIdentity()?.relationshipId, 'server-relationship');
+  assert.equal(configuredCredential, 'partner-credential');
 });
