@@ -7,6 +7,11 @@ import { runRepositoryIntegrationTests } from './repositoryIntegration';
 import { deleteOwnedMedia, persistPickedMedia, reconcileOwnedMedia } from './media';
 import { runMediaRobustnessIntegrationTests } from './mediaRobustnessIntegration';
 import { runSyncStateIntegrationTests } from './syncStateIntegration';
+import { generateRelationshipKey } from '../crypto/relationshipKey';
+import { AesGcmSyncCodec } from '../crypto/messageCodec';
+import { expoAesGcmProvider } from '../crypto/expoAesGcm';
+import { CloudIdentityStore } from '../cloud/CloudIdentityStore';
+import { expoSecureValueStore } from '../cloud/expoSecureStore';
 
 export type NativeIntegrationResult = {
   name: string;
@@ -47,7 +52,7 @@ async function withTestDatabase<T>(test: (db: SQLite.SQLiteDatabase) => Promise<
 
 async function testFreshDatabase(db: SQLite.SQLiteDatabase): Promise<void> {
   const version = await db.getFirstAsync<{ user_version: number }>('PRAGMA user_version');
-  assertEqual(version?.user_version, 5, 'Fresh database should use schema version 5');
+  assertEqual(version?.user_version, 6, 'Fresh database should use schema version 6');
 
   const tables = await db.getAllAsync<{ name: string }>(
     "SELECT name FROM sqlite_master WHERE type = 'table' AND name IN ('relationships', 'messages', 'active_message_slots', 'sync_state', 'sync_outbox', 'sync_inbox')",
@@ -56,6 +61,9 @@ async function testFreshDatabase(db: SQLite.SQLiteDatabase): Promise<void> {
 
   const foreignKeys = await db.getFirstAsync<{ foreign_keys: number }>('PRAGMA foreign_keys');
   assertEqual(foreignKeys?.foreign_keys, 1, 'Foreign keys must be enabled');
+  const outboxColumns = await db.getAllAsync<{ name: string }>('PRAGMA table_info(sync_outbox)');
+  assert(outboxColumns.some((column) => column.name === 'ciphertext'), 'Fresh database should persist outbound ciphertext');
+  assert(outboxColumns.some((column) => column.name === 'encryptionVersion'), 'Fresh database should persist outbound encryption version');
 }
 
 async function testConcurrentInitialization(db: SQLite.SQLiteDatabase): Promise<void> {
@@ -66,7 +74,7 @@ async function testConcurrentInitialization(db: SQLite.SQLiteDatabase): Promise<
   }
 
   const version = await db.getFirstAsync<{ user_version: number }>('PRAGMA user_version');
-  assertEqual(version?.user_version, 5, 'Concurrent initialization should leave a valid schema');
+  assertEqual(version?.user_version, 6, 'Concurrent initialization should leave a valid schema');
 
   const tables = await db.getAllAsync<{ name: string }>(
     "SELECT name FROM sqlite_master WHERE type = 'table' AND name IN ('relationships', 'messages', 'active_message_slots', 'sync_state', 'sync_outbox', 'sync_inbox')",
@@ -181,6 +189,70 @@ async function testReset(db: SQLite.SQLiteDatabase): Promise<void> {
   assertEqual((await repository.getMessages()).length, 0, 'Reset should delete all messages');
 }
 
+async function testCryptoAndSecureStorage(): Promise<void> {
+  const relationshipKey = await generateRelationshipKey();
+  assert(relationshipKey.length > 0, 'Relationship key generation should return encoded key material');
+
+  const identityStore = new CloudIdentityStore(expoSecureValueStore, 'rucola.native-security-test.v1');
+  await identityStore.save({
+    relationshipId: 'native-security-test',
+    deviceId: 'native-security-device',
+    participant: 'ME',
+    state: 'ACTIVE' as const,
+    credential: 'native-security-credential',
+    relationshipKey,
+  });
+
+  try {
+    const restored = await identityStore.load();
+    assert(restored, 'Secure identity should be readable after persistence');
+    assertEqual(restored.relationshipKey, relationshipKey, 'Secure identity should preserve the relationship key');
+
+    const codec = new AesGcmSyncCodec({
+      relationshipId: restored.relationshipId,
+      relationshipKey: restored.relationshipKey,
+      provider: expoAesGcmProvider,
+    });
+    const message = {
+      id: 'native-security-message',
+      relationshipId: restored.relationshipId,
+      participant: 'ME' as const,
+      type: 'TEXT' as const,
+      body: 'native crypto test 🌶️',
+      createdAt: Date.now(),
+      isActive: true,
+      syncState: 'PENDING' as const,
+      orderIndex: 1,
+      mediaReference: null,
+    };
+    const ciphertext = await codec.encrypt(message, 1);
+    const decoded = await codec.decrypt({
+      messageId: message.id,
+      senderSeq: 1,
+      type: message.type,
+      encryptionVersion: codec.encryptionVersion,
+      ciphertext,
+    });
+
+    assertEqual(decoded.body, message.body, 'Native AES-GCM should round-trip Unicode text');
+    assertEqual(decoded.type, message.type, 'Native AES-GCM should preserve message type');
+    await assertRejects(
+      () => codec.decrypt({
+        messageId: message.id,
+        senderSeq: 2,
+        type: message.type,
+        encryptionVersion: codec.encryptionVersion,
+        ciphertext,
+      }),
+      'Native AES-GCM should reject tampered authenticated context',
+    );
+  } finally {
+    await identityStore.clear();
+  }
+
+  assertEqual(await identityStore.load(), null, 'Secure identity reset should remove stored key material');
+}
+
 async function testMediaLifecycle(): Promise<void> {
   const documentDirectory = FileSystem.documentDirectory;
   assert(documentDirectory, 'Document storage should be available for native media tests');
@@ -284,6 +356,13 @@ export async function runNativeIntegrationTests(): Promise<NativeIntegrationResu
     results.push({ name: 'media robustness edge cases', passed: true });
   } catch (cause) {
     results.push({ name: 'media robustness edge cases', passed: false, error: cause instanceof Error ? cause.message : String(cause) });
+  }
+
+  try {
+    await testCryptoAndSecureStorage();
+    results.push({ name: 'secure identity and native AES-GCM crypto', passed: true });
+  } catch (cause) {
+    results.push({ name: 'secure identity and native AES-GCM crypto', passed: false, error: cause instanceof Error ? cause.message : String(cause) });
   }
 
   try {

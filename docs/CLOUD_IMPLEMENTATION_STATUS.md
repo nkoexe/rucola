@@ -1,11 +1,11 @@
 # Rucola Cloud Implementation Status
 
-Date: 2026-09-17  
-Branch: `main`
+Date: 2026-09-20  
+Branch: `feat/dev-cloud-runtime-wiring`
 
 ## Current status
 
-The cloud backend foundation is implemented and hardened through the temporary mailbox, ACK, media, cleanup, pairing, concurrency, and database-invariant boundaries. The React Native cloud adapter is the next integration step.
+The cloud backend foundation is implemented and hardened through the temporary mailbox, ACK, media, cleanup, pairing, concurrency, and database-invariant boundaries. The React Native side now has secure identity/key storage, pairing lifecycle state, the first Android pairing UX, and a real application-owned `CloudRuntime` that constructs the encrypted `SyncEngine` from persisted identity state.
 
 ## Sync protocol
 
@@ -77,7 +77,7 @@ The receipt survives mailbox deletion so a sender can safely retry after a lost 
 - upload bodies are bounded before they can exceed the reserved size in R2;
 - `READY` media becomes `ATTACHED` atomically with `PHOTO_VIDEO` message acceptance;
 - `DRAWING` remains in the protocol model but new drawing pushes are rejected until end-to-end drawing support exists;
-- scheduled cleanup handles expired/orphaned media and retained receipt dependencies.
+- scheduled cleanup handles expired/orphaned media, retained receipt dependencies, and stale unpaired relationships whose invitations have expired.
 
 ## Hardening
 
@@ -109,23 +109,44 @@ npm test
 
 The latest completed backend validation before the current CI workflow fix was 15 test files and 111 tests passing. A fresh CI run is required to validate the current workflow and remote Cloudflare resources end-to-end.
 
+## Current mobile security and pairing foundation
+
+Implemented on the current development branch:
+
+- `expo-secure-store` is now a direct mobile dependency with a reproducible npm lock entry.
+- `CloudIdentityStore` provides a typed secure-storage boundary for relationship ID, device ID, participant, cloud credential, and relationship encryption key.
+- Relationship encryption keys are generated as 256-bit AES keys using Expo Crypto.
+- The prototype E2E codec uses AES-256-GCM with fresh 12-byte nonces, 16-byte authentication tags, a versioned envelope, and authenticated additional data.
+- TEXT and EMOJI are supported by the prototype codec; media remains deliberately blocked until the full media sync path is implemented.
+- Unit tests cover round-trip encryption, nonce uniqueness, tampering, wrong keys, malformed envelopes, encoding, and secure-identity validation.
+- The native integration harness includes a SecureStore/AES-GCM smoke test using a dedicated test storage key so it cannot overwrite a real paired identity.
+- Pairing now binds the installation-generated relationship key to the Worker invitation through a SHA-256 commitment; the raw relationship key never crosses the Worker API.
+- The mobile pairing protocol persists recoverable `PAIRING` state separately from `ACTIVE` state and can recreate a pending pairing package after restart.
+- The human confirmation is exactly five emojis; the high-entropy invitation token and encryption key remain technical pairing material.
+- Auth probing now exposes the relationship lifecycle state so the initiating device can transition from `PAIRING` to `ACTIVE` after the partner joins.
+- `CloudRuntime` now owns `CloudClient`, `CloudIdentityStore`, `PairingManager`, the SQLite sync-state store, `AesGcmSyncCodec`, and one coalescing `SyncEngine` instance for the active identity.
+- `SyncEngine` now passes the durable sender sequence into the codec, so the sequence is covered by AES-GCM authenticated context exactly as designed.
+- The app triggers synchronization on startup, after pairing, after local message creation, and when returning to the foreground.
+- Settings exposes an explicit `sync now` retry control for physical prototype testing and recovery.
+- SQLite schema v6 persists the encrypted outbound envelope in `sync_outbox` before the first network push, so AES-GCM ciphertext is reused across ambiguous retries instead of being regenerated with a fresh nonce.
+- The sync test suite now exercises a simulated two-device encrypted TEXT burst in both directions and a lost-response/idempotent retry.
+- The Worker cleanup suite now covers expiry of an unpaired pairing relationship without touching active relationships.
+
+The implementation is committed. The Android UX uses the native Android share sheet for the out-of-band pairing payload; the intended recipient path is direct device-to-device transfer (for example Quick Share), while the raw pairing payload is never displayed in the app.
+
 ## Remaining work
 
-1. React Native cloud transport/adapter integration.
-2. Foreground two-device online-flow validation on real Android devices.
-3. Background synchronization and notifications.
-4. Production migration/backfill procedure and verification of any already-populated remote D1 database.
-5. Production resource/secrets verification.
-6. Deeper production observability and structured metrics.
-7. Final E2E encryption/key-management design and implementation.
-8. Final cleanup/removal decision for the legacy `mailbox_messages.acknowledged_at` field.
+1. Validate the real encrypted TEXT/EMOJI online loop on two Android devices against the dev Worker, including offline bursts and retry/restart behavior.
+2. Validate the signed dev APK path against the dev Worker and the current Worker schema.
+3. Add an in-app QR/camera transfer path if the share-sheet prototype proves insufficient for the physical test.
+4. Add background synchronization/notifications only after the foreground two-device loop is proven.
+6. Finish end-to-end PHOTO_VIDEO synchronization.
+7. Add background synchronization/notifications.
+8. Complete production migration/recovery, resource/secrets verification, and observability.
+9. Decide whether to remove the legacy `mailbox_messages.acknowledged_at` field after the current protocol is fully migrated.
 
 ## Next step
 
-Connect the React Native sync engine to the stable protocol while preserving SQLite as the local source of truth:
+The code/CI milestone is green. The next gate is a two-device signed-dev-Apk test against `https://dev.rucola.njco.dev`; no production deployment should happen before that.
 
-```text
-push local outbox → pull partner messages → persist transactionally → ACK durable cursor
-```
-
-Do not make the UI depend directly on the cloud endpoints.
+Do not make the UI depend directly on cloud endpoints.

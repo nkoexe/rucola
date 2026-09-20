@@ -15,14 +15,14 @@ async function bootstrap(): Promise<Record<string, unknown>> {
       "content-type": "application/json",
       "cf-connecting-ip": `198.51.100.${bootstrapTestId}`,
     },
-    body: JSON.stringify({ expiresInSeconds: 3600 }),
+    body: JSON.stringify({ expiresInSeconds: 3600, relationshipKeyCommitment: "a".repeat(64) }),
   });
   expect(response.status).toBe(201);
   return json(response);
 }
 
 function wrongConfirmationCode(correct: unknown): string {
-  return correct === "000000" ? "000001" : "000000";
+  return correct === "😀😀😀😀😀" ? "😃😃😃😃😃" : "😀😀😀😀😀";
 }
 
 async function relationshipCount(): Promise<number> {
@@ -33,7 +33,7 @@ async function relationshipCount(): Promise<number> {
 describe("Rucola pairing hardening", () => {
   it("rejects oversized JSON bodies before parsing", async () => {
     const before = await relationshipCount();
-    const response = await exports.default.fetch("https://rucola.test/v1/pairing/bootstrap", { method: "POST", headers: { "content-type": "application/json", "cf-connecting-ip": `198.51.100.${++bootstrapTestId}` }, body: JSON.stringify({ expiresInSeconds: 3600, padding: "x".repeat(20_000) }) });
+    const response = await exports.default.fetch("https://rucola.test/v1/pairing/bootstrap", { method: "POST", headers: { "content-type": "application/json", "cf-connecting-ip": `198.51.100.${++bootstrapTestId}` }, body: JSON.stringify({ expiresInSeconds: 3600, relationshipKeyCommitment: "a".repeat(64), padding: "x".repeat(20_000) }) });
     expect(response.status).toBe(400); expect(await relationshipCount()).toBe(before);
   });
 
@@ -47,9 +47,9 @@ describe("Rucola pairing hardening", () => {
   });
 
   it("requires the exact JSON media type while accepting parameters", async () => {
-    const valid = await exports.default.fetch("https://rucola.test/v1/pairing/bootstrap", { method: "POST", headers: { "content-type": "application/json; charset=utf-8", "cf-connecting-ip": `198.51.100.${++bootstrapTestId}` }, body: JSON.stringify({ expiresInSeconds: 3600 }) });
+    const valid = await exports.default.fetch("https://rucola.test/v1/pairing/bootstrap", { method: "POST", headers: { "content-type": "application/json; charset=utf-8", "cf-connecting-ip": `198.51.100.${++bootstrapTestId}` }, body: JSON.stringify({ expiresInSeconds: 3600, relationshipKeyCommitment: "a".repeat(64) }) });
     expect(valid.status).toBe(201);
-    const invalid = await exports.default.fetch("https://rucola.test/v1/pairing/bootstrap", { method: "POST", headers: { "content-type": "application/json-malicious", "cf-connecting-ip": `198.51.100.${++bootstrapTestId}` }, body: JSON.stringify({ expiresInSeconds: 3600 }) });
+    const invalid = await exports.default.fetch("https://rucola.test/v1/pairing/bootstrap", { method: "POST", headers: { "content-type": "application/json-malicious", "cf-connecting-ip": `198.51.100.${++bootstrapTestId}` }, body: JSON.stringify({ expiresInSeconds: 3600, relationshipKeyCommitment: "a".repeat(64) }) });
     expect(invalid.status).toBe(400);
   });
 
@@ -61,21 +61,21 @@ describe("Rucola pairing hardening", () => {
   it("locks an invitation after repeated invalid confirmation codes", async () => {
     const body = await bootstrap(); const invalidCode = wrongConfirmationCode(body.confirmationCode);
     for (let attempt = 0; attempt < 5; attempt += 1) {
-      const response = await exports.default.fetch("https://rucola.test/v1/pairing/accept", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ token: body.token, confirmationCode: invalidCode }) });
+      const response = await exports.default.fetch("https://rucola.test/v1/pairing/accept", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ token: body.token, confirmationCode: invalidCode, relationshipKeyCommitment: "a".repeat(64) }) });
       expect(response.status).toBe(400);
     }
     const invitation = await env.DB.prepare("SELECT failed_attempts, locked_until FROM invitations WHERE id = ?1").bind(body.invitationId).first<{ failed_attempts: number; locked_until: number | null }>();
     expect(invitation?.failed_attempts).toBe(5); expect(invitation?.locked_until).not.toBeNull(); expect(invitation?.locked_until).toBeGreaterThan(Date.now());
-    const blocked = await exports.default.fetch("https://rucola.test/v1/pairing/accept", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ token: body.token, confirmationCode: body.confirmationCode }) });
+    const blocked = await exports.default.fetch("https://rucola.test/v1/pairing/accept", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ token: body.token, confirmationCode: body.confirmationCode, relationshipKeyCommitment: "a".repeat(64) }) });
     expect(blocked.status).toBe(429); expect(blocked.headers.get("retry-after")).toMatch(/^\d+$/);
     await env.DB.prepare("UPDATE invitations SET locked_until = ?1 WHERE id = ?2").bind(Date.now() - 1, body.invitationId).run();
-    const accepted = await exports.default.fetch("https://rucola.test/v1/pairing/accept", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ token: body.token, confirmationCode: body.confirmationCode }) });
+    const accepted = await exports.default.fetch("https://rucola.test/v1/pairing/accept", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ token: body.token, confirmationCode: body.confirmationCode, relationshipKeyCommitment: "a".repeat(64) }) });
     expect(accepted.status).toBe(201);
   });
 
   it("does not mutate pairing state for another invalid confirmation code", async () => {
     const body = await bootstrap();
-    const response = await exports.default.fetch("https://rucola.test/v1/pairing/accept", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ token: body.token, confirmationCode: wrongConfirmationCode(body.confirmationCode) }) });
+    const response = await exports.default.fetch("https://rucola.test/v1/pairing/accept", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ token: body.token, confirmationCode: wrongConfirmationCode(body.confirmationCode), relationshipKeyCommitment: "a".repeat(64) }) });
     expect(response.status).toBe(400);
     const invitation = await env.DB.prepare("SELECT consumed_at, failed_attempts FROM invitations WHERE id = ?1").bind(body.invitationId).first<{ consumed_at: number | null; failed_attempts: number }>();
     expect(invitation?.consumed_at).toBeNull(); expect(invitation?.failed_attempts).toBe(1);
@@ -83,7 +83,7 @@ describe("Rucola pairing hardening", () => {
 
   it("rejects concurrent acceptance of the same invitation", async () => {
     const body = await bootstrap();
-    const request = () => exports.default.fetch("https://rucola.test/v1/pairing/accept", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ token: body.token, confirmationCode: body.confirmationCode }) });
+    const request = () => exports.default.fetch("https://rucola.test/v1/pairing/accept", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ token: body.token, confirmationCode: body.confirmationCode, relationshipKeyCommitment: "a".repeat(64) }) });
     const responses = await Promise.all([request(), request()]);
     expect(responses.map((response) => response.status).sort()).toEqual([201, 409]);
     const devices = await env.DB.prepare("SELECT COUNT(*) AS count FROM devices WHERE relationship_id = ?1 AND revoked_at IS NULL").bind(body.relationshipId).first<{ count: number }>();
@@ -92,12 +92,53 @@ describe("Rucola pairing hardening", () => {
     expect(devices?.count).toBe(2); expect(relationship?.status).toBe("ACTIVE"); expect(invitation?.consumed_at).not.toBeNull();
   });
 
+  it("uses exactly five emojis for human confirmation", async () => {
+    const body = await bootstrap();
+    expect(Array.from(String(body.confirmationCode))).toHaveLength(5);
+    expect(String(body.confirmationCode)).not.toMatch(/\d/);
+  });
+
+  it("rejects a pairing key commitment mismatch without consuming the invitation", async () => {
+    const body = await bootstrap();
+    const response = await exports.default.fetch("https://rucola.test/v1/pairing/accept", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        token: body.token,
+        confirmationCode: body.confirmationCode,
+        relationshipKeyCommitment: "b".repeat(64),
+      }),
+    });
+    expect(response.status).toBe(400);
+    const invitation = await env.DB.prepare("SELECT consumed_at FROM invitations WHERE id = ?1").bind(body.invitationId).first<{ consumed_at: number | null }>();
+    expect(invitation?.consumed_at).toBeNull();
+    const devices = await env.DB.prepare("SELECT COUNT(*) AS count FROM devices WHERE relationship_id = ?1 AND revoked_at IS NULL").bind(body.relationshipId).first<{ count: number }>();
+    expect(devices?.count).toBe(1);
+  });
+
+  it("rejects an invalid confirmation shape before mutating the invitation", async () => {
+    const body = await bootstrap();
+    const response = await exports.default.fetch("https://rucola.test/v1/pairing/accept", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        token: body.token,
+        confirmationCode: "12345",
+        relationshipKeyCommitment: "a".repeat(64),
+      }),
+    });
+    expect(response.status).toBe(400);
+    const invitation = await env.DB.prepare("SELECT consumed_at, failed_attempts FROM invitations WHERE id = ?1").bind(body.invitationId).first<{ consumed_at: number | null; failed_attempts: number }>();
+    expect(invitation?.consumed_at).toBeNull();
+    expect(invitation?.failed_attempts).toBe(0);
+  });
+
   it("rejects invitation creation from a non-ME device", async () => {
     const body = await bootstrap();
-    const accepted = await exports.default.fetch("https://rucola.test/v1/pairing/accept", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ token: body.token, confirmationCode: body.confirmationCode }) });
+    const accepted = await exports.default.fetch("https://rucola.test/v1/pairing/accept", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ token: body.token, confirmationCode: body.confirmationCode, relationshipKeyCommitment: "a".repeat(64) }) });
     expect(accepted.status).toBe(201);
     const acceptedBody = await json(accepted);
-    const response = await exports.default.fetch("https://rucola.test/v1/pairing/create", { method: "POST", headers: { authorization: `Bearer ${acceptedBody.credential}`, "content-type": "application/json" }, body: JSON.stringify({ expiresInSeconds: 3600 }) });
+    const response = await exports.default.fetch("https://rucola.test/v1/pairing/create", { method: "POST", headers: { authorization: `Bearer ${acceptedBody.credential}`, "content-type": "application/json" }, body: JSON.stringify({ expiresInSeconds: 3600, relationshipKeyCommitment: "a".repeat(64) }) });
     expect(response.status).toBe(409);
   });
 

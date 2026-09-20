@@ -28,6 +28,8 @@ export interface OutboxItem {
   lastError: string | null;
   nextAttemptAt: number;
   blocked: number;
+  ciphertext: string | null;
+  encryptionVersion: number | null;
   createdAt: number;
 }
 
@@ -127,10 +129,37 @@ export class SQLiteSyncStateStore {
   }
 
   async getDueOutbox(now: number, limit: number): Promise<OutboxItem[]> {
-    return this.database.getAllAsync<OutboxItem>('SELECT messageId, senderSeq, attempts, lastError, nextAttemptAt, blocked, createdAt FROM sync_outbox WHERE relationshipId = ? AND blocked = 0 AND nextAttemptAt <= ? ORDER BY senderSeq ASC LIMIT ?', RELATIONSHIP_ID, now, limit);
+    return this.database.getAllAsync<OutboxItem>('SELECT messageId, senderSeq, attempts, lastError, nextAttemptAt, blocked, ciphertext, encryptionVersion, createdAt FROM sync_outbox WHERE relationshipId = ? AND blocked = 0 AND nextAttemptAt <= ? ORDER BY senderSeq ASC LIMIT ?', RELATIONSHIP_ID, now, limit);
   }
 
   async getPendingOutbox(limit: number): Promise<OutboxItem[]> { return this.getDueOutbox(Number.MAX_SAFE_INTEGER, limit); }
+
+
+  async storeOutboundCiphertext(messageId: string, ciphertext: string, encryptionVersion: number): Promise<void> {
+    if (!/^[A-Za-z0-9_-]+$/.test(messageId) || messageId.length === 0 || messageId.length > 128) throw new Error('Invalid message ID.');
+    if (typeof ciphertext !== 'string' || ciphertext.length === 0 || ciphertext.length > 64 * 1024) throw new Error('Invalid outbound ciphertext.');
+    if (!Number.isSafeInteger(encryptionVersion) || encryptionVersion < 1 || encryptionVersion > 255) throw new Error('Invalid outbound encryption version.');
+
+    await this.database.withExclusiveTransactionAsync(async (transaction) => {
+      const existing = await transaction.getFirstAsync<{ ciphertext: string | null; encryptionVersion: number | null }>(
+        'SELECT ciphertext, encryptionVersion FROM sync_outbox WHERE relationshipId = ? AND messageId = ? AND blocked = 0',
+        RELATIONSHIP_ID,
+        messageId,
+      );
+      if (!existing) throw new Error('Outbound sync item no longer exists.');
+      if (existing.ciphertext !== null || existing.encryptionVersion !== null) {
+        if (existing.ciphertext === ciphertext && existing.encryptionVersion === encryptionVersion) return;
+        throw new Error('Outbound ciphertext conflict.');
+      }
+      await transaction.runAsync(
+        'UPDATE sync_outbox SET ciphertext = ?, encryptionVersion = ? WHERE relationshipId = ? AND messageId = ? AND blocked = 0 AND ciphertext IS NULL AND encryptionVersion IS NULL',
+        ciphertext,
+        encryptionVersion,
+        RELATIONSHIP_ID,
+        messageId,
+      );
+    });
+  }
 
   async markAttemptFailed(messageId: string, cause: unknown, now: number): Promise<void> {
     const error = cause instanceof Error ? cause.message : String(cause);

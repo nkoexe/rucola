@@ -195,7 +195,7 @@ async function testLegacyMigration(version: 0 | 1): Promise<void> {
     await initializeDatabase(db);
 
     const currentVersion = await db.getFirstAsync<{ user_version: number }>('PRAGMA user_version');
-    assertEqual(currentVersion?.user_version, 5, `v${version} legacy database should migrate to schema version 5`);
+    assertEqual(currentVersion?.user_version, 6, `v${version} legacy database should migrate to schema version 6`);
 
     const repository = new SQLiteRucolaRepository(db);
     const relationship = await repository.getRelationship();
@@ -213,7 +213,7 @@ async function testV2Migration(): Promise<void> {
     await createCurrentV2Schema(db);
     await initializeDatabase(db);
     const version = await db.getFirstAsync<{ user_version: number }>('PRAGMA user_version');
-    assertEqual(version?.user_version, 5, 'v2 database should migrate to schema version 5');
+    assertEqual(version?.user_version, 6, 'v2 database should migrate to schema version 6');
     const tables = await db.getAllAsync<{ name: string }>(
       "SELECT name FROM sqlite_master WHERE type = 'table' AND name IN ('sync_state', 'sync_outbox', 'sync_inbox')",
     );
@@ -228,7 +228,7 @@ async function testV3Migration(): Promise<void> {
     await createCurrentV3Schema(db);
     await initializeDatabase(db);
     const version = await db.getFirstAsync<{ user_version: number }>('PRAGMA user_version');
-    assertEqual(version?.user_version, 5, 'v3 database should migrate to schema version 5');
+    assertEqual(version?.user_version, 6, 'v3 database should migrate to schema version 6');
     const inbox = await db.getFirstAsync<{ name: string }>("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'sync_inbox'");
     assertEqual(inbox?.name, 'sync_inbox', 'v3 migration should create sync_inbox');
     const columns = await db.getAllAsync<{ name: string }>('PRAGMA table_info(sync_outbox)');
@@ -241,9 +241,24 @@ async function testV4Migration(): Promise<void> {
     await createCurrentV4Schema(db);
     await initializeDatabase(db);
     const version = await db.getFirstAsync<{ user_version: number }>('PRAGMA user_version');
-    assertEqual(version?.user_version, 5, 'v4 database should migrate to schema version 5');
+    assertEqual(version?.user_version, 6, 'v4 database should migrate to schema version 6');
     const columns = await db.getAllAsync<{ name: string }>('PRAGMA table_info(sync_outbox)');
     assert(columns.some((column) => column.name === 'blocked'), 'v4 migration should preserve blocked outbox state');
+    assert(columns.some((column) => column.name === 'ciphertext'), 'v4 migration should add durable ciphertext');
+    assert(columns.some((column) => column.name === 'encryptionVersion'), 'v4 migration should add encryption version');
+  });
+}
+
+async function testV5Migration(): Promise<void> {
+  await withRawTestDatabase(async (db) => {
+    await createCurrentV4Schema(db);
+    await db.execAsync('PRAGMA user_version = 5;');
+    await initializeDatabase(db);
+    const version = await db.getFirstAsync<{ user_version: number }>('PRAGMA user_version');
+    assertEqual(version?.user_version, 6, 'v5 database should migrate to schema version 6');
+    const columns = await db.getAllAsync<{ name: string }>('PRAGMA table_info(sync_outbox)');
+    assert(columns.some((column) => column.name === 'ciphertext'), 'v5 migration should add durable ciphertext');
+    assert(columns.some((column) => column.name === 'encryptionVersion'), 'v5 migration should add encryption version');
   });
 }
 
@@ -312,7 +327,7 @@ async function testInitializationFailureCanRetry(): Promise<void> {
     await db.execAsync('DROP TABLE messages; DROP TABLE relationships;');
     await initializeDatabase(db);
     const version = await db.getFirstAsync<{ user_version: number }>('PRAGMA user_version');
-    assertEqual(version?.user_version, 5, 'Initialization should retry successfully after a previous failure');
+    assertEqual(version?.user_version, 6, 'Initialization should retry successfully after a previous failure');
   });
 }
 
@@ -322,6 +337,7 @@ export async function runMigrationIntegrationTests(): Promise<void> {
   await testV2Migration();
   await testV3Migration();
   await testV4Migration();
+  await testV5Migration();
   await testRejectsLegacyCorruption();
   await testRejectsMismatchedActiveMessage();
   await testRejectsInvalidActiveState();

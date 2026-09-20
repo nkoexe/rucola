@@ -4,7 +4,8 @@ import type { CloudPulledMessage, CloudMessageType } from '../cloud/protocol.ts'
 
 export interface SyncStateStore {
   reconcileOutbox(now?: number): Promise<number>;
-  getPendingOutbox(limit: number): Promise<Array<{ messageId: string; senderSeq: number; nextAttemptAt: number }>>;
+  getPendingOutbox(limit: number): Promise<Array<{ messageId: string; senderSeq: number; nextAttemptAt: number; ciphertext: string | null; encryptionVersion: number | null }>>;
+  storeOutboundCiphertext(messageId: string, ciphertext: string, encryptionVersion: number): Promise<void>;
   markSynced(messageId: string): Promise<void>;
   markAttemptFailed(messageId: string, cause: unknown, now: number): Promise<void>;
   markBlocked(messageId: string, cause: unknown): Promise<void>;
@@ -18,7 +19,7 @@ export interface SyncRepository {
 
 export interface SyncCodec {
   encryptionVersion: number;
-  encrypt(message: Message): Promise<string>;
+  encrypt(message: Message, senderSeq: number): Promise<string>;
   decrypt(message: CloudPulledMessage): Promise<{
     type: CloudMessageType;
     body: string;
@@ -45,6 +46,13 @@ export class SyncDecryptionError extends Error {
   constructor(message = 'Unable to decrypt inbound message.') {
     super(message);
     this.name = 'SyncDecryptionError';
+  }
+}
+
+export class SyncStatePersistenceError extends Error {
+  constructor(message = 'Unable to persist local sync state.', cause?: unknown) {
+    super(message, { cause });
+    this.name = 'SyncStatePersistenceError';
   }
 }
 
@@ -149,7 +157,13 @@ export class SyncEngine {
     const now = this.now();
     const pending = await this.state.getPendingOutbox(Math.max(this.outboxBatchSize, 100));
     if (pending.length === 0) return;
-    const due: Array<{ messageId: string; senderSeq: number; nextAttemptAt: number }> = [];
+    const due: Array<{
+      messageId: string;
+      senderSeq: number;
+      nextAttemptAt: number;
+      ciphertext: string | null;
+      encryptionVersion: number | null;
+    }> = [];
     for (const item of pending) {
       if (item.nextAttemptAt > now) break;
       due.push(item);
@@ -164,19 +178,34 @@ export class SyncEngine {
         if (!message) throw new Error('Local message no longer exists.');
         if (message.participant !== 'ME') throw new Error('Only local messages can be synchronized.');
         if (!isSupportedWithoutMedia(message.type)) throw new Error('Media synchronization is not implemented yet.');
-        const ciphertext = await this.codec.encrypt(message);
-        if (!ciphertext) throw new Error('Sync codec returned empty ciphertext.');
+        let ciphertext = item.ciphertext;
+        let encryptionVersion = item.encryptionVersion;
+        if ((ciphertext === null) !== (encryptionVersion === null)) {
+          throw new Error('Stored outbound ciphertext state is incomplete.');
+        }
+        if (ciphertext === null || encryptionVersion === null) {
+          ciphertext = await this.codec.encrypt(message, item.senderSeq);
+          if (!ciphertext) throw new Error('Sync codec returned empty ciphertext.');
+          encryptionVersion = this.codec.encryptionVersion;
+          try {
+            await this.state.storeOutboundCiphertext(message.id, ciphertext, encryptionVersion);
+          } catch (cause) {
+            throw new SyncStatePersistenceError('Unable to persist outbound ciphertext before network delivery.', cause);
+          }
+        }
+
         await this.cloud.pushMessage({
           messageId: message.id,
           senderSeq: item.senderSeq,
           type: toCloudType(message.type),
           ciphertext,
-          encryptionVersion: this.codec.encryptionVersion,
+          encryptionVersion,
           createdAt: message.createdAt,
         });
         await this.state.markSynced(message.id);
         result.pushed += 1;
       } catch (cause) {
+        if (cause instanceof SyncStatePersistenceError) throw cause;
         if (isBlockedSyncError(cause)) {
           await this.state.markBlocked(item.messageId, cause);
           result.failed += 1;

@@ -9,14 +9,14 @@ async function pair(): Promise<{ me: Record<string, unknown>; partner: Record<st
   const bootstrap = await exports.default.fetch("https://rucola.test/v1/pairing/bootstrap", {
     method: "POST",
     headers: { "content-type": "application/json", "cf-connecting-ip": "198.51.100.77" },
-    body: JSON.stringify({ expiresInSeconds: 3600 }),
+    body: JSON.stringify({ expiresInSeconds: 3600, relationshipKeyCommitment: "a".repeat(64) }),
   });
   expect(bootstrap.status).toBe(201);
   const me = await json(bootstrap);
   const accept = await exports.default.fetch("https://rucola.test/v1/pairing/accept", {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ token: me.token, confirmationCode: me.confirmationCode }),
+    body: JSON.stringify({ token: me.token, confirmationCode: me.confirmationCode, relationshipKeyCommitment: "a".repeat(64) }),
   });
   expect(accept.status).toBe(201);
   return { me, partner: await json(accept) };

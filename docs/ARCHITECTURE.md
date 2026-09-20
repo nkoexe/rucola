@@ -33,7 +33,7 @@ The product-level source of truth is `docs/PRODUCT_SPEC.md`; the phased implemen
    └──────────────────────────────┘
 ```
 
-The cloud service is a temporary transport/mailbox layer, not permanent message history. Local SQLite remains authoritative for a device's durable history. The hardened Worker currently lives on `cloud/research`; the mobile sync foundation is on `main`.
+The cloud service is a temporary transport/mailbox layer, not permanent message history. Local SQLite remains authoritative for a device's durable history. The hardened Worker currently lives on `cloud/research`; the mobile integration work is on the focused runtime branch and is intended for `main` after validation.
 
 The central architecture rule is that UI code consumes application/domain state and does not call HTTP or SQLite directly.
 
@@ -65,7 +65,7 @@ expo-sqlite + app-owned media
 
 The repository/domain boundary is already real. The cloud layer is also real at the client-transport level: `CloudClient` knows the typed pairing, sync, and media endpoints, while `SyncEngine` coordinates durable outbox/pull-cursor/ACK semantics.
 
-The application still uses hand-rolled screen/navigation state and is scheduled for a later Expo Router/application-lifecycle cleanup. The online sync engine is not yet owned by that application lifecycle.
+The application still uses hand-rolled screen/navigation state and is scheduled for a later Expo Router cleanup. `CloudRuntime` now owns the online sync lifecycle instead of screens constructing `SyncEngine` or `CloudClient` directly.
 
 Screens must not depend directly on SQLite or HTTP. Domain code must not depend on React Native.
 
@@ -154,10 +154,10 @@ Pull is directional: the recipient does not receive its own outbound mailbox row
 
 ## 8. Durable sync state and retention
 
-The current SQLite schema is **version 5** and contains:
+The current SQLite schema is **version 6** and contains:
 
 - `sync_state` — device identity/participant metadata, next sender sequence, durable pull cursor;
-- `sync_outbox` — pending outbound messages, sender sequence, retry timing, attempts, and blocked state;
+- `sync_outbox` — pending outbound messages, sender sequence, retry timing, attempts, blocked state, and the encrypted envelope persisted for retry idempotency;
 - `sync_inbox` — locally applied inbound messages keyed by relationship/message ID and server sequence.
 
 Outbound unsynchronized work has a **30-day local retention window**. At expiry, stale outbound messages are terminally removed rather than retried forever, including their local history entries. The active slot is cleared when the stale local message is removed.
@@ -178,9 +178,49 @@ The mobile sync engine deliberately separates expected bad input from unexpected
 - ACK is sent only after that commit succeeds.
 - A failed local commit must therefore never be acknowledged to the server.
 
-The current production E2E codec is not selected yet. Expected cryptographic/decryption failures must use the explicit discardable error contract rather than relying on broad exception swallowing.
+The E2E v1 codec is implemented for TEXT/EMOJI. `CloudRuntime` constructs it only for an active persisted relationship identity. Expected cryptographic/decryption failures use the explicit discardable error contract rather than broad exception swallowing. Outbound ciphertext is generated once and durably stored before the first network push so an ambiguous retry reuses the exact AES-GCM envelope.
 
-## 10. Media lifecycle
+## 10. Prototype cloud runtime
+
+The first real online milestone uses one application-owned cloud runtime:
+
+```text
+CloudRuntime
+ ├─ CloudIdentityStore
+ ├─ CloudClient
+ ├─ SyncCodec
+ ├─ SQLiteSyncStateStore
+ └─ SyncEngine
+```
+
+The runtime owns startup/foreground/after-send synchronization and keeps screens independent from HTTP and SQLite implementation details.
+
+The existing health probe belongs inside this lifecycle. A successful health request means only that the configured Worker is reachable; it is not evidence that pairing or message synchronization is configured.
+
+The runtime loads persisted cloud identity state and constructs the authenticated sync path only when the relationship is paired and the required encryption key is present.
+
+## 11. Prototype E2E v1
+
+The first two-device prototype uses a random 256-bit relationship key generated locally by the initiating device.
+
+The key is transferred to the second device through an out-of-band secure pairing payload. The Worker must never receive or store this key. The Worker may receive a one-way proof/hash needed to bind the pairing request, plus the normal device/relationship metadata and authentication credential.
+
+This is deliberately simpler than adding X25519 or a ratcheting protocol at this stage. A server-mediated public-key exchange by itself would not establish peer authenticity against a malicious server.
+
+Message payload encryption uses AES-256-GCM with:
+
+- a fresh nonce/IV for every message;
+- a 16-byte authentication tag;
+- a versioned wire envelope;
+- authenticated additional data binding relationship/message context.
+
+At minimum, the authenticated context covers relationship ID, message ID, message type, sender sequence, and encryption version.
+
+The relationship key and cloud authentication credential are separate secrets and are stored locally through a secure secret-storage abstraction.
+
+This E2E v1 design protects message content from the cloud service under the intended server-storage threat model. It does not claim protection against a compromised device or malicious software running on the user's endpoint.
+
+## 12. Media lifecycle
 
 Photo/video messages use the real device picker/camera path. Selected or captured media is copied into an app-owned document `media/` directory before the message is persisted. Message history stores the durable local URI and can render images or videos from that URI.
 
@@ -210,11 +250,11 @@ The **user-facing pairing mechanism is exactly five emojis**. Technical pairing 
 
 The current Worker pairing implementation uses a secure invitation/token flow with a bounded confirmation mechanism and expiry. The mobile `CloudClient` already models pairing bootstrap/create/accept responses, but the full application lifecycle for storing and using those credentials is not yet integrated.
 
-The five-emoji sequence is a usability mechanism, not the security credential itself.
+The five-emoji sequence is a human-facing confirmation mechanism, not cryptographic entropy. The first online prototype additionally uses a high-entropy relationship secret transferred out-of-band; that secret never enters the Worker API. The pairing protocol must bind the out-of-band secret to the one-time invitation without storing the secret itself on the server.
 
-Real two-device pairing is not complete until two installations can establish the relationship through the actual remote service and then use the resulting credentials for synchronization.
+Authentication credentials and the relationship encryption key remain separate concerns.
 
-Authentication credentials and future E2E encryption identity must remain separate concerns.
+Real two-device pairing is not complete until two installations can establish the relationship through the actual remote service and then use the resulting credentials and encryption key for synchronization.
 
 ## 13. Cloud backend
 
@@ -235,7 +275,7 @@ The hardened Worker currently lives on `cloud/research`. Its protocol includes:
 - cleanup and retention;
 - concurrency/idempotency hardening.
 
-The Worker stores ciphertext rather than plaintext message contents. The final E2E protocol/library is still an application decision and is not delegated to the Worker.
+The Worker stores ciphertext rather than plaintext message contents. E2E v1 for the first online prototype is an application-level AES-256-GCM design; the Worker remains unaware of the relationship key. Longer-term key rotation/recovery and asymmetric identity protocols remain later application decisions.
 
 The cloud branch is a parallel workstream, not the current `main` application baseline. The next integration milestone is to connect the mobile lifecycle to the already-hardened protocol rather than redesign the transport.
 

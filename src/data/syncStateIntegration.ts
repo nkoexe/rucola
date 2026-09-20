@@ -37,6 +37,18 @@ export async function runSyncStateIntegrationTests(db: SQLite.SQLiteDatabase): P
   assertEqual(outbox.length, 2, 'Both reserved messages should be visible in the durable outbox');
   assertEqual(outbox[0]?.senderSeq, 1, 'Outbox must preserve sender ordering');
   assertEqual(outbox[1]?.senderSeq, 2, 'Outbox must preserve sender ordering');
+  assertEqual(outbox[0]?.ciphertext, null, 'New outbox rows must not invent ciphertext before encryption');
+  assertEqual(outbox[0]?.encryptionVersion, null, 'New outbox rows must not invent an encryption version');
+
+  await store.storeOutboundCiphertext(first.id, 'v1.iv.ciphertext.tag', 1);
+  const encrypted = await store.getPendingOutbox(10);
+  assertEqual(encrypted.find((item) => item.messageId === first.id)?.ciphertext, 'v1.iv.ciphertext.tag', 'Encrypted payload must persist in the outbox');
+  assertEqual(encrypted.find((item) => item.messageId === first.id)?.encryptionVersion, 1, 'Encrypted payload version must persist in the outbox');
+  await store.storeOutboundCiphertext(first.id, 'v1.iv.ciphertext.tag', 1);
+  await assertRejects(
+    () => store.storeOutboundCiphertext(first.id, 'v1.other.ciphertext.tag', 1),
+    'Changing persisted ciphertext for one message must be rejected',
+  );
 
   await store.markAttemptFailed(first.id, new Error('network unavailable'), Date.now());
   const failed = await store.getPendingOutbox(10);

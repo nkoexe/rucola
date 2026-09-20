@@ -302,7 +302,7 @@ Rucola is private by design.
 - future message transport should use end-to-end encryption;
 - server storage is a temporary mailbox, not the permanent source of truth.
 
-The E2E protocol/library is not selected yet. Do not invent cryptographic details before that decision is made.
+For the first online prototype, E2E v1 uses a random 256-bit relationship encryption key generated locally and transferred out-of-band during pairing; the Worker never receives the key. Message payloads use AES-256-GCM with authenticated context. This is the first prototype's concrete security design, not the final long-term key-management system. Future key rotation, recovery, and stronger device identity mechanisms remain separate hardening work.
 
 ## 17. Deliberately out of initial scope
 

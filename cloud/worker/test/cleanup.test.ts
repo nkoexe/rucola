@@ -8,15 +8,44 @@ async function json(response: Response): Promise<Record<string, unknown>> { retu
 let testId = 1200;
 async function bootstrapAndAccept(): Promise<{ me: PairingBody; partner: PairingBody }> {
   testId += 1;
-  const bootstrapResponse = await exports.default.fetch("https://rucola.test/v1/pairing/bootstrap", { method: "POST", headers: { "content-type": "application/json", "cf-connecting-ip": `198.51.100.${((testId - 1) % 254) + 1}` }, body: JSON.stringify({ expiresInSeconds: 3600 }) });
+  const bootstrapResponse = await exports.default.fetch("https://rucola.test/v1/pairing/bootstrap", { method: "POST", headers: { "content-type": "application/json", "cf-connecting-ip": `198.51.100.${((testId - 1) % 254) + 1}` }, body: JSON.stringify({ expiresInSeconds: 3600, relationshipKeyCommitment: "a".repeat(64) }) });
   expect(bootstrapResponse.status).toBe(201); const me = (await json(bootstrapResponse)) as unknown as PairingBody & { token: string; confirmationCode: string };
-  const acceptResponse = await exports.default.fetch("https://rucola.test/v1/pairing/accept", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ token: me.token, confirmationCode: me.confirmationCode }) });
+  const acceptResponse = await exports.default.fetch("https://rucola.test/v1/pairing/accept", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ token: me.token, confirmationCode: me.confirmationCode, relationshipKeyCommitment: "a".repeat(64) }) });
   expect(acceptResponse.status).toBe(201); return { me, partner: (await json(acceptResponse)) as unknown as PairingBody };
 }
 async function createMedia(credential: string): Promise<string> { const response = await exports.default.fetch("https://rucola.test/v1/media/create", { method: "POST", headers: { authorization: `Bearer ${credential}`, "content-type": "application/json" }, body: JSON.stringify({ type: "PHOTO", mime: "image/png", size: 4 }) }); expect(response.status).toBe(201); return (await json(response)).uploadId as string; }
 async function uploadAndComplete(credential: string, uploadId: string): Promise<void> { const uploadResponse = await exports.default.fetch(`https://rucola.test/v1/media/${uploadId}`, { method: "PUT", headers: { authorization: `Bearer ${credential}`, "content-type": "image/png", "content-length": "4" }, body: new Uint8Array([1, 2, 3, 4]) }); expect(uploadResponse.status).toBe(200); const completeResponse = await exports.default.fetch(`https://rucola.test/v1/media/${uploadId}/complete`, { method: "POST", headers: { authorization: `Bearer ${credential}` } }); expect(completeResponse.status).toBe(200); }
 
 describe("cleanup lifecycle", () => {
+  it("does not remove an active relationship when an old invitation expires", async () => {
+    const { me } = await bootstrapAndAccept();
+    const invitation = await env.DB.prepare("SELECT id FROM invitations WHERE relationship_id = ? ORDER BY created_at DESC LIMIT 1").bind(me.relationshipId).first<{ id: string }>();
+    expect(invitation).not.toBeNull();
+    const now = Date.now();
+    await env.DB.prepare("UPDATE invitations SET expires_at = ? WHERE id = ?").bind(now - 1, invitation!.id).run();
+
+    const result = await runCleanup(env, now);
+    expect(result.expiredPairing).toBe(0);
+    expect(await env.DB.prepare("SELECT status FROM relationships WHERE id = ?").bind(me.relationshipId).first<{ status: string }>()).toEqual({ status: "ACTIVE" });
+  });
+  it("removes an expired unpaired relationship and its invitation/device", async () => {
+    testId += 1;
+    const response = await exports.default.fetch("https://rucola.test/v1/pairing/bootstrap", {
+      method: "POST",
+      headers: { "content-type": "application/json", "cf-connecting-ip": `203.0.113.${((testId - 1) % 254) + 1}` },
+      body: JSON.stringify({ expiresInSeconds: 3600, relationshipKeyCommitment: "b".repeat(64) }),
+    });
+    expect(response.status).toBe(201);
+    const body = (await json(response)) as unknown as PairingBody & { relationshipId: string; invitationId: string };
+    const now = Date.now();
+    await env.DB.prepare("UPDATE invitations SET expires_at = ? WHERE id = ?").bind(now - 1, body.invitationId).run();
+
+    const result = await runCleanup(env, now);
+    expect(result.expiredPairing).toBe(1);
+    expect(await env.DB.prepare("SELECT id FROM relationships WHERE id = ?").bind(body.relationshipId).first()).toBeNull();
+    expect(await env.DB.prepare("SELECT id FROM invitations WHERE id = ?").bind(body.invitationId).first()).toBeNull();
+    expect(await env.DB.prepare("SELECT id FROM devices WHERE relationship_id = ?").bind(body.relationshipId).first()).toBeNull();
+  });
   it("removes an expired pending upload and its object", async () => {
     const { me } = await bootstrapAndAccept(); const uploadId = await createMedia(me.credential); const row = await env.DB.prepare("SELECT object_key FROM media_uploads WHERE id = ?").bind(uploadId).first<{ object_key: string }>(); expect(row).not.toBeNull(); await env.MEDIA_BUCKET.put(row!.object_key, new Uint8Array([1, 2, 3, 4])); const now = Date.now(); await env.DB.prepare("UPDATE media_uploads SET created_at = ?, expires_at = ? WHERE id = ?").bind(now - 1000, now - 1, uploadId).run(); const result = await runCleanup(env); expect(result.mediaObjectsDeleted).toBe(1); expect(await env.DB.prepare("SELECT id FROM media_uploads WHERE id = ?").bind(uploadId).first()).toBeNull(); expect(await env.MEDIA_BUCKET.head(row!.object_key)).toBeNull();
   });

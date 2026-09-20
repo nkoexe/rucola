@@ -23,6 +23,8 @@ type OutboxItem = {
   attempts: number;
   lastError: string | null;
   nextAttemptAt: number;
+  ciphertext: string | null;
+  encryptionVersion: number | null;
   createdAt: number;
 };
 
@@ -33,7 +35,7 @@ function pairingRequest(): RequestInit {
       "content-type": "application/json",
       "cf-connecting-ip": "203.0.113.10",
     },
-    body: JSON.stringify({ expiresInSeconds: 3600 }),
+    body: JSON.stringify({ expiresInSeconds: 3600, relationshipKeyCommitment: "a".repeat(64) }),
   };
 }
 
@@ -58,7 +60,7 @@ async function pair(): Promise<{
     headers: { "content-type": "application/json" },
     body: JSON.stringify({
       token: invitation.token,
-      confirmationCode: invitation.confirmationCode,
+      confirmationCode: invitation.confirmationCode, relationshipKeyCommitment: "a".repeat(64),
     }),
   });
   expect(accept.status).toBe(201);
@@ -138,6 +140,8 @@ function createDeviceHarness(
     attempts: 0,
     lastError: null,
     nextAttemptAt: 0,
+    ciphertext: null,
+    encryptionVersion: null,
     createdAt: item.createdAt,
   }));
   let cursor = 0;
@@ -145,6 +149,15 @@ function createDeviceHarness(
   const state = {
     reconcileOutbox: async () => 0,
     getPendingOutbox: async () => outbox.filter((item) => item.nextAttemptAt <= Date.now()),
+    storeOutboundCiphertext: async (id: string, ciphertext: string, encryptionVersion: number) => {
+      const item = outbox.find((candidate) => candidate.messageId === id);
+      if (!item) throw new Error(`Missing outbox item ${id}`);
+      if (item.ciphertext !== null && (item.ciphertext !== ciphertext || item.encryptionVersion !== encryptionVersion)) {
+        throw new Error(`Conflicting ciphertext for ${id}`);
+      }
+      item.ciphertext = ciphertext;
+      item.encryptionVersion = encryptionVersion;
+    },
     markSynced: async (id: string) => {
       const local = messages.find((item) => item.id === id);
       if (local) local.syncState = "SYNCED";
@@ -284,6 +297,8 @@ describe("mobile SyncEngine ↔ Cloud Worker integration", () => {
       attempts: 0,
       lastError: null,
       nextAttemptAt: 0,
+      ciphertext: null,
+      encryptionVersion: null,
       createdAt: thirdMessage.createdAt,
     });
 

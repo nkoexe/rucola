@@ -16,11 +16,11 @@ test('authenticated requests send the device credential', async () => {
     credential: 'test-credential',
     fetchImpl: async (url, init) => {
       requests.push({ url, init });
-      return jsonResponse({ authenticated: true, participant: 'ME' });
+      return jsonResponse({ authenticated: true, participant: 'ME', relationshipStatus: 'ACTIVE' });
     },
   });
   const result = await client.authProbe();
-  assert.deepEqual(result, { authenticated: true, participant: 'ME' });
+  assert.deepEqual(result, { authenticated: true, participant: 'ME', relationshipStatus: 'ACTIVE' });
   assert.equal(requests.length, 1);
   assert.equal(requests[0].url, 'https://cloud.example.test/v1/auth/probe');
   assert.equal(requests[0].init.headers.Authorization, 'Bearer test-credential');
@@ -36,15 +36,15 @@ test('pairing bootstrap is intentionally unauthenticated and returns credentials
       captured = { url, init };
       return jsonResponse({
         relationshipId: 'relationship', invitationId: 'invitation', deviceId: 'device', participant: 'ME',
-        credential: 'credential', token: 'token', confirmationCode: '123456', expiresAt: 123,
+        credential: 'credential', token: 'token', confirmationCode: '😀😃😄😁😆', relationshipKeyCommitment: 'a'.repeat(64), expiresAt: 123,
       }, 201);
     },
   });
-  const result = await client.bootstrapPairing({ expiresInSeconds: 60 });
+  const result = await client.bootstrapPairing({ expiresInSeconds: 60, relationshipKeyCommitment: 'a'.repeat(64) });
   assert.equal(result.credential, 'credential');
   assert.equal(captured.url, 'https://cloud.example.test/v1/pairing/bootstrap');
   assert.equal(captured.init.headers.Authorization, undefined);
-  assert.deepEqual(JSON.parse(captured.init.body), { expiresInSeconds: 60 });
+  assert.deepEqual(JSON.parse(captured.init.body), { expiresInSeconds: 60, relationshipKeyCommitment: 'a'.repeat(64) });
 });
 
 test('pull encodes the durable cursor and limit', async () => {
@@ -74,6 +74,11 @@ test('server protocol errors become typed CloudClientError values', async () => 
     assert.equal(error.message, 'too far');
     return true;
   });
+});
+
+test('parses the worker health response', async () => {
+  const client = new CloudClient({ baseUrl: 'https://cloud.example.test', fetchImpl: async () => new Response(JSON.stringify({ ok: true, service: 'rucola-cloud-dev', version: 'sync-hardening-1', database: true }), { status: 200, headers: { 'content-type': 'application/json' } }) });
+  await assert.deepEqual(await client.health(), { ok: true, service: 'rucola-cloud-dev', version: 'sync-hardening-1', database: true });
 });
 
 test('authenticated operations fail locally when no credential exists', async () => {

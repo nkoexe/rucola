@@ -23,7 +23,7 @@ async function bootstrapAndAccept(): Promise<{ me: PairingBody; partner: Pairing
       "content-type": "application/json",
       "cf-connecting-ip": `203.0.113.${((testId - 1) % 254) + 1}`,
     },
-    body: JSON.stringify({ expiresInSeconds: 3600 }),
+    body: JSON.stringify({ expiresInSeconds: 3600, relationshipKeyCommitment: "a".repeat(64) }),
   });
   expect(bootstrapResponse.status).toBe(201);
   const me = (await json(bootstrapResponse)) as unknown as PairingBody;
@@ -31,7 +31,7 @@ async function bootstrapAndAccept(): Promise<{ me: PairingBody; partner: Pairing
   const acceptResponse = await exports.default.fetch("https://rucola.test/v1/pairing/accept", {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ token: me.token, confirmationCode: me.confirmationCode }),
+    body: JSON.stringify({ token: me.token, confirmationCode: me.confirmationCode, relationshipKeyCommitment: "a".repeat(64) }),
   });
   expect(acceptResponse.status).toBe(201);
   const partner = (await json(acceptResponse)) as unknown as PairingBody;

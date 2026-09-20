@@ -16,7 +16,8 @@ function harness({ pullResponse, decrypt, now = 1_700_000_100_000, reconcileOutb
   const messages = [localMessage()];
   const state = {
     reconcileOutbox: async () => { calls.push(['reconcileOutbox']); return reconcileOutbox?.() ?? 0; },
-    getPendingOutbox: async () => [{ messageId: 'local-1', senderSeq: 1, attempts: 0, lastError: null, nextAttemptAt: 0, blocked: 0, createdAt: messages[0].createdAt }],
+    getPendingOutbox: async () => [{ messageId: 'local-1', senderSeq: 1, attempts: 0, lastError: null, nextAttemptAt: 0, blocked: 0, ciphertext: null, encryptionVersion: null, createdAt: messages[0].createdAt }],
+    storeOutboundCiphertext: async (id, ciphertext, encryptionVersion) => calls.push(['storeOutboundCiphertext', id, ciphertext, encryptionVersion]),
     markSynced: async (id) => calls.push(['markSynced', id]),
     markAttemptFailed: async (id, error) => calls.push(['markAttemptFailed', id, error.message]),
     markBlocked: async (id, error) => calls.push(['markBlocked', id, error.message]),
@@ -31,11 +32,21 @@ function harness({ pullResponse, decrypt, now = 1_700_000_100_000, reconcileOutb
   };
   const codec = {
     encryptionVersion: 1,
-    encrypt: async (message) => `cipher:${message.body}`,
+    encrypt: async (message, senderSeq) => `cipher:${senderSeq}:${message.body}`,
     decrypt: decrypt ?? (async (remote) => ({ type: remote.type, body: `decoded:${remote.ciphertext}` })),
   };
   return { calls, state, repository, cloud, codec, now: () => now };
 }
+
+test('aborts when new ciphertext cannot be durably persisted', async () => {
+  const testHarness = harness();
+  testHarness.state.storeOutboundCiphertext = async () => { throw new Error('sqlite unavailable'); };
+  const engine = new SyncEngine({ ...testHarness });
+  await assert.rejects(() => engine.run(), /Unable to persist outbound ciphertext before network delivery/);
+  assert.equal(testHarness.calls.some(([name]) => name === 'push'), false);
+  assert.equal(testHarness.calls.some(([name]) => name === 'markBlocked'), false);
+  assert.equal(testHarness.calls.some(([name]) => name === 'markAttemptFailed'), false);
+});
 
 test('drops one undecryptable inbound message and still commits later messages', async () => {
   const response = { messages: [inbound('bad-1', 7), inbound('good-2', 8)], nextCursor: 8, hasMore: false };
