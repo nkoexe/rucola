@@ -610,24 +610,6 @@ export class PairingManager {
     await verifyPairingConfirmation(confirmation, secrets, responderShare);
   }
 
-  private async relationshipKeyFromSession(
-    secrets: PairingHandshakeSecrets,
-    responderShare: string,
-    handoff: string | null,
-    commitment: string,
-  ): Promise<string> {
-    if (!handoff) throw new Error('Pairing completed without a relationship-key handoff.');
-    const key = await decryptRelationshipKey(
-      handoff,
-      commitment,
-      secrets,
-      responderShare,
-    );
-    const actualCommitment = await this.keyCommitment(key);
-    if (actualCommitment !== commitment) throw new Error('Paired relationship key commitment does not match.');
-    return key;
-  }
-
   private async loadPendingPairing(): Promise<{
     response: PairingBootstrapResponse;
     identity: CloudIdentity;
