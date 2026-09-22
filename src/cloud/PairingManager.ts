@@ -51,9 +51,6 @@ export interface PairingAcceptResult {
 const DEFAULT_POLL_INTERVAL_MS = 250;
 const DEFAULT_MAX_POLL_ATTEMPTS = 120;
 
-function pendingConfirmationAlreadyPublished(_pending: PendingPairingSession): boolean {
-  return false;
-}
 
 function defaultSleep(milliseconds: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, milliseconds));
@@ -173,6 +170,7 @@ export class PairingManager {
     const pending: PendingPairingSession = {
       invitationId: joined.invitationId,
       relationshipId: joined.relationshipId,
+      relationshipKeyCommitment: joined.relationshipKeyCommitment,
       sessionId: joined.sessionId,
       confirmationCode: pairingCode,
       expiresAt: joined.expiresAt,
@@ -210,9 +208,7 @@ export class PairingManager {
       ephemeralSecret: pending.ephemeralSecret,
       ownShare: pending.ownShare,
       role: 'RESPONDER',
-      relationshipKeyCommitment: pending.relationshipKey
-        ? await this.keyCommitment(pending.relationshipKey)
-        : '',
+      relationshipKeyCommitment: pending.relationshipKeyCommitment,
     };
 
     await this.cloud.publishPairingResponderShare(
@@ -221,7 +217,7 @@ export class PairingManager {
       pending.ownShare,
     );
 
-    let confirmationPublished = pendingConfirmationAlreadyPublished(pending);
+    let confirmationPublished = false;
 
     for (let attempt = 0; attempt < this.maxPollAttempts; attempt += 1) {
       const session = await this.cloud.pollPairingSession(
@@ -232,11 +228,7 @@ export class PairingManager {
       if (
         session.relationshipId !== pending.relationshipId ||
         session.expiresAt !== pending.expiresAt ||
-        session.relationshipKeyCommitment !== (
-          pending.relationshipKey
-            ? await this.keyCommitment(pending.relationshipKey)
-            : session.relationshipKeyCommitment
-        )
+        session.relationshipKeyCommitment !== pending.relationshipKeyCommitment
       ) {
         throw new Error('Pairing session binding changed.');
       }
@@ -629,7 +621,12 @@ export class PairingManager {
     identity: CloudIdentity;
   } | null> {
     const identity = await this.identityStore.load();
-    if (!identity || identity.state !== 'PAIRING' || !identity.pendingPairing) return null;
+    if (
+      !identity ||
+      identity.participant !== 'ME' ||
+      identity.state !== 'PAIRING' ||
+      !identity.pendingPairing
+    ) return null;
 
     if (identity.pendingPairing.expiresAt <= this.now()) {
       await this.identityStore.clear();
