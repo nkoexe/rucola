@@ -1,11 +1,15 @@
 import { cpace } from '@cipherman/pake-js';
+import { getRandomBytesAsync } from 'expo-crypto';
 import { hkdf } from '@noble/hashes/hkdf';
 import { sha256 } from '@noble/hashes/sha2';
 import { canonicalizePairingCode } from './pairingTransport.ts';
 import { base64ToBytes, bytesToBase64, utf8Encode } from '../crypto/encoding.ts';
+import { normalizeRelationshipKey } from '../crypto/relationshipKey.ts';
 import { expoAesGcmProvider } from '../crypto/expoAesGcm.ts';
 
 export const PAIRING_HANDSHAKE_VERSION = 'rucola-pairing-v1';
+const INITIATOR_ID = utf8Encode('A_initiator');
+const RESPONDER_ID = utf8Encode('B_responder');
 const CONFIRMATION_TEXT = utf8Encode(PAIRING_HANDSHAKE_VERSION + ':confirmed');
 const WRAP_INFO = utf8Encode(PAIRING_HANDSHAKE_VERSION + ':wrap');
 const CONFIRM_INFO = utf8Encode(PAIRING_HANDSHAKE_VERSION + ':confirm');
@@ -24,32 +28,87 @@ export interface PairingHandshakeSecrets {
   relationshipKeyCommitment: string;
 }
 
+function prependLength(value: Uint8Array): Uint8Array {
+  if (value.length >= 128) throw new Error('Pairing protocol identity is too long.');
+  return new Uint8Array([value.length, ...value]);
+}
+
+function concatBytes(...values: Uint8Array[]): Uint8Array {
+  const total = values.reduce((sum, value) => sum + value.length, 0);
+  const output = new Uint8Array(total);
+  let offset = 0;
+  for (const value of values) {
+    output.set(value, offset);
+    offset += value.length;
+  }
+  return output;
+}
+
+function buildChannelIdentifier(): Uint8Array {
+  return concatBytes(
+    prependLength(INITIATOR_ID),
+    prependLength(RESPONDER_ID),
+  );
+}
+
+function buildAssociatedData(role: 'INITIATOR' | 'RESPONDER', commitment: string): Uint8Array {
+  return utf8Encode(JSON.stringify([
+    PAIRING_HANDSHAKE_VERSION,
+    role,
+    commitment,
+  ]));
+}
+
+function decodeSessionId(value: string): Uint8Array {
+  const bytes = base64ToBytes(value);
+  if (bytes.length !== 16) throw new Error('Pairing session is invalid.');
+  return bytes;
+}
+
+function decodeShare(value: string): Uint8Array {
+  const bytes = base64ToBytes(value);
+  if (bytes.length !== 32) throw new Error('Pairing share is invalid.');
+  return bytes;
+}
+
 function deriveKey(isk: Uint8Array, sessionId: Uint8Array, info: Uint8Array): string {
   return bytesToBase64(hkdf(sha256, isk, sessionId, info, 32));
 }
 
-function pairingInputs(pairingCode: string, sessionId: string, relationshipKeyCommitment: string) {
+function pairingInputs(
+  pairingCode: string,
+  sessionId: string,
+  relationshipKeyCommitment: string,
+) {
   const code = canonicalizePairingCode(pairingCode);
-  const sid = base64ToBytes(sessionId);
-  if (sid.length !== 16) throw new Error('Pairing session is invalid.');
-  const associated = utf8Encode(JSON.stringify([
-    PAIRING_HANDSHAKE_VERSION,
-    relationshipKeyCommitment,
-  ]));
+  const sid = decodeSessionId(sessionId);
+  if (!/^[0-9a-f]{64}$/.test(relationshipKeyCommitment)) {
+    throw new Error('Pairing commitment is invalid.');
+  }
   return {
     PRS: utf8Encode(code),
     sid,
-    CI: utf8Encode(PAIRING_HANDSHAKE_VERSION),
-    associated,
+    CI: buildChannelIdentifier(),
+    initiatorAD: buildAssociatedData('INITIATOR', relationshipKeyCommitment),
+    responderAD: buildAssociatedData('RESPONDER', relationshipKeyCommitment),
   };
+}
+
+export function createPairingSessionId(bytes: Uint8Array): string {
+  if (bytes.length !== 16) throw new Error('Pairing session must be 16 bytes.');
+  return bytesToBase64(bytes).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '');
+}
+
+export async function generatePairingSessionId(): Promise<string> {
+  return createPairingSessionId(await getRandomBytesAsync(16));
 }
 
 export function createPairingHandshake(
   sessionId: string,
   pairingCode: string,
-  _relationshipKeyCommitment: string,
+  relationshipKeyCommitment: string,
 ): PairingHandshakeInit {
-  const { PRS, sid, CI } = pairingInputs(pairingCode, sessionId, _relationshipKeyCommitment);
+  const { PRS, sid, CI } = pairingInputs(pairingCode, sessionId, relationshipKeyCommitment);
   const init = cpace.ristretto255.init({ PRS, sid, CI });
   return {
     sessionId,
@@ -58,37 +117,33 @@ export function createPairingHandshake(
   };
 }
 
-export async function createPairingSessionId(): Promise<string> {
-  const cryptoApi = globalThis.crypto;
-  if (!cryptoApi?.getRandomValues) throw new Error('Secure randomness is unavailable.');
-  const bytes = cryptoApi.getRandomValues(new Uint8Array(16));
-  return bytesToBase64(bytes);
-}
-
 export async function derivePairingKeys(
   pairingCode: string,
   secrets: PairingHandshakeSecrets,
   peerShareBase64: string,
 ): Promise<{ wrapKey: string; confirmKey: string }> {
-  const { PRS, sid, CI, associated } = pairingInputs(
+  const { PRS, sid, CI, initiatorAD, responderAD } = pairingInputs(
     pairingCode,
     secrets.sessionId,
     secrets.relationshipKeyCommitment,
   );
   const own = {
     ephemeralSecret: base64ToBytes(secrets.ephemeralSecret),
-    share: base64ToBytes(secrets.ownShare),
+    share: decodeShare(secrets.ownShare),
   };
-  const peerShare = base64ToBytes(peerShareBase64);
+  if (own.ephemeralSecret.length !== 32) throw new Error('Pairing ephemeral secret is invalid.');
+  const peerShare = decodeShare(peerShareBase64);
+
   const isk = cpace.ristretto255.deriveIskInitiatorResponder({
     ephemeralSecret: own.ephemeralSecret,
     ownShare: own.share,
     peerShare,
-    ownAD: associated,
-    peerAD: associated,
+    ownAD: secrets.role === 'INITIATOR' ? initiatorAD : responderAD,
+    peerAD: secrets.role === 'INITIATOR' ? responderAD : initiatorAD,
     sid,
     role: secrets.role === 'INITIATOR' ? 'initiator' : 'responder',
   });
+
   return {
     wrapKey: deriveKey(isk, sid, WRAP_INFO),
     confirmKey: deriveKey(isk, sid, CONFIRM_INFO),
@@ -102,13 +157,14 @@ export async function encryptRelationshipKey(
   secrets: PairingHandshakeSecrets,
   peerShareBase64: string,
 ): Promise<string> {
+  const normalizedKey = await normalizeRelationshipKey(relationshipKey);
   const { wrapKey } = await derivePairingKeys(pairingCode, secrets, peerShareBase64);
   const aad = utf8Encode(JSON.stringify([
     PAIRING_HANDSHAKE_VERSION,
     secrets.sessionId,
     relationshipKeyCommitment,
   ]));
-  const parts = await expoAesGcmProvider.encrypt(utf8Encode(relationshipKey), wrapKey, aad);
+  const parts = await expoAesGcmProvider.encrypt(utf8Encode(normalizedKey), wrapKey, aad);
   return [
     PAIRING_HANDSHAKE_VERSION,
     bytesToBase64(parts.iv),
@@ -125,21 +181,25 @@ export async function decryptRelationshipKey(
   peerShareBase64: string,
 ): Promise<string> {
   const fields = envelope.split('.');
-  if (fields.length !== 4 || fields[0] !== PAIRING_HANDSHAKE_VERSION) throw new Error('Pairing handoff is invalid.');
+  if (fields.length !== 4 || fields[0] !== PAIRING_HANDSHAKE_VERSION) {
+    throw new Error('Pairing handoff is invalid.');
+  }
   const { wrapKey } = await derivePairingKeys(pairingCode, secrets, peerShareBase64);
   const aad = utf8Encode(JSON.stringify([
     PAIRING_HANDSHAKE_VERSION,
     secrets.sessionId,
     relationshipKeyCommitment,
   ]));
-  const plaintext = await expoAesGcmProvider.decrypt({
-    iv: base64ToBytes(fields[1] ?? ''),
-    ciphertext: base64ToBytes(fields[2] ?? ''),
-    tag: base64ToBytes(fields[3] ?? ''),
-  }, wrapKey, aad);
-  const relationshipKey = new TextDecoder().decode(plaintext);
-  if (!relationshipKey || relationshipKey.length > 512) throw new Error('Pairing handoff is invalid.');
-  return relationshipKey;
+  try {
+    const plaintext = await expoAesGcmProvider.decrypt({
+      iv: base64ToBytes(fields[1] ?? ''),
+      ciphertext: base64ToBytes(fields[2] ?? ''),
+      tag: base64ToBytes(fields[3] ?? ''),
+    }, wrapKey, aad);
+    return normalizeRelationshipKey(new TextDecoder().decode(plaintext));
+  } catch {
+    throw new Error('Pairing handoff is invalid.');
+  }
 }
 
 export async function createPairingConfirmation(
@@ -169,19 +229,26 @@ export async function verifyPairingConfirmation(
   peerShareBase64: string,
 ): Promise<void> {
   const fields = envelope.split('.');
-  if (fields.length !== 4 || fields[0] !== PAIRING_HANDSHAKE_VERSION) throw new Error('Pairing confirmation is invalid.');
+  if (fields.length !== 4 || fields[0] !== PAIRING_HANDSHAKE_VERSION) {
+    throw new Error('Pairing confirmation is invalid.');
+  }
   const { confirmKey } = await derivePairingKeys(pairingCode, secrets, peerShareBase64);
   const aad = utf8Encode(JSON.stringify([
     PAIRING_HANDSHAKE_VERSION,
     secrets.sessionId,
     'confirmation',
   ]));
-  const plaintext = await expoAesGcmProvider.decrypt({
-    iv: base64ToBytes(fields[1] ?? ''),
-    ciphertext: base64ToBytes(fields[2] ?? ''),
-    tag: base64ToBytes(fields[3] ?? ''),
-  }, confirmKey, aad);
-  if (plaintext.length !== CONFIRMATION_TEXT.length || plaintext.some((value, index) => value !== CONFIRMATION_TEXT[index])) {
+  try {
+    const plaintext = await expoAesGcmProvider.decrypt({
+      iv: base64ToBytes(fields[1] ?? ''),
+      ciphertext: base64ToBytes(fields[2] ?? ''),
+      tag: base64ToBytes(fields[3] ?? ''),
+    }, confirmKey, aad);
+    if (plaintext.length !== CONFIRMATION_TEXT.length) throw new Error();
+    for (let index = 0; index < plaintext.length; index += 1) {
+      if (plaintext[index] !== CONFIRMATION_TEXT[index]) throw new Error();
+    }
+  } catch {
     throw new Error('Pairing confirmation is invalid.');
   }
 }
