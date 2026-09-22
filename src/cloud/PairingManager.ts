@@ -522,7 +522,7 @@ export class PairingManager {
       commitment,
       pairingCode,
       secrets,
-      secrets.role === 'RESPONDER' ? secrets.ownShare : responderShare,
+      responderShare,
     );
     const actualCommitment = await this.keyCommitment(key);
     if (actualCommitment !== commitment) throw new Error('Paired relationship key commitment does not match.');
