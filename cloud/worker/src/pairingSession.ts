@@ -40,6 +40,7 @@ interface SessionRequest {
   handoff?: unknown;
   confirmation?: unknown;
   partnerCredentialHash?: unknown;
+  partnerDeviceId?: unknown;
 }
 
 interface SessionRow {
@@ -132,24 +133,6 @@ async function getSession(env: Env, sessionId: string): Promise<SessionRow | nul
     "SELECT id, invitation_id, relationship_id, expires_at, initiator_share, responder_share, handoff, confirmation, partner_credential_hash, partner_device_id, completed_at, created_at " +
     "FROM pairing_sessions WHERE id = ?1",
   ).bind(sessionId).first<SessionRow>();
-}
-
-async function getInvitationByCode(env: Env, confirmationCode: string) {
-  const confirmationHash = await sha256Hex(confirmationCode);
-  return env.DB.prepare(
-    "SELECT i.id, i.relationship_id, i.expires_at, i.consumed_at, " +
-    "r.status, r.relationship_key_commitment " +
-    "FROM invitations i JOIN relationships r ON r.id = i.relationship_id " +
-    "WHERE i.confirmation_code_hash = ?1 " +
-    "ORDER BY i.expires_at DESC LIMIT 1",
-  ).bind(confirmationHash).first<{
-    id: string;
-    relationship_id: string;
-    expires_at: number;
-    consumed_at: number | null;
-    status: "PAIRING" | "ACTIVE" | "ENDED";
-    relationship_key_commitment: string | null;
-  }>();
 }
 
 async function getLiveInvitationByCode(env: Env, confirmationCode: string) {
@@ -637,10 +620,9 @@ async function pollSession(
     handoff: session.handoff,
     confirmation: session.confirmation,
     partnerCredentialHash: session.partner_credential_hash,
-    partnerDeviceId: session.partner_device_id,
+    partnerDeviceId: partnerDevice?.id ?? session.partner_device_id ?? null,
     completed: session.completed_at !== null,
     relationshipKeyCommitment: invitation.relationship_key_commitment,
-    partnerDeviceId: partnerDevice?.id ?? null,
   });
 }
 
