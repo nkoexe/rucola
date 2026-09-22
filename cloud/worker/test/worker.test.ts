@@ -59,9 +59,7 @@ describe("Rucola cloud worker", () => {
         share: responderShare,
       }),
     });
-    if (publishResponder.status !== 200) {
-      throw new Error(`publish responder failed: ${publishResponder.status} ${await publishResponder.clone().text()}`);
-    }
+    expect(publishResponder.status).toBe(200);
 
     const publishHandoff = await exports.default.fetch("https://rucola.test/v1/pairing/session", {
       method: "POST",
