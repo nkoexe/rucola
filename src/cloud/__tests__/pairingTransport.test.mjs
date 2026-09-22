@@ -6,7 +6,6 @@ import {
   createPairingShareUrl,
   normalizePairingInput,
   parsePairingShareUrl,
-  pairingAlphabetSize,
 } from '../pairingTransport.ts';
 
 const CODE = '😀😃😄😁😆';
@@ -65,3 +64,11 @@ test('rejects unsafe share-link variations', () => {
 test('uses the explicit five-emoji alphabet as the pairing entropy source', () => {
   assert.equal(pairingAlphabetSize(), 33);
 });
+
+test('rejects a pairing base URL with a path', () => {
+  assert.throws(
+    () => createPairingShareUrl(CODE, PAIRING_SHARE_BASE_URL + '/pair'),
+    /plain HTTPS origin/,
+  );
+});
+
