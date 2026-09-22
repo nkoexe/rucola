@@ -6,9 +6,9 @@ import {
   createPairingConfirmation,
   createPairingHandshake,
   decryptRelationshipKey,
-  derivePairingKeys,
   encryptRelationshipKey,
   generatePairingSessionId,
+  verifyPairingConfirmation,
   type PairingHandshakeSecrets,
 } from './pairingHandshake.ts';
 import { createPairingPackage, decodePairingPackage } from './pairingPackage.ts';
@@ -163,19 +163,20 @@ export class PairingManager {
       if (session.completed) {
         if (!session.partnerDeviceId) throw new Error('Completed pairing did not return the partner device ID.');
         if (!partnerCredential) throw new Error('Pairing completed before local credential generation.');
+        const relationshipKey = await this.relationshipKeyFromSession(
+          pairingCode,
+          secrets,
+          session.initiatorShare,
+          session.handoff,
+          joined.relationshipKeyCommitment,
+        );
         const identity: CloudIdentity = {
           relationshipId: joined.relationshipId,
           deviceId: session.partnerDeviceId,
           participant: 'PARTNER',
           state: 'ACTIVE',
           credential: partnerCredential,
-          relationshipKey: await this.relationshipKeyFromSession(
-            pairingCode,
-            secrets,
-            session.responderShare ?? handshake.share,
-            session.handoff,
-            joined.relationshipKeyCommitment,
-          ),
+          relationshipKey,
         };
         await this.identityStore.save(identity);
         this.cloud.setCredential(partnerCredential);
@@ -505,12 +506,7 @@ export class PairingManager {
     confirmation: string,
   ): Promise<void> {
     if (!responderShare) throw new Error('Pairing responder share is missing.');
-    await (await import('./pairingHandshake.ts')).verifyPairingConfirmation(
-      confirmation,
-      pairingCode,
-      secrets,
-      responderShare,
-    );
+    await verifyPairingConfirmation(confirmation, pairingCode, secrets, responderShare);
   }
 
   private async relationshipKeyFromSession(
