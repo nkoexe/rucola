@@ -75,22 +75,31 @@ function deriveKey(isk: Uint8Array, sessionId: Uint8Array, info: Uint8Array): st
   return bytesToBase64(hkdf(sha256, isk, sessionId, info, 32));
 }
 
-function pairingInputs(
-  pairingCode: string,
+function sessionInputs(
   sessionId: string,
   relationshipKeyCommitment: string,
 ) {
-  const code = canonicalizePairingCode(pairingCode);
   const sid = decodeSessionId(sessionId);
   if (!/^[0-9a-f]{64}$/.test(relationshipKeyCommitment)) {
     throw new Error('Pairing commitment is invalid.');
   }
   return {
-    PRS: utf8Encode(code),
     sid,
-    CI: buildChannelIdentifier(),
     initiatorAD: buildAssociatedData('INITIATOR', relationshipKeyCommitment),
     responderAD: buildAssociatedData('RESPONDER', relationshipKeyCommitment),
+  };
+}
+
+function pairingInputs(
+  pairingCode: string,
+  sessionId: string,
+  relationshipKeyCommitment: string,
+) {
+  const { sid } = sessionInputs(sessionId, relationshipKeyCommitment);
+  return {
+    PRS: utf8Encode(canonicalizePairingCode(pairingCode)),
+    sid,
+    CI: buildChannelIdentifier(),
   };
 }
 
@@ -121,8 +130,7 @@ export async function derivePairingKeys(
   secrets: PairingHandshakeSecrets,
   peerShareBase64: string,
 ): Promise<{ wrapKey: string; confirmKey: string }> {
-  const { sid, initiatorAD, responderAD } = pairingInputs(
-    '😀😀😀😀😀',
+  const { sid, initiatorAD, responderAD } = sessionInputs(
     secrets.sessionId,
     secrets.relationshipKeyCommitment,
   );
