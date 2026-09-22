@@ -70,7 +70,7 @@ For E2E v1, the relationship has one cryptographically random **256-bit relation
 
 Device A creates it locally during pairing.
 
-The relationship key is transferred to Device B through an out-of-band pairing payload that the server never learns. The user-facing pairing experience may use a secure QR/deep-link/share payload while keeping the five-emoji UX as the human-facing pairing confirmation.
+The relationship key is transferred or established through a hidden pairing session that the Worker cannot read. The user-facing experience has two transports: manual five-emoji entry and the HTTPS five-emoji share link. No technical payload is shown or manually transferred by the user.
 
 The server may receive:
 
@@ -88,7 +88,7 @@ Device A
   │
   ├─ generate random 256-bit relationship key
   │
-  ├─ create secure pairing payload
+  ├─ create invitation + hidden pairing session
   │
   └─ transfer payload directly to Device B
                            │
@@ -380,8 +380,8 @@ Before installation:
 1. Open A.
 2. Complete local setup.
 3. Start pairing.
-4. Transfer the secure pairing payload to B.
-5. Confirm the five-emoji pairing code.
+4. Either enter the five emojis on B, or open the shared HTTPS five-emoji link on B.
+5. Let the hidden pairing session complete; no technical payload is entered by the user.
 6. Complete pairing on B.
 7. Restart both apps.
 8. Verify both still show paired state.
@@ -498,7 +498,7 @@ The important design decisions captured by this plan are:
 2. **The cloud is a temporary mailbox, not permanent history.**
 3. **Cloud authentication credentials and message-encryption material are separate secrets.**
 4. **Prototype E2E uses a random 256-bit relationship key.**
-5. **The relationship key must be transferred out-of-band and never sent to the Worker.**
+5. **The relationship key must be transferred/established through the hidden pairing session and never sent raw to the Worker.**
 6. **AES-256-GCM is the message encryption primitive for E2E v1.**
 7. **AAD binds encrypted content to message identity/context.**
 8. **The server never needs plaintext.**
