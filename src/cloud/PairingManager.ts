@@ -1,6 +1,6 @@
 import type { PairingAcceptResponse, PairingBootstrapResponse } from './protocol.ts';
 import { CloudClient } from './CloudClient.ts';
-import { CloudIdentityStore, type CloudIdentity, type PendingPairing } from './CloudIdentityStore.ts';
+import { CloudIdentityStore, type CloudIdentity } from './CloudIdentityStore.ts';
 import { createPairingPackage, decodePairingPackage } from './pairingPackage.ts';
 import { isValidPairingConfirmationCode } from './pairingCode.ts';
 import {
