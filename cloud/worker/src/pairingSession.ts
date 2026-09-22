@@ -81,6 +81,7 @@ async function readJson(request: Request): Promise<SessionRequest | null> {
 function actionOf(value: unknown): SessionAction | null {
   return value === "START" ||
     value === "JOIN" ||
+    value === "PUBLISH_RESPONDER_SHARE" ||
     value === "PUBLISH_HANDOFF" ||
     value === "PUBLISH_CONFIRMATION" ||
     value === "COMPLETE" ||
