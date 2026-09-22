@@ -30,19 +30,25 @@ test('both CPace peers derive the same pairing keys', async () => {
   assert.equal(aKeys.confirmKey, bKeys.confirmKey);
 });
 
-test('wrong pairing code derives different keys', async () => {
+test('wrong pairing code derives a different session key', async () => {
   const a = await createPairingHandshake(SESSION, CODE, COMMITMENT);
   const b = await createPairingHandshake(SESSION, CODE, COMMITMENT);
-  await assert.rejects(
-    derivePairingKeys('😀😀😀😀😀', {
-      sessionId: SESSION,
-      ephemeralSecret: b.ephemeralSecret,
-      ownShare: b.share,
-      role: 'RESPONDER',
-      relationshipKeyCommitment: COMMITMENT,
-    }, a.share),
-    /./,
-  );
+  const correct = await derivePairingKeys(CODE, {
+    sessionId: SESSION,
+    ephemeralSecret: b.ephemeralSecret,
+    ownShare: b.share,
+    role: 'RESPONDER',
+    relationshipKeyCommitment: COMMITMENT,
+  }, a.share);
+  const wrong = await derivePairingKeys('😀😀😀😀😀', {
+    sessionId: SESSION,
+    ephemeralSecret: b.ephemeralSecret,
+    ownShare: b.share,
+    role: 'RESPONDER',
+    relationshipKeyCommitment: COMMITMENT,
+  }, a.share);
+  assert.notEqual(wrong.wrapKey, correct.wrapKey);
+  assert.notEqual(wrong.confirmKey, correct.confirmKey);
 });
 
 test('session IDs are part of CPace key derivation', async () => {
