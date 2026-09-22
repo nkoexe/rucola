@@ -24,6 +24,7 @@ const PAIRING_EMOJIS = [
 type SessionAction =
   | "START"
   | "JOIN"
+  | "PUBLISH_RESPONDER_SHARE"
   | "PUBLISH_HANDOFF"
   | "PUBLISH_CONFIRMATION"
   | "COMPLETE"
@@ -239,7 +240,7 @@ async function startSession(
 }
 
 async function joinSession(env: Env, body: SessionRequest): Promise<Response> {
-  if (!isPairingCode(body.confirmationCode) || !isCpaceShare(body.share)) {
+  if (!isPairingCode(body.confirmationCode)) {
     return errorResponse("INVALID_REQUEST", "Invalid pairing session request", 400);
   }
 
@@ -255,37 +256,66 @@ async function joinSession(env: Env, body: SessionRequest): Promise<Response> {
   }
 
   const session = await env.DB.prepare(
-    "SELECT id, expires_at, responder_share FROM pairing_sessions WHERE invitation_id = ?1",
-  ).bind(invitation.id).first<{ id: string; expires_at: number; responder_share: string | null }>();
+    "SELECT id, expires_at, initiator_share FROM pairing_sessions WHERE invitation_id = ?1",
+  ).bind(invitation.id).first<{ id: string; expires_at: number; initiator_share: string }>();
 
   if (!session || session.expires_at <= Date.now()) return invalidSession();
-  if (session.responder_share !== null && session.responder_share !== body.share) {
-    return errorResponse("PAIRING_CONFLICT", "Pairing session is already joined", 409);
+
+  return json({
+    sessionId: session.id,
+    expiresAt: session.expires_at,
+    initiatorShare: session.initiator_share,
+    relationshipId: invitation.relationship_id,
+    relationshipKeyCommitment: invitation.relationship_key_commitment,
+  });
+}
+
+async function publishResponderShare(env: Env, body: SessionRequest): Promise<Response> {
+  if (!isSessionId(body.sessionId) || !isPairingCode(body.confirmationCode) || !isCpaceShare(body.share)) {
+    return errorResponse("INVALID_REQUEST", "Invalid pairing session payload", 400);
   }
 
-  if (session.responder_share === null) {
-    const updated = await env.DB.prepare(
-      "UPDATE pairing_sessions SET responder_share = ?1 " +
-      "WHERE id = ?2 AND responder_share IS NULL AND expires_at > ?3",
-    ).bind(body.share, session.id, Date.now()).run();
-    if ((updated.meta.changes ?? 0) !== 1) {
-      const current = await getSession(env, session.id);
-      if (!current || current.responder_share !== body.share) {
-        return errorResponse("PAIRING_CONFLICT", "Pairing session is already joined", 409);
-      }
+  const invitation = await getInvitationByCode(env, body.confirmationCode);
+  if (
+    !invitation ||
+    invitation.status !== "PAIRING" ||
+    invitation.consumed_at !== null ||
+    invitation.expires_at <= Date.now()
+  ) {
+    return invalidSession();
+  }
+
+  const session = await getSession(env, body.sessionId);
+  if (
+    !session ||
+    session.invitation_id !== invitation.id ||
+    session.relationship_id !== invitation.relationship_id ||
+    session.expires_at <= Date.now() ||
+    session.completed_at !== null
+  ) {
+    return invalidSession();
+  }
+
+  if (session.responder_share !== null) {
+    if (session.responder_share !== body.share) {
+      return errorResponse("PAIRING_CONFLICT", "Pairing session is already joined", 409);
+    }
+    return json({ ok: true });
+  }
+
+  const result = await env.DB.prepare(
+    "UPDATE pairing_sessions SET responder_share = ?1 " +
+    "WHERE id = ?2 AND responder_share IS NULL AND expires_at > ?3",
+  ).bind(body.share, session.id, Date.now()).run();
+
+  if ((result.meta.changes ?? 0) !== 1) {
+    const current = await getSession(env, session.id);
+    if (!current || current.responder_share !== body.share) {
+      return errorResponse("PAIRING_CONFLICT", "Pairing session is already joined", 409);
     }
   }
 
-  const current = await getSession(env, session.id);
-  if (!current) return invalidSession();
-
-  return json({
-    sessionId: current.id,
-    expiresAt: current.expires_at,
-    initiatorShare: current.initiator_share,
-    responderShare: current.responder_share,
-    relationshipKeyCommitment: invitation.relationship_key_commitment,
-  });
+  return json({ ok: true });
 }
 
 async function publishHandoff(
@@ -469,6 +499,11 @@ async function pollSession(
       partnerCredentialHash: session.partner_credential_hash,
       completed: session.completed_at !== null,
       relationshipKeyCommitment: relationship?.relationship_key_commitment ?? null,
+      partnerDeviceId: session.completed_at === null
+        ? null
+        : (await env.DB.prepare(
+            "SELECT id FROM devices WHERE relationship_id = ?1 AND participant = 'PARTNER' AND revoked_at IS NULL LIMIT 1",
+          ).bind(session.relationship_id).first<{ id: string }>())?.id ?? null,
     });
   }
 
@@ -491,6 +526,11 @@ async function pollSession(
     handoff: session.handoff,
     completed: session.completed_at !== null,
     relationshipKeyCommitment: invitation.relationship_key_commitment,
+    partnerDeviceId: session.completed_at === null
+      ? null
+      : (await env.DB.prepare(
+          "SELECT id FROM devices WHERE relationship_id = ?1 AND participant = 'PARTNER' AND revoked_at IS NULL LIMIT 1",
+        ).bind(session.relationship_id).first<{ id: string }>())?.id ?? null,
   });
 }
 
@@ -510,7 +550,7 @@ export async function handlePairingSession(env: Env, request: Request): Promise<
     return errorResponse("UNAUTHENTICATED", "Valid device credentials are required", 401);
   }
 
-  if (action === "JOIN" || action === "PUBLISH_CONFIRMATION" || action === "POLL") {
+  if (action === "JOIN" || action === "PUBLISH_RESPONDER_SHARE" || action === "PUBLISH_CONFIRMATION" || action === "POLL") {
     const limiterKey = "pairing-session:" + (request.headers.get("cf-connecting-ip") ?? "local-development");
     if (!(await env.PAIRING_BOOTSTRAP_LIMITER.limit({ key: limiterKey })).success) {
       const response = errorResponse("PAIRING_RATE_LIMITED", "Too many pairing attempts", 429);
@@ -524,6 +564,8 @@ export async function handlePairingSession(env: Env, request: Request): Promise<
       return startSession(env, body, authenticated as AuthenticatedDevice);
     case "JOIN":
       return joinSession(env, body);
+    case "PUBLISH_RESPONDER_SHARE":
+      return publishResponderShare(env, body);
     case "PUBLISH_HANDOFF":
       return publishHandoff(env, body, authenticated as AuthenticatedDevice);
     case "PUBLISH_CONFIRMATION":
