@@ -3,6 +3,13 @@ import { CloudClient } from './CloudClient.ts';
 import { CloudIdentityStore, type CloudIdentity, type PendingPairing } from './CloudIdentityStore.ts';
 import { createPairingPackage, decodePairingPackage } from './pairingPackage.ts';
 import { isValidPairingConfirmationCode } from './pairingCode.ts';
+import {
+  createPairingShareUrl,
+  type PairingInput,
+  type PairingInvitationView,
+} from './pairingTransport.ts';
+
+export type { PairingInput, PairingInvitationView };
 
 export interface PairingManagerOptions {
   cloud: CloudClient;
@@ -12,9 +19,11 @@ export interface PairingManagerOptions {
   now?: () => number;
 }
 
+/**
+ * Transitional legacy view used only while the package-based join path is removed.
+ * Do not add this type to new UI code.
+ */
 export interface PendingPairingView {
-  relationshipId: string;
-  invitationId: string;
   confirmationCode: string;
   expiresAt: number;
   package: string;
@@ -80,12 +89,20 @@ export class PairingManager {
     this.cloud.setCredential(response.credential);
 
     return {
-      relationshipId: response.relationshipId,
-      invitationId: response.invitationId,
       confirmationCode: response.confirmationCode,
       expiresAt: response.expiresAt,
       package: pairingPackage,
     };
+  }
+
+  async startPairingInvitation(expiresInSeconds?: number): Promise<PairingInvitationView> {
+    const pending = await this.startPairing(expiresInSeconds);
+    return this.toInvitationView(pending);
+  }
+
+  async resumePendingPairingInvitation(): Promise<PairingInvitationView | null> {
+    const pending = await this.resumePendingPairing();
+    return pending ? this.toInvitationView(pending) : null;
   }
 
   async resumePendingPairing(): Promise<PendingPairingView | null> {
@@ -111,12 +128,28 @@ export class PairingManager {
 
     this.cloud.setCredential(identity.credential);
     return {
-      relationshipId: identity.relationshipId,
-      invitationId: identity.pendingPairing.invitationId,
       confirmationCode: identity.pendingPairing.confirmationCode,
       expiresAt: identity.pendingPairing.expiresAt,
       package: await createPairingPackage(response, identity.relationshipKey),
     };
+  }
+
+  private toInvitationView(pending: PendingPairingView): PairingInvitationView {
+    return {
+      pairingCode: pending.confirmationCode,
+      shareUrl: createPairingShareUrl(pending.confirmationCode),
+      expiresAt: pending.expiresAt,
+    };
+  }
+
+  normalizePairingInput(input: PairingInput) {
+    if (input.transport === 'EMOJI') {
+      return { transport: 'EMOJI' as const, pairingCode: input.value };
+    }
+    if (input.transport === 'SHARE_LINK') {
+      return { transport: 'SHARE_LINK' as const, pairingCode: input.value };
+    }
+    throw new Error('Pairing input transport is invalid.');
   }
 
   async acceptPairingPackage(encodedPackage: string, confirmationCode: string): Promise<PairingAcceptResult> {
