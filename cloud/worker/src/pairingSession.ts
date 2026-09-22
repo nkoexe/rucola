@@ -513,18 +513,20 @@ async function pollSession(
   if (
     !invitation ||
     invitation.id !== session.invitation_id ||
-    invitation.consumed_at !== null ||
-    invitation.expires_at <= Date.now()
+    invitation.expires_at <= Date.now() ||
+    (invitation.consumed_at !== null && session.completed_at === null)
   ) {
     return invalidSession();
   }
 
   return json({
     sessionId: session.id,
+    relationshipId: session.relationship_id,
     expiresAt: session.expires_at,
     initiatorShare: session.initiator_share,
     responderShare: session.responder_share,
     handoff: session.handoff,
+    confirmation: null,
     completed: session.completed_at !== null,
     relationshipKeyCommitment: invitation.relationship_key_commitment,
     partnerDeviceId: session.completed_at === null
