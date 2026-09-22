@@ -57,14 +57,18 @@ The receipt survives mailbox deletion so a sender can safely retry after a lost 
 
 ## Pairing
 
-**Status: complete and hardened at the backend layer.**
+**Status: prototype handshake and transport migration complete; production validation pending.**
 
-- bootstrap creates the first device and invitation;
-- invitation acceptance creates the partner device;
-- confirmation attempts are bounded and lockable;
-- concurrent acceptance is tested so an invitation is consumed only once;
-- relationship and device ownership are enforced by the database and Worker;
-- the user-facing confirmation code remains separate from the higher-entropy invitation token and device credentials.
+- bootstrap creates the first device and short-lived invitation;
+- five-emoji codes are the only human-facing pairing credential;
+- emoji entry and HTTPS share-link inputs converge on the same pairing session;
+- `pairing_sessions` relays CPace draft-20 shares and opaque handoff/confirmation envelopes without receiving the relationship key;
+- responder device ID and credential hash are bound to the session;
+- duplicate confirmation publication is idempotent for the same responder identity;
+- responder pairing state is stored securely before relay publication and can be resumed after restart;
+- completion inserts the exact responder device and atomically consumes the invitation / activates the relationship;
+- the Worker serves a no-store five-emoji HTTPS landing page and an optional `assetlinks.json` response when a real Android signing fingerprint is configured;
+- the old serialized package path remains only as an internal compatibility API.
 
 ## Media / R2
 
@@ -135,22 +139,21 @@ Implemented on the current development branch:
 - The sync test suite now exercises a simulated two-device encrypted TEXT burst in both directions and a lost-response/idempotent retry.
 - The Worker cleanup suite now covers expiry of an unpaired pairing relationship without touching active relationships.
 
-The implementation is committed for the transitional pairing flow. The transport-neutral pairing refactor is now in place, while the legacy package-based acceptance path remains temporarily available behind the old API. The next pairing migration replaces that path with the hidden key-establishment handshake and makes the five emojis the only human-facing pairing credential. The intended share transport is an HTTPS five-emoji link handled through Android App Links; the hidden cryptographic handoff remains inside the pairing core.
+The prototype implementation now completes the transport-neutral pairing flow end-to-end in code: five-emoji entry and HTTPS share links feed the hidden pairing session, the responder can recover after restart, the Worker completes the relationship atomically, and the app exposes no package/token/credential/key material. The legacy package API remains only for compatibility. Production approval and physical two-device validation are still separate gates.
 
 ## Remaining work
 
-1. Validate the real encrypted TEXT/EMOJI online loop on two Android devices against the dev Worker, including offline bursts and retry/restart behavior.
-2. Validate the signed dev APK path against the dev Worker and the current Worker schema.
-3. Add an in-app QR/camera transfer path if the share-sheet prototype proves insufficient for the physical test.
-4. Complete the hidden pairing handshake and emoji-only acceptance path.
-5. Validate both pairing transports on two real Android devices against the dev Worker.
-6. Finish end-to-end PHOTO_VIDEO synchronization.
-7. Add background synchronization/notifications only after the foreground path is proven.
-8. Complete production migration/recovery, resource/secrets verification, and observability.
-9. Decide whether to remove the legacy `mailbox_messages.acknowledged_at` field after the current protocol is fully migrated.
+1. Validate the encrypted TEXT/EMOJI online loop on two Android devices against the dev Worker, including restart/retry behavior.
+2. Validate both emoji entry and HTTPS share-link/App Link pairing on two real Android devices.
+3. Configure and verify `RUCOLA_ANDROID_APP_LINK_FINGERPRINTS` with the actual signing certificate used by the installed APK.
+4. Complete the production CPace/dependency/runtime review; the repository implementation is intentionally pinned to draft-20 while the active CFRG draft is newer.
+5. Finish end-to-end PHOTO_VIDEO synchronization.
+6. Add background synchronization/notifications only after the foreground path is proven.
+7. Complete production migration/recovery, resource/secrets verification, and observability.
+8. Decide whether to remove the legacy `mailbox_messages.acknowledged_at` field after the current protocol is fully migrated.
 
 ## Next step
 
-The next pairing gate is the hidden handshake implementation defined in `docs/PAIRING_HANDSHAKE.md`. Two-device validation follows only after the handshake and both transports are wired.
+The code gate is complete for the prototype. Next is two-device Android validation plus the production cryptographic/runtime review and real App Link association.
 
 Do not make the UI depend directly on cloud endpoints.
