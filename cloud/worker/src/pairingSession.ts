@@ -11,7 +11,7 @@ const SESSION_LIFETIME_MS = 15 * 60 * 1000;
 const CREDENTIAL_HASH_RE = /^[0-9a-f]{64}$/;
 const SESSION_ID_RE = /^[A-Za-z0-9+/]{22}==$/;
 const CPACE_SHARE_RE = /^[A-Za-z0-9+/]{43}=$/;
-const ENVELOPE_RE = /^rucola-pairing-v1\.[A-Za-z0-9+/=]+\.[A-Za-z0-9+/=]+\.[A-Za-z0-9+/=]+$/;
+const ENVELOPE_RE = /^rucola-cpace20-v1\.[A-Za-z0-9+/=]+\.[A-Za-z0-9+/=]+\.[A-Za-z0-9+/=]+$/;
 
 const PAIRING_EMOJIS = [
   "😀", "😃", "😄", "😁", "😆", "😅", "😂", "🤣",
