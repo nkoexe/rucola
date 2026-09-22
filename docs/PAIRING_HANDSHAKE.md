@@ -2,7 +2,7 @@
 
 ## Status
 
-**Design prepared; implementation gated on crypto/runtime validation.**
+**Experimental implementation in progress; not production-ready.** The current adapter is explicitly bound to CPace draft-20 because `@cipherman/pake-js@0.1.1` is verified against draft-20. The active CFRG draft is 21, so this wire format must not be treated as stable.
 
 This is the next pairing boundary after the transport-neutral core. It deliberately does not add home-grown PAKE/curve code.
 
