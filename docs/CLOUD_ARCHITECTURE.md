@@ -104,7 +104,7 @@ The first online prototype retains a locally generated random 256-bit relationsh
 
 The Worker stores the one-way relationship-key commitment and normal invitation metadata, but never the raw relationship key.
 
-The hidden client pairing session must be implemented with a vetted password-authenticated/key-establishment construction or an equivalent reviewed primitive. Five emojis are low entropy and therefore must not be treated as a long-lived encryption key or used to protect a server-readable copy of the relationship key.
+The hidden client pairing session must use a balanced password-authenticated/key-establishment construction appropriate for two peer devices. SPAKE2 (RFC 9382) is a protocol-fit reference, while CPace is another balanced candidate; no PAKE library is approved yet because the Expo/Android runtime and library maturity must be validated first. Five emojis are low entropy and therefore must not be treated as a long-lived encryption key or used to protect a server-readable copy of the relationship key.
 
 Successful pairing creates the partner device, activates the relationship, and consumes the invitation exactly once.
 
