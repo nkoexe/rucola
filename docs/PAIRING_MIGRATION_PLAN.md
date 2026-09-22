@@ -2,7 +2,7 @@
 
 ## Status
 
-**Current implementation stage:** transport-neutral pairing core is in place; hidden-handshake design is documented in `docs/PAIRING_HANDSHAKE.md`; the cryptographic implementation remains gated on primitive/runtime validation.
+**Current implementation stage:** Step 2 (emoji/share-link transport) and Step 3 (hidden pairing handshake) are implemented in the prototype. The production cryptographic/runtime gate and real two-device Android validation remain.
 
 This is the implementation contract for replacing the current transitional pairing-payload + five-emojis flow with the intended emoji-only user experience and the alternative share-link transport.
 
@@ -140,6 +140,8 @@ The technical rules are:
 10. Server-side request/diagnostic logs must not record the full pairing URL or raw five-emoji secret.
 11. The route must not become cacheable or shareable as ordinary public content.
 12. Invalid, expired, already-consumed, or malformed links return a generic non-sensitive response.
+13. The Worker landing page is read-only; it does not consume invitations or reveal technical pairing material.
+14. Android App Links are verified only when `/.well-known/assetlinks.json` is configured with the real app signing fingerprint.
 
 Android should use verified HTTPS App Links for rucola.njco.dev. Android's App Links mechanism associates the domain with the signed app and can route matching HTTPS paths into the app without requiring a custom scheme. See Android App Links: https://developer.android.com/training/app-links.
 
