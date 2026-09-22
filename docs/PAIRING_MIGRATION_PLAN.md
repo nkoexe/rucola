@@ -292,7 +292,7 @@ Exit condition:
 
 ### Phase 2 — emoji transport
 
-**Prerequisite:** complete the hidden-handshake gate in `docs/PAIRING_HANDSHAKE.md`.
+**Prerequisite:** the experimental hidden-handshake implementation is present, but it remains gated on the explicit security/runtime checks in `docs/PAIRING_HANDSHAKE.md`.
 
 Implement:
 
