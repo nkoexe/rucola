@@ -1,7 +1,7 @@
 # Rucola Cloud Implementation Status
 
 Date: 2026-09-20  
-Branch: `feat/dev-cloud-runtime-wiring`
+Branch: `feature/pairing-emoji-share-link`
 
 ## Current status
 
@@ -124,6 +124,8 @@ Implemented on the current development branch:
 - The mobile pairing protocol persists recoverable `PAIRING` state separately from `ACTIVE` state and can resume a pending invitation after restart.
 - The user-facing pairing credential is exactly five emojis; the invitation token, cloud credential, relationship key, and any serialized pairing package remain technical pairing material and must not be exposed in the UI.
 - The target migration replaces the current visible pairing-package handoff with two transport options: emoji-only entry and an HTTPS five-emoji share link.
+- The transport-neutral pairing boundary is now implemented in `pairingTransport.ts`; direct emoji input and share-link input normalize to the same canonical five-emoji code.
+- `PairingManager` and `CloudRuntime` now expose a human-facing invitation projection containing only the pairing code, share URL, and expiry. The legacy package-bearing path remains isolated as temporary compatibility code until the hidden handshake is implemented.
 - Auth probing now exposes the relationship lifecycle state so the initiating device can transition from `PAIRING` to `ACTIVE` after the partner joins.
 - `CloudRuntime` now owns `CloudClient`, `CloudIdentityStore`, `PairingManager`, the SQLite sync-state store, `AesGcmSyncCodec`, and one coalescing `SyncEngine` instance for the active identity.
 - `SyncEngine` now passes the durable sender sequence into the codec, so the sequence is covered by AES-GCM authenticated context exactly as designed.
@@ -133,7 +135,7 @@ Implemented on the current development branch:
 - The sync test suite now exercises a simulated two-device encrypted TEXT burst in both directions and a lost-response/idempotent retry.
 - The Worker cleanup suite now covers expiry of an unpaired pairing relationship without touching active relationships.
 
-The implementation is committed for the transitional pairing flow. The next pairing migration removes the visible out-of-band pairing payload and makes the five emojis the only human-facing pairing credential. The intended share transport is an HTTPS five-emoji link handled through Android App Links; the hidden cryptographic handoff remains inside the pairing core.
+The implementation is committed for the transitional pairing flow. The transport-neutral pairing refactor is now in place, while the legacy package-based acceptance path remains temporarily available behind the old API. The next pairing migration replaces that path with the hidden key-establishment handshake and makes the five emojis the only human-facing pairing credential. The intended share transport is an HTTPS five-emoji link handled through Android App Links; the hidden cryptographic handoff remains inside the pairing core.
 
 ## Remaining work
 
