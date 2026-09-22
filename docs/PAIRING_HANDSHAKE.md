@@ -2,7 +2,7 @@
 
 ## Status
 
-**Experimental implementation in progress; not production-ready.** The current adapter is explicitly bound to CPace draft-20 because `@cipherman/pake-js@0.1.1` is verified against draft-20. The active CFRG draft is 21, so this wire format must not be treated as stable.
+**Prototype implementation complete; not production-ready.** The current adapter is explicitly bound to CPace draft-20 because `@cipherman/pake-js@0.1.1` implements that revision. The active CFRG draft is 21, so this wire format is intentionally versioned as experimental and must not be treated as stable until the dependency/protocol choice is revalidated.
 
 This is the next pairing boundary after the transport-neutral core. It deliberately does not add home-grown PAKE/curve code.
 
@@ -33,16 +33,15 @@ The current JavaScript package `@cipherman/pake-js` exposes Ristretto255/SHA-512
 
 ### Gate
 
-An experimental `@cipherman/pake-js@0.1.1` dependency is now present, strictly as a draft-20 CPace prototype. It is not approved for production use.
+The implementation gate is now passed for the repository prototype: CPace draft-20 is wired through the maintained `@cipherman/pake-js@0.1.1` API, with explicit version binding, application-level key derivation, AEAD handoff, confirmation, and a durable Worker relay. Production approval is intentionally still blocked on independent cryptographic review, the library's upstream official-vector suite, and an actual Expo/Hermes Android runtime probe.
 
-Next crypto gate:
+The production gate is:
 
-1. verify the draft-20 implementation against its published test vectors and keep its draft-20 version binding explicit;
-2. run its official vectors unchanged;
-3. prove secure randomness in the actual Expo/Hermes Android build;
-4. prove it has no unavailable Node/browser runtime assumptions;
-5. review provenance, release history, dependency surface, and failure behavior;
-6. otherwise evaluate RFC 9382 SPAKE2 with a suitable maintained implementation.
+1. verify the dependency against its published draft-20 test vectors and keep the version binding explicit;
+2. run the upstream official vectors unchanged as part of dependency review;
+3. prove secure randomness and runtime compatibility in the actual Expo/Hermes Android build;
+4. review provenance, release history, dependency surface, and failure behavior;
+5. re-evaluate the protocol/dependency if CPace draft-21 or an equivalent reviewed implementation becomes the chosen production baseline.
 
 Do not write custom curve arithmetic or a custom PAKE merely to avoid this gate.
 
@@ -166,7 +165,7 @@ canonical code
 common pairing session
 ```
 
-GET/HEAD never consumes or activates pairing. App Link handling and browser fallback are outside this step and must reuse the same pairing core.
+GET/HEAD never consumes or activates pairing. The mobile app now handles the HTTPS link through Android App Links when the domain association is configured, and the Worker serves a no-store browser fallback that points into the same pairing core. The App Link association file is emitted only when a real signing-certificate fingerprint is configured.
 
 ## 10. Acceptance tests
 
@@ -202,6 +201,6 @@ The existing AES-256-GCM message codec remains separate from the temporary pairi
 
 ## 12. Exit criterion
 
-Step 3 is ready for implementation when one PAKE option passes the primitive vectors, Expo/Android runtime probe, dependency/security review, and exact wire/session-state review.
+Step 3 implementation is complete for the prototype. The production exit criterion remains: upstream vector verification, Expo/Hermes runtime validation, independent dependency/security review, exact wire/session-state review, and successful two-device Android pairing through both transports.
 
 Until then, the legacy package path remains compatibility-only and must not return to the user-facing pairing contract.
