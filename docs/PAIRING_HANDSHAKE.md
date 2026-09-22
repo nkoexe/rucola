@@ -33,11 +33,11 @@ The current JavaScript package `@cipherman/pake-js` exposes Ristretto255/SHA-512
 
 ### Gate
 
-Do **not** add a PAKE dependency yet.
+An experimental `@cipherman/pake-js@0.1.1` dependency is now present, strictly as a draft-20 CPace prototype. It is not approved for production use.
 
 Next crypto gate:
 
-1. verify whether the available CPace implementation is compatible with current draft-21 wire expectations;
+1. verify the draft-20 implementation against its published test vectors and keep its draft-20 version binding explicit;
 2. run its official vectors unchanged;
 3. prove secure randomness in the actual Expo/Hermes Android build;
 4. prove it has no unavailable Node/browser runtime assumptions;
