@@ -69,6 +69,45 @@ test('session identifiers are 16-byte standard Base64 values', () => {
   assert.equal(Buffer.from(sessionId, 'base64').length, 16);
 });
 
+test('same code and different session identifiers produce different keys', async () => {
+  const first = createPairingHandshake(
+    createPairingSessionId(new Uint8Array(16).fill(7)),
+    CODE,
+    COMMITMENT,
+  );
+  const second = createPairingHandshake(
+    createPairingSessionId(new Uint8Array(16).fill(8)),
+    CODE,
+    COMMITMENT,
+  );
+  const firstPeer = createPairingHandshake(
+    createPairingSessionId(new Uint8Array(16).fill(7)),
+    CODE,
+    COMMITMENT,
+  );
+  const secondPeer = createPairingHandshake(
+    createPairingSessionId(new Uint8Array(16).fill(8)),
+    CODE,
+    COMMITMENT,
+  );
+  const firstKeys = await derivePairingKeys({
+    sessionId: createPairingSessionId(new Uint8Array(16).fill(7)),
+    ephemeralSecret: first.ephemeralSecret,
+    ownShare: first.share,
+    role: 'INITIATOR',
+    relationshipKeyCommitment: COMMITMENT,
+  }, firstPeer.share);
+  const secondKeys = await derivePairingKeys({
+    sessionId: createPairingSessionId(new Uint8Array(16).fill(8)),
+    ephemeralSecret: second.ephemeralSecret,
+    ownShare: second.share,
+    role: 'INITIATOR',
+    relationshipKeyCommitment: COMMITMENT,
+  }, secondPeer.share);
+  assert.notEqual(firstKeys.wrapKey, secondKeys.wrapKey);
+  assert.notEqual(firstKeys.confirmKey, secondKeys.confirmKey);
+});
+
 test('handshake version is explicit and stable for the experimental draft-20 suite', () => {
   assert.equal(PAIRING_HANDSHAKE_VERSION, 'rucola-cpace20-v1');
 });
