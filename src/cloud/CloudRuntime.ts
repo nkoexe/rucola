@@ -6,7 +6,12 @@ import { expoAesGcmProvider } from '../crypto/expoAesGcm.ts';
 import { SyncEngine, type SyncRunResult } from '../sync/SyncEngine.ts';
 import { CloudClient } from './CloudClient.ts';
 import { CloudIdentityStore, type CloudIdentity } from './CloudIdentityStore.ts';
-import { PairingManager, type PendingPairingView } from './PairingManager.ts';
+import {
+  PairingManager,
+  type PairingInput,
+  type PairingInvitationView,
+  type PendingPairingView,
+} from './PairingManager.ts';
 import { getCloudBaseUrl } from './config.ts';
 import { expoSecureValueStore } from './expoSecureStore.ts';
 
@@ -36,8 +41,20 @@ export class CloudRuntime {
     return this.pairing.startPairing(expiresInSeconds);
   }
 
+  startPairingInvitation(expiresInSeconds?: number): Promise<PairingInvitationView> {
+    return this.pairing.startPairingInvitation(expiresInSeconds);
+  }
+
   resumePendingPairing(): Promise<PendingPairingView | null> {
     return this.pairing.resumePendingPairing();
+  }
+
+  resumePendingPairingInvitation(): Promise<PairingInvitationView | null> {
+    return this.pairing.resumePendingPairingInvitation();
+  }
+
+  normalizePairingInput(input: PairingInput) {
+    return this.pairing.normalizePairingInput(input);
   }
 
   acceptPairingPackage(encodedPackage: string, confirmationCode: string) {
