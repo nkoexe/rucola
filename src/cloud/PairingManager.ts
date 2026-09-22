@@ -1,7 +1,7 @@
 import { CryptoDigestAlgorithm, digestStringAsync, getRandomBytesAsync } from 'expo-crypto';
 import type { PairingAcceptResponse, PairingBootstrapResponse } from './protocol.ts';
 import { CloudClient, CloudClientError } from './CloudClient.ts';
-import { CloudIdentityStore, type CloudIdentity, type PendingPairing } from './CloudIdentityStore.ts';
+import { CloudIdentityStore, type CloudIdentity } from './CloudIdentityStore.ts';
 import {
   createPairingConfirmation,
   createPairingHandshake,
