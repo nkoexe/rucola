@@ -1,6 +1,5 @@
 import { cpace } from '@cipherman/pake-js';
 import { hkdf } from '@noble/hashes/hkdf';
-import { sha512 } from '@noble/hashes/sha2';
 import { argon2id } from '@noble/hashes/argon2';
 import { sha256 } from '@noble/hashes/sha2';
 import { canonicalizePairingCode } from './pairingTransport.ts';
