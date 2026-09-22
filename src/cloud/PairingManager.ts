@@ -1,4 +1,3 @@
-import { CryptoDigestAlgorithm, digestStringAsync, getRandomBytesAsync } from 'expo-crypto';
 import type { PairingAcceptResponse, PairingBootstrapResponse } from './protocol.ts';
 import { CloudClient, CloudClientError } from './CloudClient.ts';
 import { CloudIdentityStore, type CloudIdentity } from './CloudIdentityStore.ts';
@@ -56,12 +55,29 @@ function defaultSleep(milliseconds: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, milliseconds));
 }
 
+async function secureRandomBytes(length: number): Promise<Uint8Array> {
+  if (globalThis.crypto?.getRandomValues) {
+    return globalThis.crypto.getRandomValues(new Uint8Array(length));
+  }
+  const { getRandomBytesAsync } = await import('expo-crypto');
+  return getRandomBytesAsync(length);
+}
+
+async function sha256Text(value: string): Promise<string> {
+  if (globalThis.crypto?.subtle) {
+    const digest = await globalThis.crypto.subtle.digest('SHA-256', new TextEncoder().encode(value));
+    return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, '0')).join('');
+  }
+  const { CryptoDigestAlgorithm, digestStringAsync } = await import('expo-crypto');
+  return digestStringAsync(CryptoDigestAlgorithm.SHA256, value);
+}
+
 async function generatePartnerCredential(): Promise<string> {
-  return bytesToBase64Url(await getRandomBytesAsync(32));
+  return bytesToBase64Url(await secureRandomBytes(32));
 }
 
 async function credentialHash(credential: string): Promise<string> {
-  return digestStringAsync(CryptoDigestAlgorithm.SHA256, credential);
+  return sha256Text(credential);
 }
 
 export class PairingManager {
