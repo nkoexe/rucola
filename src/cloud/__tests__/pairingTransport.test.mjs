@@ -6,6 +6,8 @@ import {
   createPairingShareUrl,
   normalizePairingInput,
   parsePairingShareUrl,
+  parsePairingAppLink,
+  parsePairingDeepLink,
 } from '../pairingTransport.ts';
 
 const CODE = '😀😃😄😁😆';
@@ -66,4 +68,16 @@ test('rejects a pairing base URL with a path', () => {
     () => createPairingShareUrl(CODE, PAIRING_SHARE_BASE_URL + '/pair'),
     /plain HTTPS origin/,
   );
+});
+
+test('parses the website fallback custom app link through the same normalization boundary', () => {
+  const appLink = 'rucola://pair/' + encodeURIComponent(CODE);
+  assert.equal(parsePairingAppLink(appLink), CODE);
+  assert.equal(parsePairingDeepLink(appLink), CODE);
+});
+
+test('rejects unsafe custom app links', () => {
+  assert.throws(() => parsePairingAppLink('rucola://pair/' + encodeURIComponent(CODE) + '?x=1'));
+  assert.throws(() => parsePairingAppLink('rucola://other/' + encodeURIComponent(CODE)));
+  assert.throws(() => parsePairingAppLink('rucola://pair/' + encodeURIComponent(CODE) + '/extra'));
 });
