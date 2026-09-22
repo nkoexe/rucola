@@ -145,6 +145,9 @@ export class PairingManager {
   async acceptPairingInput(input: PairingInput): Promise<CloudIdentity> {
     const { pairingCode } = normalizePairingInput(input);
 
+    const existing = await this.identityStore.load();
+    if (existing) throw new Error('A cloud identity already exists on this device.');
+
     const pendingSession = await this.identityStore.loadPendingPairingSession();
     if (pendingSession) {
       if (pendingSession.confirmationCode !== pairingCode) {
@@ -154,9 +157,6 @@ export class PairingManager {
       if (!resumed) throw new Error('Pending pairing session is no longer available.');
       return resumed;
     }
-
-    const existing = await this.identityStore.load();
-    if (existing) throw new Error('A cloud identity already exists on this device.');
 
     const joined = await this.cloud.joinPairingSession(pairingCode);
     const handshake = createPairingHandshake(
@@ -194,12 +194,14 @@ export class PairingManager {
   }
 
   async resumePendingPartnerPairing(): Promise<CloudIdentity | null> {
+    const existing = await this.identityStore.load();
+    if (existing) throw new Error('A cloud identity already exists on this device.');
+
     let pending = await this.identityStore.loadPendingPairingSession();
     if (!pending) return null;
 
     if (pending.expiresAt <= this.now()) {
       await this.identityStore.clearPendingPairingSession();
-      this.cloud.clearCredential();
       return null;
     }
 
@@ -484,9 +486,19 @@ export class PairingManager {
     const identity = await this.identityStore.load();
     const pendingSession = await this.identityStore.loadPendingPairingSession();
     if (!identity && !pendingSession) return;
-    if (identity?.state === 'PAIRING') await this.identityStore.clear();
+
+    if (identity?.state === 'PAIRING') {
+      await this.identityStore.clear();
+      this.cloud.clearCredential();
+      return;
+    }
+
     await this.identityStore.clearPendingPairingSession();
-    this.cloud.clearCredential();
+    if (identity?.state === 'ACTIVE') {
+      this.cloud.setCredential(identity.credential);
+    } else {
+      this.cloud.clearCredential();
+    }
   }
 
   async refreshRelationshipState(): Promise<CloudIdentity | null> {
