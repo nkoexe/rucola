@@ -87,6 +87,10 @@ async function cleanupExpiredMailbox(env: Env, now: number): Promise<number> {
   return deleted;
 }
 
+async function cleanupExpiredPairingSessions(env: Env, now: number): Promise<void> {
+  await env.DB.prepare("DELETE FROM pairing_sessions WHERE expires_at <= ? AND completed_at IS NULL").bind(now).run();
+}
+
 // Remove only relationships that never became active and have no remaining deliverable data.
 async function cleanupExpiredPairingRelationships(env: Env, now: number): Promise<number> {
   const result = await env.DB.prepare(
@@ -130,6 +134,7 @@ export async function runCleanup(env: Env, now = Date.now()): Promise<CleanupRes
   // idempotency and recovery, so mailbox deletion must not be coupled to receipt deletion.
   const expiredMailbox = await cleanupExpiredMailbox(env, now);
   const expiredReceipts = await cleanupExpiredReceipts(env, now);
+  await cleanupExpiredPairingSessions(env, now);
   const expiredPairing = await cleanupExpiredPairingRelationships(env, now);
   const expiredMedia = await claimMediaForCleanup(env, now);
   const orphanedAttachedMedia = await claimUnreferencedAttachedMedia(env);
