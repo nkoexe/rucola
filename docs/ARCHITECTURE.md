@@ -246,15 +246,75 @@ The native integration harness verifies the current schema and migration behavio
 
 Fresh installations use anonymous device identities. There is no normal account-registration or login UX.
 
-The **user-facing pairing mechanism is exactly five emojis**. Technical pairing credentials remain implementation details.
+### User-facing contract
 
-The current Worker pairing implementation uses a secure invitation/token flow with a bounded confirmation mechanism and expiry. The mobile `CloudClient` already models pairing bootstrap/create/accept responses, but the full application lifecycle for storing and using those credentials is not yet integrated.
+The **only pairing credential shown to a user is exactly five emojis**.
 
-The five-emoji sequence is a human-facing confirmation mechanism, not cryptographic entropy. The first online prototype additionally uses a high-entropy relationship secret transferred out-of-band; that secret never enters the Worker API. The pairing protocol must bind the out-of-band secret to the one-time invitation without storing the secret itself on the server.
+Two transports enter the same pairing core:
 
-Authentication credentials and the relationship encryption key remain separate concerns.
+~~~text
+five emojis entered manually ─┐
+                              ├─→ hidden pairing session → relationship ACTIVE
+share link / five-emoji path ─┘
+~~~
 
-Real two-device pairing is not complete until two installations can establish the relationship through the actual remote service and then use the resulting credentials and encryption key for synchronization.
+Technical invitation tokens, device IDs, relationship IDs, cloud credentials, serialized pairing packages, and relationship encryption keys remain implementation details.
+
+### Security split
+
+The five-emoji sequence is a short-lived pairing password/rendezvous secret. It is not the relationship encryption key.
+
+The first online prototype continues to use the existing random 256-bit relationship key generated locally by the initiating device. The hidden pairing protocol must move/establish that key confidentially without sending the raw key to the Worker. The implementation must use a vetted password-authenticated/key-establishment construction or an equivalent reviewed primitive rather than inventing a custom password protocol.
+
+The existing Worker invitation lifecycle remains useful:
+
+- one-time invitations;
+- expiry;
+- bounded invalid-attempt handling;
+- relationship-key commitment;
+- server-authenticated relationship binding;
+- explicit PAIRING → ACTIVE state transition.
+
+### Unicode pairing code
+
+The five displayed symbols are canonical protocol tokens, not arbitrary visual characters. The implementation must define one exact representation for each allowed emoji, including any variation selectors or multi-code-point emoji sequences.
+
+URL decoding, Unicode handling, and input normalization must produce the same canonical representation before comparison.
+
+### Share links
+
+The preferred user-facing form is:
+
+    https://rucola.njco.dev/<five-emojis>
+
+The link contains no raw cryptographic key or serialized pairing package. GET/HEAD handling must not consume an invitation, and pairing-specific paths must not be intentionally cached, indexed, analytics-tracked, or written verbatim to diagnostic logs.
+
+Android should use a verified App Link for rucola.njco.dev; the website is only the fallback/entry point for devices without the app.
+
+### Implementation direction
+
+Keep PairingManager, CloudIdentityStore, the relationship-key commitment, invitation lifecycle, secure credential storage, and existing tests where their semantics remain correct.
+
+Replace screen-facing package handling with a transport-neutral pairing API:
+
+~~~text
+startPairing()
+  → fiveEmojis + shareUrl + expiry
+
+acceptByEmojis(fiveEmojis)
+acceptFromShareLink(url)
+
+          ↓
+
+common PairingManager / hidden session
+          ↓
+
+existing invitation + identity lifecycle
+~~~
+
+The target is a transport refactor, not a pairing-system rewrite.
+
+Real two-device pairing is not complete until both transports have been exercised on physical Android devices and encrypted message synchronization still works afterwards.
 
 ## 13. Cloud backend
 
