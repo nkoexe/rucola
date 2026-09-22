@@ -211,12 +211,6 @@ export class PairingManager {
       relationshipKeyCommitment: pending.relationshipKeyCommitment,
     };
 
-    await this.cloud.publishPairingResponderShare(
-      pending.sessionId,
-      pending.confirmationCode,
-      pending.ownShare,
-    );
-
     let confirmationPublished = false;
 
     for (let attempt = 0; attempt < this.maxPollAttempts; attempt += 1) {
@@ -231,6 +225,22 @@ export class PairingManager {
         session.relationshipKeyCommitment !== pending.relationshipKeyCommitment
       ) {
         throw new Error('Pairing session binding changed.');
+      }
+
+      if (session.responderShare === null) {
+        try {
+          await this.cloud.publishPairingResponderShare(
+            pending.sessionId,
+            pending.confirmationCode,
+            pending.ownShare,
+          );
+        } catch (cause) {
+          if (!(cause instanceof CloudClientError) || cause.code !== 'PAIRING_CONFLICT') {
+            throw cause;
+          }
+        }
+        await this.sleep(this.pollIntervalMs);
+        continue;
       }
 
       if (session.responderShare !== pending.ownShare) {
@@ -472,8 +482,10 @@ export class PairingManager {
 
   async cancelPendingPairing(): Promise<void> {
     const identity = await this.identityStore.load();
-    if (!identity || identity.state !== 'PAIRING') return;
-    await this.identityStore.clear();
+    const pendingSession = await this.identityStore.loadPendingPairingSession();
+    if (!identity && !pendingSession) return;
+    if (identity?.state === 'PAIRING') await this.identityStore.clear();
+    await this.identityStore.clearPendingPairingSession();
     this.cloud.clearCredential();
   }
 
