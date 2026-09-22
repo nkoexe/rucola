@@ -262,6 +262,42 @@ describe("Rucola pairing hardening", () => {
     expect(response.status).toBe(409);
   });
 
+
+  it("serves only valid five-emoji HTTPS pairing paths without caching", async () => {
+    const code = "😀😃😄😁😆";
+    const response = await exports.default.fetch(
+      "https://rucola.njco.dev/" + encodeURIComponent(code),
+    );
+    expect(response.status).toBe(200);
+    expect(response.headers.get("cache-control")).toBe("no-store");
+    expect(response.headers.get("referrer-policy")).toBe("no-referrer");
+    expect(response.headers.get("x-content-type-options")).toBe("nosniff");
+    expect(response.headers.get("x-robots-tag")).toBe("noindex, nofollow, noarchive");
+    expect(response.headers.get("content-security-policy")).toContain("default-src 'none'");
+    expect(await response.text()).toContain(code);
+
+    const head = await exports.default.fetch(
+      "https://rucola.njco.dev/" + encodeURIComponent(code),
+      { method: "HEAD" },
+    );
+    expect(head.status).toBe(200);
+    expect(await head.text()).toBe("");
+  });
+
+  it("does not serve malformed pairing paths", async () => {
+    const response = await exports.default.fetch(
+      "https://rucola.njco.dev/" + encodeURIComponent("😀😃😄😁") ,
+    );
+    expect(response.status).toBe(404);
+  });
+
+  it("keeps App Link verification unavailable until a real signing fingerprint is configured", async () => {
+    const response = await exports.default.fetch(
+      "https://rucola.njco.dev/.well-known/assetlinks.json",
+    );
+    expect(response.status).toBe(404);
+  });
+
   it("sets defensive response headers on API responses", async () => {
     const response = await exports.default.fetch("https://rucola.test/health");
     expect(response.status).toBe(200); expect(response.headers.get("cache-control")).toBe("no-store"); expect(response.headers.get("x-content-type-options")).toBe("nosniff"); expect(response.headers.get("referrer-policy")).toBe("no-referrer");
