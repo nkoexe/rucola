@@ -5,7 +5,6 @@ export type CloudMediaType = 'PHOTO' | 'VIDEO';
 export interface PairingBootstrapRequest {
   expiresInSeconds?: number;
   relationshipKeyCommitment: string;
-  partnerDeviceId?: string | null;
 }
 
 export interface PairingBootstrapResponse {
@@ -180,4 +179,5 @@ export interface PairingSessionPollResponse {
   partnerCredentialHash?: string | null;
   completed: boolean;
   relationshipKeyCommitment: string;
+  partnerDeviceId?: string | null;
 }
