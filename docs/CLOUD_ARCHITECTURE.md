@@ -245,9 +245,9 @@ Pulling or ACKing a mailbox row is never, by itself, permission to delete the R2
 
 The Worker is designed to operate on opaque encrypted message/media payloads. Server-side synchronization logic may inspect metadata required for routing, authorization, sequencing and lifecycle enforcement, but it must not require plaintext application content.
 
-For the first online prototype, E2E v1 uses a random 256-bit relationship key generated on the initiating device and transferred out-of-band to the partner device. The relationship key never crosses the Worker API and is never stored in D1/R2. Message encryption uses AES-256-GCM with a fresh nonce and authenticated additional data.
+For the first online prototype, E2E v1 uses a random 256-bit relationship key generated on the initiating device. A hidden pairing session transfers/establishes that key on the partner device; the relationship key never crosses the Worker API and is never stored in D1/R2. Message encryption uses AES-256-GCM with a fresh nonce and authenticated additional data.
 
-The user-facing five-emoji confirmation remains a human UX layer; it is not used as cryptographic entropy. The high-entropy pairing secret and any proof/hash sent to the Worker are separate from that human-facing confirmation.
+The five-emoji sequence is the user-facing pairing password/rendezvous secret. It is deliberately short-lived and rate-limited, and it is not the long-lived relationship encryption key. Any hidden high-entropy session material and proof/hash sent to the Worker are implementation details.
 
 Future key rotation, device recovery, and stronger asymmetric identity protocols remain later hardening work.
 
