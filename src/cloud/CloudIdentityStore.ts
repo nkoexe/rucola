@@ -21,6 +21,7 @@ export interface PendingPairing {
 export interface PendingPairingSession {
   invitationId: string;
   relationshipId: string;
+  relationshipKeyCommitment: string;
   sessionId: string;
   confirmationCode: string;
   expiresAt: number;
@@ -58,6 +59,9 @@ function parsePendingPairingSession(value: unknown): PendingPairingSession {
   return {
     invitationId: requireId(candidate.invitationId, 'Pairing invitation ID'),
     relationshipId: requireId(candidate.relationshipId, 'Pairing relationship ID'),
+    relationshipKeyCommitment: typeof candidate.relationshipKeyCommitment === 'string' && /^[0-9a-f]{64}$/.test(candidate.relationshipKeyCommitment)
+      ? candidate.relationshipKeyCommitment
+      : (() => { throw new CloudIdentityStoreError('Stored pairing key commitment is invalid.'); })(),
     sessionId: requireBase64Bytes(candidate.sessionId, 16, 'Pairing session ID'),
     confirmationCode: typeof candidate.confirmationCode === 'string' && isValidPairingConfirmationCode(candidate.confirmationCode)
       ? candidate.confirmationCode
