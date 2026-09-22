@@ -273,6 +273,137 @@ Test both transports on physical Android devices, then repeat:
 
 A passing unit suite without two-device validation does not complete this milestone.
 
+## Phase H — application cloud runtime
+
+**Status:** implemented for the first TEXT/EMOJI sync path.
+
+Introduce one lifecycle owner instead of creating cloud/sync objects ad hoc inside screens.
+
+Conceptually:
+
+```text
+CloudRuntime
+ ├─ CloudIdentityStore
+ ├─ CloudClient
+ ├─ SyncCodec
+ ├─ SQLiteSyncStateStore
+ └─ SyncEngine
+```
+
+The runtime is responsible for:
+
+- loading identity state;
+- determining paired/unpaired state;
+- constructing the correct cloud client;
+- constructing the codec only when key material is available;
+- configuring the local sync state;
+- owning one coalescing `SyncEngine` instance;
+- starting synchronization after startup, pairing, local send, and foreground resume;
+- exposing a small application-facing status model;
+- clearing cloud state on reset.
+
+No screen should directly instantiate `CloudClient` or `SyncEngine`.
+
+The existing startup health probe should move under this lifecycle rather than remaining an isolated side effect.
+
+## Phase I — integrate message writes with the durable outbox
+
+**Status:** runtime trigger is implemented; real-device validation remains.
+
+Sending remains offline-first.
+
+The local write path becomes:
+
+```text
+User sends message
+       ↓
+persist local message
+       ↓
+reserve sender sequence
+       ↓
+create durable outbox row
+       ↓
+update local UI immediately
+       ↓
+CloudRuntime triggers sync
+       ↓
+encrypt once and persist ciphertext in the outbox
+       ↓
+push ciphertext asynchronously
+```
+
+The UI must never require a successful network request before showing a locally accepted message.
+
+For the first online milestone, only `TEXT` and `EMOJI` should pass through the real encrypted codec.
+
+`PHOTO_VIDEO` and `DRAWING` remain explicitly blocked in SyncEngine until their complete media protocols are wired.
+
+## Phase J — startup/foreground/after-send synchronization
+
+**Status:** implemented for the foreground prototype path.
+
+Initial triggers:
+
+- after pairing succeeds;
+- after a local message is created;
+- app startup when paired;
+- app foreground/resume;
+- explicit retry after a visible sync error.
+
+Do not add a complicated background scheduler yet.
+
+The first foreground run should:
+
+```text
+1. reconcile outbox
+2. push due outbound messages
+3. pull partner messages
+4. decrypt/validate
+5. durably commit inbound state
+6. ACK only after local commit
+7. repeat if more inbound data exists
+```
+
+This matches the existing SyncEngine boundary.
+
+## Phase K — integration and failure hardening
+
+### Two-device integration cases
+
+At minimum:
+
+| Case | Expected result |
+| --- | --- |
+| A pairs with B | both become paired |
+| A sends TEXT | B receives exactly one message |
+| B sends TEXT | A receives exactly one message |
+| A sends EMOJI | B receives exactly one message |
+| B sends EMOJI | A receives exactly one message |
+| A sends A/B/C while B offline | B receives A/B/C in order |
+| force-close during pending outbound sync | next run retries safely |
+| network dies after server acceptance | retry does not duplicate |
+| repeated pull | no duplicate local rows |
+| repeated ACK | harmless/idempotent |
+| restart after pairing | credentials/key survive |
+| restart with pending outbox | message eventually syncs |
+| malformed ciphertext | item is rejected according to codec contract |
+| tampered ciphertext | never becomes a valid local partner message |
+| reset relationship | local cloud identity/key material is removed |
+| pair again after reset | fresh identity and key work |
+
+### Local-state assertions
+
+After every successful two-device exchange:
+
+- exactly one active message per participant;
+- older messages remain in History;
+- message order is preserved;
+- sync state is `SYNCED` where appropriate;
+- pull cursor never moves backwards;
+- outbox is empty after successful delivery;
+- server mailbox rows are eventually ACKed/deleted according to the existing Worker lifecycle.
+
+
 ## 5. Explicit protocol boundaries
 
 ### Cloud may know
