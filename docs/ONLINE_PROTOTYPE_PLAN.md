@@ -196,7 +196,7 @@ The manager may continue to use the existing invitation token/package internally
 
 ### Phase C — implement the hidden pairing session
 
-**Status:** design prepared in `docs/PAIRING_HANDSHAKE.md`; implementation is gated on PAKE primitive and Expo/Android runtime validation.
+**Status:** experimental CPace draft-20 adapter and hidden relay are implemented; production use remains gated on vector, dependency, and Expo/Android runtime validation.
 
 Before coding the handshake, choose and document a vetted password-authenticated/key-establishment construction or equivalent reviewed primitive.
 
