@@ -139,6 +139,24 @@ async function getInvitationByCode(env: Env, confirmationCode: string) {
     "r.status, r.relationship_key_commitment " +
     "FROM invitations i JOIN relationships r ON r.id = i.relationship_id " +
     "WHERE i.confirmation_code_hash = ?1 " +
+    "ORDER BY i.expires_at DESC LIMIT 1",
+  ).bind(confirmationHash).first<{
+    id: string;
+    relationship_id: string;
+    expires_at: number;
+    consumed_at: number | null;
+    status: "PAIRING" | "ACTIVE" | "ENDED";
+    relationship_key_commitment: string | null;
+  }>();
+}
+
+async function getLiveInvitationByCode(env: Env, confirmationCode: string) {
+  const confirmationHash = await sha256Hex(confirmationCode);
+  return env.DB.prepare(
+    "SELECT i.id, i.relationship_id, i.expires_at, i.consumed_at, " +
+    "r.status, r.relationship_key_commitment " +
+    "FROM invitations i JOIN relationships r ON r.id = i.relationship_id " +
+    "WHERE i.confirmation_code_hash = ?1 " +
     "AND i.consumed_at IS NULL " +
     "AND i.expires_at > ?2 " +
     "AND r.status = 'PAIRING' " +
@@ -249,7 +267,7 @@ async function joinSession(env: Env, body: SessionRequest): Promise<Response> {
     return errorResponse("INVALID_REQUEST", "Invalid pairing session request", 400);
   }
 
-  const invitation = await getInvitationByCode(env, body.confirmationCode);
+  const invitation = await getLiveInvitationByCode(env, body.confirmationCode);
   if (
     !invitation ||
     invitation.status !== "PAIRING" ||
@@ -280,7 +298,7 @@ async function publishResponderShare(env: Env, body: SessionRequest): Promise<Re
     return errorResponse("INVALID_REQUEST", "Invalid pairing session payload", 400);
   }
 
-  const invitation = await getInvitationByCode(env, body.confirmationCode);
+  const invitation = await getLiveInvitationByCode(env, body.confirmationCode);
   if (
     !invitation ||
     invitation.status !== "PAIRING" ||
@@ -365,7 +383,7 @@ async function publishConfirmation(env: Env, body: SessionRequest): Promise<Resp
     return errorResponse("INVALID_REQUEST", "Invalid pairing session payload", 400);
   }
 
-  const invitation = await getInvitationByCode(env, body.confirmationCode);
+  const invitation = await getLiveInvitationByCode(env, body.confirmationCode);
   if (
     !invitation ||
     invitation.status !== "PAIRING" ||
@@ -544,7 +562,7 @@ async function pollSession(
   }
 
   if (!isPairingCode(body.confirmationCode)) return invalidSession();
-  const invitation = await getInvitationByCode(env, body.confirmationCode);
+  const invitation = await getLiveInvitationByCode(env, body.confirmationCode);
   if (
     !invitation ||
     invitation.id !== session.invitation_id ||
