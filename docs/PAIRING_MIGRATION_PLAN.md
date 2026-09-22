@@ -256,7 +256,9 @@ The hidden session machinery may still use tokens/packages/keys internally.
 
 ### Phase 0 — protocol/security gate
 
-Before changing the mobile UI:
+**Prototype gate: complete. Production security gate: pending.**
+
+The repository now has an explicit CPace draft-20 protocol boundary, Worker session model, transcript/session binding, AEAD key handoff, confirmation, replay/idempotency rules, and restartable session state. Production approval still requires the upstream vector review, Expo/Hermes probe, and independent dependency/security review.
 
 - define the hidden key-establishment protocol;
 - select a vetted implementation/primitive;
@@ -275,7 +277,9 @@ Exit condition:
 
 ### Phase 1 — transport-neutral pairing core
 
-Refactor the existing pairing implementation without changing the underlying relationship lifecycle:
+**Status: complete.**
+
+The existing pairing implementation was refactored without changing the underlying relationship lifecycle:
 
 - separate invitation creation from transport;
 - define the hidden PAKE/session boundary before wiring transport-specific screens;
@@ -294,9 +298,9 @@ Exit condition:
 
 ### Phase 2 — emoji transport
 
-**Prerequisite:** the experimental hidden-handshake implementation is present, but it remains gated on the explicit security/runtime checks in `docs/PAIRING_HANDSHAKE.md`.
+**Status: complete in the prototype.**
 
-Implement:
+The five-emoji input, canonicalization, hidden rendezvous/session, key handoff, invitation acceptance, restart recovery, cancellation, expiry, and commitment checks are implemented.
 
 - five-emoji input;
 - canonicalization;
@@ -321,7 +325,9 @@ Tests:
 
 ### Phase 3 — share-link transport
 
-Implement:
+**Status: complete in the prototype.**
+
+Implemented:
 
 - generation of https://rucola.njco.dev/<five-emojis>;
 - URL parsing/canonicalization;
@@ -345,7 +351,9 @@ Tests:
 
 ### Phase 4 — UI cleanup
 
-The pairing screen should present only the product concept.
+**Status: complete for the current barebones UI.**
+
+The pairing screen presents only the product concept; detailed Figma visual polish remains separate.
 
 Creator:
 
@@ -376,6 +384,8 @@ The important invariant is:
 > The user sees five emojis as the pairing credential and never sees technical pairing material.
 
 ### Phase 5 — remove transitional code
+
+**Status: pending final two-device validation.**
 
 After both transports are proven:
 
@@ -499,4 +509,4 @@ existing invitation / identity lifecycle
 Worker
 ~~~
 
-The implementation is complete only when the technical complexity still exists where it is needed, but none of it leaks into the user's pairing interaction.
+The Step 2/3 prototype implementation is complete in code: the technical complexity remains inside the pairing core and does not leak into the user's pairing interaction. The release gate still requires real two-device Android validation and the production crypto/runtime review.
