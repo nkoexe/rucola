@@ -171,7 +171,7 @@ The cloud workstream is substantially beyond the original C1 proposal:
 - finite retention is encoded in Worker behavior;
 - concurrency/idempotency and cursor-gap behavior are covered by regression tests.
 
-The remaining gap is integration into the complete mobile product lifecycle: credential persistence, pairing UI flow, application/background sync ownership, and end-to-end media synchronization still need to be completed before the first real online product milestone.
+The remaining pairing gap is physical two-device validation and production crypto/runtime review. Credential persistence, the emoji/share-link pairing UI flow, and foreground pairing/session ownership are implemented on the feature branch. Background sync and end-to-end media synchronization remain separate product work.
 
 ## 10. Maintenance rule
 
