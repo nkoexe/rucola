@@ -127,7 +127,7 @@ Implemented on the current development branch:
 - Pairing now binds the installation-generated relationship key to the Worker invitation through a SHA-256 commitment; the raw relationship key never crosses the Worker API.
 - The mobile pairing protocol persists recoverable `PAIRING` state separately from `ACTIVE` state and can resume a pending invitation after restart.
 - The user-facing pairing credential is exactly five emojis; the invitation token, cloud credential, relationship key, and any serialized pairing package remain technical pairing material and must not be exposed in the UI.
-- The target migration replaces the current visible pairing-package handoff with two transport options: emoji-only entry and an HTTPS five-emoji share link.
+- The target migration is implemented with two transport options: emoji-only entry and an HTTPS five-emoji share link.
 - The transport-neutral pairing boundary is now implemented in `pairingTransport.ts`; direct emoji input and share-link input normalize to the same canonical five-emoji code.
 - `PairingManager` and `CloudRuntime` now expose a human-facing invitation projection containing only the pairing code, share URL, and expiry. The legacy package-bearing path remains isolated as temporary compatibility code until the hidden handshake is implemented.
 - Auth probing now exposes the relationship lifecycle state so the initiating device can transition from `PAIRING` to `ACTIVE` after the partner joins.
