@@ -138,6 +138,7 @@ export interface PairingSessionRequest {
   handoff?: string;
   confirmation?: string;
   partnerCredentialHash?: string;
+  partnerDeviceId?: string;
 }
 
 export interface PairingSessionStartResponse {
@@ -148,6 +149,7 @@ export interface PairingSessionStartResponse {
 
 export interface PairingSessionJoinResponse {
   sessionId: string;
+  invitationId: string;
   expiresAt: number;
   initiatorShare: string;
   relationshipId: string;
