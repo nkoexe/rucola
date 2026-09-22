@@ -3,6 +3,7 @@ import { databaseHealthy, checkSchema } from "./db";
 import { runCleanup } from "./cleanup";
 import { errorResponse, json, methodNotAllowed } from "./http";
 import { acceptInvitation, bootstrapPairing, createInvitation } from "./pairing";
+import { handlePairingSession } from "./pairingSession";
 import { completeMedia, createMediaReservation, uploadMedia } from "./media";
 import { pullMessages } from "./sync-pull";
 import { acknowledgeMessages } from "./sync-ack";
@@ -94,7 +95,7 @@ export default {
       if (request.method !== "POST") return methodNotAllowed(["POST", "OPTIONS"]);
       return handleCreateInvitation(env, request);
     }
-    if (url.pathname === "/v1/pairing/accept") {
+    if (url.pathname === "/v1/pairing/session") {\n      if (request.method !== "POST") return methodNotAllowed(["POST", "OPTIONS"]);\n      return handlePairingSession(env, request);\n    }\n    if (url.pathname === "/v1/pairing/accept") {
       if (request.method !== "POST") return methodNotAllowed(["POST", "OPTIONS"]);
       return acceptInvitation(env, request);
     }
