@@ -29,7 +29,7 @@ Rucola needs a **balanced PAKE** because both phones know the same short-lived p
 
 **CPace** is a strong architectural fit because it is balanced/composable and designed for two parties sharing a low-entropy secret. The current CFRG draft is revision 21 and is in the RFC Editor process, but it remains a work-in-progress Internet-Draft. https://datatracker.ietf.org/doc/draft-irtf-cfrg-cpace/
 
-The current JavaScript package `@cipherman/pake-js` exposes Ristretto255/SHA-512 CPace and reports test-vector coverage, but it is pre-1.0 and explicitly says independent audit is still required before production. Its published runtime targets are Node/Deno/Bun/browser; React Native/Expo compatibility therefore needs an actual dev-build probe before adoption. citeturn512573search1turn512573search2
+The current JavaScript package `@cipherman/pake-js` exposes Ristretto255/SHA-512 CPace and reports test-vector coverage, but it is pre-1.0 and explicitly says independent audit is still required before production. Its published runtime targets are Node/Deno/Bun/browser; React Native/Expo compatibility therefore needs an actual dev-build probe before adoption. https://www.rfc-editor.org/rfc/rfc9383 and https://github.com/alicommit-malp/pake-js/blob/main/THREAT_MODEL.md
 
 ### Gate
 
