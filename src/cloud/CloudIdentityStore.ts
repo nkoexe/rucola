@@ -233,6 +233,7 @@ export class CloudIdentityStore {
 
   async clear(): Promise<void> {
     await this.store.deleteItem(this.storageKey);
+    await this.clearPendingPairingSession();
   }
 }
 
