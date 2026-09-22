@@ -24,6 +24,7 @@ Current foundation status:
 - application-level cloud credential persistence/lifecycle: complete
 - first application-owned encrypted SyncEngine runtime: complete
 - end-to-end online message exchange: pending two-device validation
+- pairing migration: transport-neutral boundary complete; hidden handshake gate prepared
 - final Figma implementation: not started
 
 The cloud workstream is on `cloud/research`. Its current Worker implementation already covers the core transport foundation, including pairing, directional mailbox synchronization, receipts, media/R2 handling, cleanup, bounded payloads, and concurrency hardening. That work is ahead of the stable mobile integration on `main` and should not be described as merely a proposed backend.
