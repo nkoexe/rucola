@@ -12,6 +12,7 @@ const REQUIRED_TABLES = [
   "media_uploads",
   "mailbox_messages",
   "message_receipts",
+  "pairing_sessions",
 ] as const;
 
 export async function checkSchema(env: Env): Promise<TableHealth[]> {
