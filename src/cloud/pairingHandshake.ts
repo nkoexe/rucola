@@ -7,7 +7,7 @@ import { base64ToBytes, bytesToBase64, utf8Encode } from '../crypto/encoding.ts'
 import { normalizeRelationshipKey } from '../crypto/relationshipKey.ts';
 import { expoAesGcmProvider } from '../crypto/expoAesGcm.ts';
 
-export const PAIRING_HANDSHAKE_VERSION = 'rucola-pairing-v1';
+export const PAIRING_HANDSHAKE_VERSION = 'rucola-cpace20-v1';
 const INITIATOR_ID = utf8Encode('A_initiator');
 const RESPONDER_ID = utf8Encode('B_responder');
 const CONFIRMATION_TEXT = utf8Encode(PAIRING_HANDSHAKE_VERSION + ':confirmed');
