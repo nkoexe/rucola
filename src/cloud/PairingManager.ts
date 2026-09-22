@@ -21,8 +21,8 @@ export interface PairingManagerOptions {
 }
 
 /**
- * Transitional legacy view used only while the package-based join path is removed.
- * Do not add this type to new UI code.
+ * Transitional compatibility view for the package-based pairing path.
+ * New code should use PairingInvitationView instead.
  */
 export interface PendingPairingView {
   confirmationCode: string;
@@ -56,91 +56,31 @@ export class PairingManager {
     this.now = options.now ?? Date.now;
   }
 
+  /**
+   * Transitional compatibility API. New code should call startPairingInvitation().
+   */
   async startPairing(expiresInSeconds?: number): Promise<PendingPairingView> {
-    const existing = await this.identityStore.load();
-    if (existing) throw new Error('A cloud identity already exists on this device.');
-
-    const relationshipKey = await this.keyGenerator();
-    const commitment = await this.keyCommitment(relationshipKey);
-    const response = await this.cloud.bootstrapPairing({
-      ...(expiresInSeconds === undefined ? {} : { expiresInSeconds }),
-      relationshipKeyCommitment: commitment,
-    });
-    if (response.relationshipKeyCommitment !== commitment) {
-      throw new Error('Cloud returned a different relationship key commitment.');
-    }
-
-    const pendingPairing: PendingPairing = {
-      invitationId: response.invitationId,
-      token: response.token,
-      confirmationCode: response.confirmationCode,
-      expiresAt: response.expiresAt,
-    };
-    const identity: CloudIdentity = {
-      relationshipId: response.relationshipId,
-      deviceId: response.deviceId,
-      participant: 'ME',
-      state: 'PAIRING',
-      credential: response.credential,
-      relationshipKey,
-      pendingPairing,
-    };
-    const pairingPackage = await createPairingPackage(response, relationshipKey);
-    await this.identityStore.save(identity);
-    this.cloud.setCredential(response.credential);
-
-    return {
-      confirmationCode: response.confirmationCode,
-      expiresAt: response.expiresAt,
-      package: pairingPackage,
-    };
+    const pending = await this.createPendingPairing(expiresInSeconds);
+    return this.toLegacyPendingView(pending.response, pending.relationshipKey);
   }
 
   async startPairingInvitation(expiresInSeconds?: number): Promise<PairingInvitationView> {
-    const pending = await this.startPairing(expiresInSeconds);
-    return this.toInvitationView(pending);
+    const pending = await this.createPendingPairing(expiresInSeconds);
+    return this.toInvitationView(pending.response.confirmationCode, pending.response.expiresAt);
+  }
+
+  /**
+   * Transitional compatibility API. New code should call resumePendingPairingInvitation().
+   */
+  async resumePendingPairing(): Promise<PendingPairingView | null> {
+    const pending = await this.loadPendingPairing();
+    if (!pending) return null;
+    return this.toLegacyPendingView(pending.response, pending.identity.relationshipKey);
   }
 
   async resumePendingPairingInvitation(): Promise<PairingInvitationView | null> {
-    const pending = await this.resumePendingPairing();
-    return pending ? this.toInvitationView(pending) : null;
-  }
-
-  async resumePendingPairing(): Promise<PendingPairingView | null> {
-    const identity = await this.identityStore.load();
-    if (!identity || identity.state !== 'PAIRING' || !identity.pendingPairing) return null;
-    if (identity.pendingPairing.expiresAt <= this.now()) {
-      await this.identityStore.clear();
-      this.cloud.clearCredential();
-      return null;
-    }
-
-    const response: PairingBootstrapResponse = {
-      relationshipId: identity.relationshipId,
-      invitationId: identity.pendingPairing.invitationId,
-      deviceId: identity.deviceId,
-      participant: 'ME',
-      credential: identity.credential,
-      token: identity.pendingPairing.token,
-      confirmationCode: identity.pendingPairing.confirmationCode,
-      relationshipKeyCommitment: await this.keyCommitment(identity.relationshipKey),
-      expiresAt: identity.pendingPairing.expiresAt,
-    };
-
-    this.cloud.setCredential(identity.credential);
-    return {
-      confirmationCode: identity.pendingPairing.confirmationCode,
-      expiresAt: identity.pendingPairing.expiresAt,
-      package: await createPairingPackage(response, identity.relationshipKey),
-    };
-  }
-
-  private toInvitationView(pending: PendingPairingView): PairingInvitationView {
-    return {
-      pairingCode: pending.confirmationCode,
-      shareUrl: createPairingShareUrl(pending.confirmationCode),
-      expiresAt: pending.expiresAt,
-    };
+    const pending = await this.loadPendingPairing();
+    return pending ? this.toInvitationView(pending.response.confirmationCode, pending.response.expiresAt) : null;
   }
 
   normalizePairingInput(input: PairingInput): { transport: 'EMOJI' | 'SHARE_LINK'; pairingCode: string } {
@@ -148,7 +88,10 @@ export class PairingManager {
   }
 
   async acceptPairingPackage(encodedPackage: string, confirmationCode: string): Promise<PairingAcceptResult> {
-    if (!isValidPairingConfirmationCode(confirmationCode)) throw new Error('Pairing confirmation must contain exactly five valid emojis.');
+    if (!isValidPairingConfirmationCode(confirmationCode)) {
+      throw new Error('Pairing confirmation must contain exactly five valid emojis.');
+    }
+
     const pairingPackage = await decodePairingPackage(encodedPackage);
     const commitment = await this.keyCommitment(pairingPackage.relationshipKey);
 
@@ -156,10 +99,9 @@ export class PairingManager {
     if (existing) throw new Error('A cloud identity already exists on this device.');
 
     const response = await this.cloud.acceptInvitation(pairingPackage.token, confirmationCode, commitment);
-    // The token and key commitment are the server-authenticated pairing binding.
-    // relationshipId/invitationId in the bearer package are advisory metadata and must not be
-    // allowed to make a successfully accepted invitation unrecoverable if they were modified in transit.
-    if (response.relationshipKeyCommitment !== commitment) throw new Error('Cloud returned a different relationship key commitment.');
+    if (response.relationshipKeyCommitment !== commitment) {
+      throw new Error('Cloud returned a different relationship key commitment.');
+    }
 
     const identity: CloudIdentity = {
       relationshipId: response.relationshipId,
@@ -211,5 +153,92 @@ export class PairingManager {
     };
     await this.identityStore.save(updated);
     return updated;
+  }
+
+  private async createPendingPairing(expiresInSeconds?: number): Promise<{
+    response: PairingBootstrapResponse;
+    relationshipKey: string;
+  }> {
+    const existing = await this.identityStore.load();
+    if (existing) throw new Error('A cloud identity already exists on this device.');
+
+    const relationshipKey = await this.keyGenerator();
+    const commitment = await this.keyCommitment(relationshipKey);
+    const response = await this.cloud.bootstrapPairing({
+      ...(expiresInSeconds === undefined ? {} : { expiresInSeconds }),
+      relationshipKeyCommitment: commitment,
+    });
+
+    if (response.relationshipKeyCommitment !== commitment) {
+      throw new Error('Cloud returned a different relationship key commitment.');
+    }
+
+    const identity: CloudIdentity = {
+      relationshipId: response.relationshipId,
+      deviceId: response.deviceId,
+      participant: 'ME',
+      state: 'PAIRING',
+      credential: response.credential,
+      relationshipKey,
+      pendingPairing: {
+        invitationId: response.invitationId,
+        token: response.token,
+        confirmationCode: response.confirmationCode,
+        expiresAt: response.expiresAt,
+      },
+    };
+
+    await this.identityStore.save(identity);
+    this.cloud.setCredential(response.credential);
+
+    return { response, relationshipKey };
+  }
+
+  private async loadPendingPairing(): Promise<{
+    response: PairingBootstrapResponse;
+    identity: CloudIdentity;
+  } | null> {
+    const identity = await this.identityStore.load();
+    if (!identity || identity.state !== 'PAIRING' || !identity.pendingPairing) return null;
+
+    if (identity.pendingPairing.expiresAt <= this.now()) {
+      await this.identityStore.clear();
+      this.cloud.clearCredential();
+      return null;
+    }
+
+    const response: PairingBootstrapResponse = {
+      relationshipId: identity.relationshipId,
+      invitationId: identity.pendingPairing.invitationId,
+      deviceId: identity.deviceId,
+      participant: 'ME',
+      credential: identity.credential,
+      token: identity.pendingPairing.token,
+      confirmationCode: identity.pendingPairing.confirmationCode,
+      relationshipKeyCommitment: await this.keyCommitment(identity.relationshipKey),
+      expiresAt: identity.pendingPairing.expiresAt,
+    };
+
+    this.cloud.setCredential(identity.credential);
+    return { response, identity };
+  }
+
+  private toInvitationView(pairingCode: string, expiresAt: number): PairingInvitationView {
+    return {
+      pairingCode,
+      shareUrl: createPairingShareUrl(pairingCode),
+      expiresAt,
+    };
+  }
+
+  private async toLegacyPendingView(
+    response: PairingBootstrapResponse,
+    relationshipKey: string,
+  ): Promise<PendingPairingView> {
+    return {
+      confirmationCode: response.confirmationCode,
+      expiresAt: response.expiresAt,
+      package: await createPairingPackage(response, relationshipKey),
+    };
   }
 }
