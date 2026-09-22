@@ -203,7 +203,7 @@ The runtime loads persisted cloud identity state and constructs the authenticate
 
 The first two-device prototype uses a random 256-bit relationship key generated locally by the initiating device.
 
-The key is transferred to the second device through an out-of-band secure pairing payload. The Worker must never receive or store this key. The Worker may receive a one-way proof/hash needed to bind the pairing request, plus the normal device/relationship metadata and authentication credential.
+The key is transferred or established through the hidden pairing session. The Worker must never receive or store the raw key. The Worker may receive a one-way proof/hash or other protocol metadata needed to bind the pairing request, plus normal device/relationship state.
 
 This is deliberately simpler than adding X25519 or a ratcheting protocol at this stage. A server-mediated public-key exchange by itself would not establish peer authenticity against a malicious server.
 
