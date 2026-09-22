@@ -62,7 +62,18 @@ BEGIN
      AND expires_at > NEW.created_at;
 
   SELECT CASE
-    WHEN changes() <> 1 THEN RAISE(ABORT, 'pairing invitation consumption invariant violated')
+    WHEN NOT EXISTS (
+      SELECT 1 FROM invitations
+      WHERE id = (
+        SELECT invitation_id FROM pairing_sessions
+        WHERE relationship_id = NEW.relationship_id
+          AND partner_credential_hash = NEW.credential_hash
+          AND completed_at IS NULL
+        LIMIT 1
+      )
+      AND consumed_at = NEW.created_at
+      AND consumed_by_device_id = NEW.id
+    ) THEN RAISE(ABORT, 'pairing invitation consumption invariant violated')
   END;
 
   UPDATE relationships
@@ -71,7 +82,10 @@ BEGIN
      AND status = 'PAIRING';
 
   SELECT CASE
-    WHEN changes() <> 1 THEN RAISE(ABORT, 'pairing relationship activation invariant violated')
+    WHEN NOT EXISTS (
+      SELECT 1 FROM relationships
+      WHERE id = NEW.relationship_id AND status = 'ACTIVE'
+    ) THEN RAISE(ABORT, 'pairing relationship activation invariant violated')
   END;
 
   UPDATE pairing_sessions
@@ -81,7 +95,12 @@ BEGIN
      AND completed_at IS NULL;
 
   SELECT CASE
-    WHEN changes() <> 1 THEN RAISE(ABORT, 'pairing session completion invariant violated')
+    WHEN NOT EXISTS (
+      SELECT 1 FROM pairing_sessions
+      WHERE relationship_id = NEW.relationship_id
+        AND partner_credential_hash = NEW.credential_hash
+        AND completed_at = NEW.created_at
+    ) THEN RAISE(ABORT, 'pairing session completion invariant violated')
   END;
 END;
 
