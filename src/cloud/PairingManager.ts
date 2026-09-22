@@ -1,6 +1,6 @@
 import type { PairingAcceptResponse, PairingBootstrapResponse } from './protocol.ts';
 import { CloudClient, CloudClientError } from './CloudClient.ts';
-import { CloudIdentityStore, type CloudIdentity } from './CloudIdentityStore.ts';
+import { CloudIdentityStore, type CloudIdentity, type PendingPairingSession } from './CloudIdentityStore.ts';
 import {
   createPairingConfirmation,
   createPairingHandshake,
@@ -50,6 +50,10 @@ export interface PairingAcceptResult {
 
 const DEFAULT_POLL_INTERVAL_MS = 250;
 const DEFAULT_MAX_POLL_ATTEMPTS = 120;
+
+function pendingConfirmationAlreadyPublished(_pending: PendingPairingSession): boolean {
+  return false;
+}
 
 function defaultSleep(milliseconds: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, milliseconds));
@@ -143,6 +147,17 @@ export class PairingManager {
 
   async acceptPairingInput(input: PairingInput): Promise<CloudIdentity> {
     const { pairingCode } = normalizePairingInput(input);
+
+    const pendingSession = await this.identityStore.loadPendingPairingSession();
+    if (pendingSession) {
+      if (pendingSession.confirmationCode !== pairingCode) {
+        throw new Error('Another pairing is already in progress.');
+      }
+      const resumed = await this.resumePendingPartnerPairing();
+      if (!resumed) throw new Error('Pending pairing session is no longer available.');
+      return resumed;
+    }
+
     const existing = await this.identityStore.load();
     if (existing) throw new Error('A cloud identity already exists on this device.');
 
@@ -152,74 +167,126 @@ export class PairingManager {
       pairingCode,
       joined.relationshipKeyCommitment,
     );
-    const secrets: PairingHandshakeSecrets = {
+    const partnerCredential = await generatePartnerCredential();
+    const partnerDeviceId = bytesToBase64Url(await secureRandomBytes(16));
+
+    const pending: PendingPairingSession = {
+      invitationId: joined.invitationId,
+      relationshipId: joined.relationshipId,
       sessionId: joined.sessionId,
+      confirmationCode: pairingCode,
+      expiresAt: joined.expiresAt,
       ephemeralSecret: handshake.ephemeralSecret,
       ownShare: handshake.share,
-      role: 'RESPONDER',
-      relationshipKeyCommitment: joined.relationshipKeyCommitment,
+      partnerDeviceId,
+      credential: partnerCredential,
+      relationshipKey: null,
     };
 
+    await this.identityStore.savePendingPairingSession(pending);
     await this.cloud.publishPairingResponderShare(
       joined.sessionId,
       pairingCode,
       handshake.share,
     );
 
-    let partnerCredential: string | null = null;
-    let confirmationPublished = false;
+    const identity = await this.resumePendingPartnerPairing();
+    if (!identity) throw new Error('Pairing could not be completed.');
+    return identity;
+  }
+
+  async resumePendingPartnerPairing(): Promise<CloudIdentity | null> {
+    let pending = await this.identityStore.loadPendingPairingSession();
+    if (!pending) return null;
+
+    if (pending.expiresAt <= this.now()) {
+      await this.identityStore.clearPendingPairingSession();
+      this.cloud.clearCredential();
+      return null;
+    }
+
+    const secrets: PairingHandshakeSecrets = {
+      sessionId: pending.sessionId,
+      ephemeralSecret: pending.ephemeralSecret,
+      ownShare: pending.ownShare,
+      role: 'RESPONDER',
+      relationshipKeyCommitment: pending.relationshipKey
+        ? await this.keyCommitment(pending.relationshipKey)
+        : '',
+    };
+
+    await this.cloud.publishPairingResponderShare(
+      pending.sessionId,
+      pending.confirmationCode,
+      pending.ownShare,
+    );
+
+    let confirmationPublished = pendingConfirmationAlreadyPublished(pending);
 
     for (let attempt = 0; attempt < this.maxPollAttempts; attempt += 1) {
-      const session = await this.cloud.pollPairingSession(joined.sessionId, pairingCode);
+      const session = await this.cloud.pollPairingSession(
+        pending.sessionId,
+        pending.confirmationCode,
+      );
 
-      if (session.relationshipKeyCommitment !== joined.relationshipKeyCommitment) {
-        throw new Error('Pairing commitment changed during the handshake.');
+      if (
+        session.relationshipId !== pending.relationshipId ||
+        session.expiresAt !== pending.expiresAt ||
+        session.relationshipKeyCommitment !== (
+          pending.relationshipKey
+            ? await this.keyCommitment(pending.relationshipKey)
+            : session.relationshipKeyCommitment
+        )
+      ) {
+        throw new Error('Pairing session binding changed.');
       }
 
-      if (session.completed) {
-        if (!session.partnerDeviceId) throw new Error('Completed pairing did not return the partner device ID.');
-        if (!partnerCredential) throw new Error('Pairing completed before local credential generation.');
-        const relationshipKey = await this.relationshipKeyFromSession(
-          secrets,
-          session.initiatorShare,
-          session.handoff,
-          joined.relationshipKeyCommitment,
-        );
-        const identity: CloudIdentity = {
-          relationshipId: joined.relationshipId,
-          deviceId: session.partnerDeviceId,
-          participant: 'PARTNER',
-          state: 'ACTIVE',
-          credential: partnerCredential,
-          relationshipKey,
-        };
-        await this.identityStore.save(identity);
-        this.cloud.setCredential(partnerCredential);
-        return identity;
-      }
-
-      if (!session.responderShare || session.responderShare !== handshake.share) {
+      if (session.responderShare !== pending.ownShare) {
         throw new Error('Pairing responder share was not retained by the cloud.');
       }
+      if (session.partnerDeviceId !== null && session.partnerDeviceId !== pending.partnerDeviceId) {
+        throw new Error('Pairing partner device binding changed.');
+      }
 
-      if (!session.handoff) {
+      if (!pending.relationshipKey && session.handoff) {
+        const relationshipKey = await decryptRelationshipKey(
+          session.handoff,
+          session.relationshipKeyCommitment,
+          secrets,
+          session.initiatorShare,
+        );
+        const actualCommitment = await this.keyCommitment(relationshipKey);
+        if (actualCommitment !== session.relationshipKeyCommitment) {
+          throw new Error('Paired relationship key commitment does not match.');
+        }
+        pending = { ...pending, relationshipKey };
+        await this.identityStore.savePendingPairingSession(pending);
+        secrets.relationshipKeyCommitment = actualCommitment;
+      }
+
+      if (!pending.relationshipKey) {
+        if (session.completed) {
+          throw new Error('Pairing completed without a recoverable relationship key.');
+        }
         await this.sleep(this.pollIntervalMs);
         continue;
       }
 
-      const relationshipKey = await decryptRelationshipKey(
-        session.handoff,
-        joined.relationshipKeyCommitment,
-        secrets,
-        session.initiatorShare,
-      );
-      const actualCommitment = await this.keyCommitment(relationshipKey);
-      if (actualCommitment !== joined.relationshipKeyCommitment) {
-        throw new Error('Paired relationship key commitment does not match.');
+      const expectedCredentialHash = await credentialHash(pending.credential);
+      if (
+        session.partnerCredentialHash !== null &&
+        session.partnerCredentialHash !== expectedCredentialHash
+      ) {
+        throw new Error('Pairing credential binding changed.');
       }
 
-      if (!partnerCredential) {
-        partnerCredential = await generatePartnerCredential();
+      if (session.confirmation) {
+        await verifyPairingConfirmation(
+          session.confirmation,
+          secrets,
+          session.initiatorShare,
+        );
+        confirmationPublished = true;
       }
 
       if (!confirmationPublished) {
@@ -227,37 +294,57 @@ export class PairingManager {
           secrets,
           session.initiatorShare,
         );
-        const hash = await credentialHash(partnerCredential);
+        const hash = await credentialHash(pending.credential);
         try {
           await this.cloud.publishPairingConfirmation(
-            joined.sessionId,
-            pairingCode,
+            pending.sessionId,
+            pending.confirmationCode,
             confirmation,
             hash,
+            pending.partnerDeviceId,
           );
+          confirmationPublished = true;
         } catch (cause) {
           if (!(cause instanceof CloudClientError) || cause.code !== 'PAIRING_CONFLICT') {
             throw cause;
           }
+          const recovery = await this.cloud.pollPairingSession(
+            pending.sessionId,
+            pending.confirmationCode,
+          );
+          if (
+            !recovery.confirmation ||
+            recovery.partnerCredentialHash !== hash ||
+            recovery.partnerDeviceId !== pending.partnerDeviceId
+          ) {
+            throw cause;
+          }
+          await verifyPairingConfirmation(
+            recovery.confirmation,
+            secrets,
+            recovery.initiatorShare,
+          );
+          confirmationPublished = true;
         }
-        confirmationPublished = true;
       }
 
-      if (session.confirmation && session.completed && session.partnerDeviceId) {
-        const identity: CloudIdentity = {
-          relationshipId: joined.relationshipId,
-          deviceId: session.partnerDeviceId,
-          participant: 'PARTNER',
-          state: 'ACTIVE',
-          credential: partnerCredential,
-          relationshipKey,
-        };
-        await this.identityStore.save(identity);
-        this.cloud.setCredential(partnerCredential);
-        return identity;
+      if (!session.completed) {
+        await this.sleep(this.pollIntervalMs);
+        continue;
       }
 
-      await this.sleep(this.pollIntervalMs);
+      const identity: CloudIdentity = {
+        relationshipId: pending.relationshipId,
+        deviceId: pending.partnerDeviceId,
+        participant: 'PARTNER',
+        state: 'ACTIVE',
+        credential: pending.credential,
+        relationshipKey: pending.relationshipKey,
+      };
+      await this.identityStore.save(identity);
+      await this.identityStore.clearPendingPairingSession();
+      this.cloud.setCredential(identity.credential);
+      return identity;
     }
 
     throw new Error('Pairing session did not complete before it expired.');
