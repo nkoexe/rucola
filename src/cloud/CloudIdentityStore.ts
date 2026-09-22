@@ -4,11 +4,18 @@ import { isValidPairingConfirmationCode } from './pairingCode.ts';
 export type CloudParticipant = 'ME' | 'PARTNER';
 export type CloudRelationshipState = 'PAIRING' | 'ACTIVE';
 
+export interface PendingPairingHandshake {
+  sessionId: string;
+  ephemeralSecret: string;
+  ownShare: string;
+}
+
 export interface PendingPairing {
   invitationId: string;
   token: string;
   confirmationCode: string;
   expiresAt: number;
+  handshake?: PendingPairingHandshake;
 }
 
 export interface CloudIdentity {
@@ -65,13 +72,36 @@ function parsePendingPairing(value: unknown): PendingPairing {
   const token = candidate.token;
   const confirmationCode = candidate.confirmationCode;
   const expiresAt = candidate.expiresAt;
+  const handshakeValue = candidate.handshake;
+  let handshake: PendingPairingHandshake | undefined;
+  if (handshakeValue !== undefined) {
+    if (handshakeValue === null || typeof handshakeValue !== 'object' || Array.isArray(handshakeValue)) {
+      throw new CloudIdentityStoreError('Stored pairing handshake is invalid.');
+    }
+    const candidateHandshake = handshakeValue as Record<string, unknown>;
+    const sessionId = candidateHandshake.sessionId;
+    const ephemeralSecret = candidateHandshake.ephemeralSecret;
+    const ownShare = candidateHandshake.ownShare;
+    if (
+      typeof sessionId !== 'string' ||
+      !/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==)$/.test(sessionId) ||
+      (() => { try { return base64ToBytes(sessionId).length !== 16; } catch { return true; } })() ||
+      typeof ephemeralSecret !== 'string' ||
+      (() => { try { return base64ToBytes(ephemeralSecret).length !== 32; } catch { return true; } })() ||
+      typeof ownShare !== 'string' ||
+      (() => { try { return base64ToBytes(ownShare).length !== 32; } catch { return true; } })()
+    ) throw new CloudIdentityStoreError('Stored pairing handshake is invalid.');
+    handshake = { sessionId, ephemeralSecret, ownShare };
+  }
   if (
     typeof invitationId !== 'string' || !/^[A-Za-z0-9_-]{1,128}$/.test(invitationId) ||
     typeof token !== 'string' || !/^[A-Za-z0-9_-]{43}$/.test(token) ||
     typeof confirmationCode !== 'string' || !isValidPairingConfirmationCode(confirmationCode) ||
     !Number.isSafeInteger(expiresAt) || (expiresAt as number) <= 0
   ) throw new CloudIdentityStoreError('Stored pairing state is invalid.');
-  return { invitationId, token, confirmationCode, expiresAt: expiresAt as number };
+  return handshake === undefined
+    ? { invitationId, token, confirmationCode, expiresAt: expiresAt as number }
+    : { invitationId, token, confirmationCode, expiresAt: expiresAt as number, handshake };
 }
 
 function parseIdentity(value: unknown): CloudIdentity {
