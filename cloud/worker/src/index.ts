@@ -4,6 +4,7 @@ import { runCleanup } from "./cleanup";
 import { errorResponse, json, methodNotAllowed } from "./http";
 import { acceptInvitation, bootstrapPairing, createInvitation } from "./pairing";
 import { handlePairingSession } from "./pairingSession";
+import { handlePairingWebRoute } from "./pairingWeb";
 import { completeMedia, createMediaReservation, uploadMedia } from "./media";
 import { pullMessages } from "./sync-pull";
 import { acknowledgeMessages } from "./sync-ack";
@@ -73,6 +74,12 @@ export default {
         headers: { "cache-control": "no-store", allow: "GET,POST,OPTIONS" },
       });
     }
+
+    const pairingWebResponse = handlePairingWebRoute(
+      request,
+      env.RUCOLA_ANDROID_APP_LINK_FINGERPRINTS,
+    );
+    if (pairingWebResponse) return pairingWebResponse;
 
     if (url.pathname === "/health") {
       if (request.method !== "GET") return methodNotAllowed(["GET", "OPTIONS"]);
