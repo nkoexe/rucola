@@ -18,6 +18,61 @@ export interface PendingPairing {
   handshake?: PendingPairingHandshake;
 }
 
+export interface PendingPairingSession {
+  invitationId: string;
+  relationshipId: string;
+  sessionId: string;
+  confirmationCode: string;
+  expiresAt: number;
+  ephemeralSecret: string;
+  ownShare: string;
+  partnerDeviceId: string;
+  credential: string;
+  relationshipKey: string | null;
+}
+
+const PENDING_PAIRING_SESSION_STORAGE_KEY = 'rucola.cloud.pending-pairing-session.v1';
+
+function requireBase64Bytes(value: unknown, expectedBytes: number, label: string): string {
+  if (typeof value !== 'string' || value.trim() !== value) {
+    throw new CloudIdentityStoreError(label + ' is invalid.');
+  }
+  try {
+    if (base64ToBytes(value).length !== expectedBytes) throw new Error();
+  } catch {
+    throw new CloudIdentityStoreError(label + ' is invalid.');
+  }
+  return value;
+}
+
+function parsePendingPairingSession(value: unknown): PendingPairingSession {
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) {
+    throw new CloudIdentityStoreError('Stored pending pairing session is invalid.');
+  }
+  const candidate = value as Record<string, unknown>;
+  const relationshipKey = candidate.relationshipKey;
+  const parsedRelationshipKey = relationshipKey === null
+    ? null
+    : requireKey(relationshipKey);
+
+  return {
+    invitationId: requireId(candidate.invitationId, 'Pairing invitation ID'),
+    relationshipId: requireId(candidate.relationshipId, 'Pairing relationship ID'),
+    sessionId: requireBase64Bytes(candidate.sessionId, 16, 'Pairing session ID'),
+    confirmationCode: typeof candidate.confirmationCode === 'string' && isValidPairingConfirmationCode(candidate.confirmationCode)
+      ? candidate.confirmationCode
+      : (() => { throw new CloudIdentityStoreError('Stored pairing confirmation code is invalid.'); })(),
+    expiresAt: Number.isSafeInteger(candidate.expiresAt) && (candidate.expiresAt as number) > 0
+      ? candidate.expiresAt as number
+      : (() => { throw new CloudIdentityStoreError('Stored pairing session expiry is invalid.'); })(),
+    ephemeralSecret: requireBase64Bytes(candidate.ephemeralSecret, 32, 'Pairing ephemeral secret'),
+    ownShare: requireBase64Bytes(candidate.ownShare, 32, 'Pairing share'),
+    partnerDeviceId: requireId(candidate.partnerDeviceId, 'Pairing partner device ID'),
+    credential: requireCredential(candidate.credential),
+    relationshipKey: parsedRelationshipKey,
+  };
+}
+
 export interface CloudIdentity {
   relationshipId: string;
   deviceId: string;
@@ -135,6 +190,26 @@ export class CloudIdentityStore {
     this.storageKey = storageKey;
   }
 
+  async loadPendingPairingSession(): Promise<PendingPairingSession | null> {
+    const value = await this.store.getItem(PENDING_PAIRING_SESSION_STORAGE_KEY);
+    if (value === null) return null;
+    try {
+      return parsePendingPairingSession(JSON.parse(value) as unknown);
+    } catch (cause) {
+      if (cause instanceof CloudIdentityStoreError) throw cause;
+      throw new CloudIdentityStoreError('Stored pending pairing session is invalid.');
+    }
+  }
+
+  async savePendingPairingSession(session: PendingPairingSession): Promise<void> {
+    const normalized = parsePendingPairingSession(session);
+    await this.store.setItem(PENDING_PAIRING_SESSION_STORAGE_KEY, JSON.stringify(normalized));
+  }
+
+  async clearPendingPairingSession(): Promise<void> {
+    await this.store.deleteItem(PENDING_PAIRING_SESSION_STORAGE_KEY);
+  }
+
   async load(): Promise<CloudIdentity | null> {
     const value = await this.store.getItem(this.storageKey);
     if (value === null) return null;
@@ -158,3 +233,4 @@ export class CloudIdentityStore {
 }
 
 export { STORAGE_KEY as CLOUD_IDENTITY_STORAGE_KEY };
+export { PENDING_PAIRING_SESSION_STORAGE_KEY as PENDING_PAIRING_SESSION_STORAGE_KEY };
