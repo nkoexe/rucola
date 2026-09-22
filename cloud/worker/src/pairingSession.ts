@@ -138,8 +138,12 @@ async function getInvitationByCode(env: Env, confirmationCode: string) {
     "SELECT i.id, i.relationship_id, i.expires_at, i.consumed_at, " +
     "r.status, r.relationship_key_commitment " +
     "FROM invitations i JOIN relationships r ON r.id = i.relationship_id " +
-    "WHERE i.confirmation_code_hash = ?1 LIMIT 1",
-  ).bind(confirmationHash).first<{
+    "WHERE i.confirmation_code_hash = ?1 " +
+    "AND i.consumed_at IS NULL " +
+    "AND i.expires_at > ?2 " +
+    "AND r.status = 'PAIRING' " +
+    "ORDER BY i.expires_at DESC LIMIT 1",
+  ).bind(confirmationHash, Date.now()).first<{
     id: string;
     relationship_id: string;
     expires_at: number;
