@@ -1,4 +1,4 @@
-import { isValidPairingConfirmationCode, PAIRING_EMOJIS } from './pairingCode.ts';
+import { isValidPairingConfirmationCode } from './pairingCode.ts';
 
 export const PAIRING_SHARE_BASE_URL = 'https://rucola.njco.dev';
 
@@ -34,7 +34,14 @@ export function createPairingShareUrl(
   } catch {
     throw new Error('Pairing share base URL is invalid.');
   }
-  if (origin.protocol !== 'https:' || origin.username || origin.password || origin.search || origin.hash) {
+  if (
+    origin.protocol !== 'https:' ||
+    origin.pathname !== '/' ||
+    origin.username ||
+    origin.password ||
+    origin.search ||
+    origin.hash
+  ) {
     throw new Error('Pairing share base URL must be a plain HTTPS origin.');
   }
   const normalizedOrigin = origin.origin;
@@ -98,6 +105,3 @@ export function normalizePairingInput(input: PairingInput): { transport: Pairing
   throw new Error('Pairing input transport is invalid.');
 }
 
-export function pairingAlphabetSize(): number {
-  return PAIRING_EMOJIS.length;
-}
