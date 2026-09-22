@@ -31,6 +31,13 @@ function cloudStub() {
         expiresAt: 10_000,
       };
     },
+    async startPairingSession() {
+      return {
+        sessionId: 'BwcHBwcHBwcHBwcHBwcHBQ==',
+        expiresAt: 10_000,
+        relationshipKeyCommitment: COMMITMENT,
+      };
+    },
   };
 }
 
