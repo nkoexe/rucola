@@ -9,6 +9,7 @@ const HANDOFF_MAX_LENGTH = 2048;
 const CONFIRMATION_MAX_LENGTH = 1024;
 const SESSION_LIFETIME_MS = 15 * 60 * 1000;
 const CREDENTIAL_HASH_RE = /^[0-9a-f]{64}$/;
+const DEVICE_ID_RE = /^[A-Za-z0-9_-]{1,128}$/;
 const SESSION_ID_RE = /^[A-Za-z0-9+/]{22}==$/;
 const CPACE_SHARE_RE = /^[A-Za-z0-9+/]{43}=$/;
 const ENVELOPE_RE = /^rucola-cpace20-v1\.[A-Za-z0-9+/=]+\.[A-Za-z0-9+/=]+\.[A-Za-z0-9+/=]+$/;
@@ -51,6 +52,7 @@ interface SessionRow {
   handoff: string | null;
   confirmation: string | null;
   partner_credential_hash: string | null;
+  partner_device_id: string | null;
   completed_at: number | null;
   created_at: number;
 }
@@ -127,7 +129,7 @@ function invalidSession(): Response {
 
 async function getSession(env: Env, sessionId: string): Promise<SessionRow | null> {
   return env.DB.prepare(
-    "SELECT id, invitation_id, relationship_id, expires_at, initiator_share, responder_share, handoff, confirmation, partner_credential_hash, completed_at, created_at " +
+    "SELECT id, invitation_id, relationship_id, expires_at, initiator_share, responder_share, handoff, confirmation, partner_credential_hash, partner_device_id, completed_at, created_at " +
     "FROM pairing_sessions WHERE id = ?1",
   ).bind(sessionId).first<SessionRow>();
 }
@@ -307,6 +309,7 @@ async function joinSession(env: Env, body: SessionRequest): Promise<Response> {
 
   return json({
     sessionId: session.id,
+    invitationId: invitation.id,
     expiresAt: session.expires_at,
     initiatorShare: session.initiator_share,
     relationshipId: invitation.relationship_id,
@@ -399,7 +402,9 @@ async function publishConfirmation(env: Env, body: SessionRequest): Promise<Resp
     !isPairingCode(body.confirmationCode) ||
     !isEnvelope(body.confirmation, CONFIRMATION_MAX_LENGTH) ||
     typeof body.partnerCredentialHash !== "string" ||
-    !CREDENTIAL_HASH_RE.test(body.partnerCredentialHash)
+    !CREDENTIAL_HASH_RE.test(body.partnerCredentialHash) ||
+    typeof body.partnerDeviceId !== "string" ||
+    !DEVICE_ID_RE.test(body.partnerDeviceId)
   ) {
     return errorResponse("INVALID_REQUEST", "Invalid pairing session payload", 400);
   }
@@ -428,17 +433,37 @@ async function publishConfirmation(env: Env, body: SessionRequest): Promise<Resp
     return errorResponse("PAIRING_NOT_READY", "Pairing session is not ready", 409);
   }
 
+  if (session.confirmation !== null || session.partner_credential_hash !== null || session.partner_device_id !== null) {
+    if (
+      session.confirmation === body.confirmation &&
+      session.partner_credential_hash === body.partnerCredentialHash &&
+      session.partner_device_id === body.partnerDeviceId
+    ) {
+      return json({ ok: true });
+    }
+    return errorResponse("PAIRING_CONFLICT", "Pairing confirmation already submitted", 409);
+  }
+
   const result = await env.DB.prepare(
-    "UPDATE pairing_sessions SET confirmation = ?1, partner_credential_hash = ?2 " +
-    "WHERE id = ?3 AND confirmation IS NULL AND partner_credential_hash IS NULL AND expires_at > ?4",
+    "UPDATE pairing_sessions SET confirmation = ?1, partner_credential_hash = ?2, partner_device_id = ?3 " +
+    "WHERE id = ?4 AND confirmation IS NULL AND partner_credential_hash IS NULL AND partner_device_id IS NULL AND expires_at > ?5",
   ).bind(
     body.confirmation,
     body.partnerCredentialHash,
+    body.partnerDeviceId,
     session.id,
     Date.now(),
   ).run();
 
   if ((result.meta.changes ?? 0) !== 1) {
+    const current = await getSession(env, session.id);
+    if (
+      current?.confirmation === body.confirmation &&
+      current.partner_credential_hash === body.partnerCredentialHash &&
+      current.partner_device_id === body.partnerDeviceId
+    ) {
+      return json({ ok: true });
+    }
     return errorResponse("PAIRING_CONFLICT", "Pairing confirmation already submitted", 409);
   }
   return json({ ok: true });
@@ -460,12 +485,13 @@ async function completeSession(
     session.responder_share === null ||
     session.handoff === null ||
     session.confirmation === null ||
-    session.partner_credential_hash === null
+    session.partner_credential_hash === null ||
+    session.partner_device_id === null
   ) {
     return errorResponse("PAIRING_NOT_READY", "Pairing session is not ready", 409);
   }
 
-  const partnerDeviceId = crypto.randomUUID();
+  const partnerDeviceId = session.partner_device_id;
   const now = Date.now();
 
   try {
@@ -511,9 +537,9 @@ async function completeSession(
 
   const partnerDevice = await env.DB.prepare(
     "SELECT id FROM devices " +
-    "WHERE relationship_id = ?1 AND participant = 'PARTNER' " +
-    "AND credential_hash = ?2 AND revoked_at IS NULL",
-  ).bind(session.relationship_id, session.partner_credential_hash).first<{ id: string }>();
+    "WHERE id = ?1 AND relationship_id = ?2 AND participant = 'PARTNER' " +
+    "AND credential_hash = ?3 AND revoked_at IS NULL",
+  ).bind(partnerDeviceId, session.relationship_id, session.partner_credential_hash).first<{ id: string }>();
 
   const completion = await env.DB.prepare(
     "SELECT ps.completed_at, i.consumed_at, r.status " +
@@ -576,6 +602,7 @@ async function pollSession(
       handoff: session.handoff,
       confirmation: session.confirmation,
       partnerCredentialHash: session.partner_credential_hash,
+      partnerDeviceId: session.partner_device_id,
       completed: session.completed_at !== null,
       relationshipKeyCommitment: relationship?.relationship_key_commitment ?? null,
       partnerDeviceId: partnerDevice?.id ?? null,
@@ -609,7 +636,9 @@ async function pollSession(
     initiatorShare: session.initiator_share,
     responderShare: session.responder_share,
     handoff: session.handoff,
-    confirmation: null,
+    confirmation: session.confirmation,
+    partnerCredentialHash: session.partner_credential_hash,
+    partnerDeviceId: session.partner_device_id,
     completed: session.completed_at !== null,
     relationshipKeyCommitment: invitation.relationship_key_commitment,
     partnerDeviceId: partnerDevice?.id ?? null,
