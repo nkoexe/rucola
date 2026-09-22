@@ -1,6 +1,7 @@
 import { isValidPairingConfirmationCode } from './pairingCode.ts';
 
 export const PAIRING_SHARE_BASE_URL = 'https://rucola.njco.dev';
+export const PAIRING_APP_SCHEME = 'rucola';
 
 export type PairingTransport = 'EMOJI' | 'SHARE_LINK';
 
@@ -105,3 +106,52 @@ export function normalizePairingInput(input: PairingInput): { transport: Pairing
   throw new Error('Pairing input transport is invalid.');
 }
 
+
+
+export function parsePairingAppLink(value: string): string {
+  if (typeof value !== 'string' || value.trim() !== value || value.length === 0) {
+    throw new Error('Pairing app link is invalid.');
+  }
+
+  let url: URL;
+  try {
+    url = new URL(value);
+  } catch {
+    throw new Error('Pairing app link is invalid.');
+  }
+
+  if (
+    url.protocol !== PAIRING_APP_SCHEME + ':' ||
+    url.hostname !== 'pair' ||
+    url.username ||
+    url.password ||
+    url.search ||
+    url.hash ||
+    url.pathname === '/' ||
+    url.pathname.endsWith('/')
+  ) {
+    throw new Error('Pairing app link is invalid.');
+  }
+
+  const encodedCode = url.pathname.slice(1);
+  if (encodedCode.includes('/')) {
+    throw new Error('Pairing app link is invalid.');
+  }
+
+  let decodedCode: string;
+  try {
+    decodedCode = decodeURIComponent(encodedCode);
+  } catch {
+    throw new Error('Pairing app link is invalid.');
+  }
+
+  return canonicalizePairingCode(decodedCode);
+}
+
+export function parsePairingDeepLink(value: string): string {
+  try {
+    return parsePairingShareUrl(value);
+  } catch {
+    return parsePairingAppLink(value);
+  }
+}
