@@ -67,9 +67,9 @@ The mobile `SyncEngine` enforces the important client boundary: cursor advanceme
 
 ### Pairing
 
-The human-facing pairing UX is a product concern separate from the security credential. The backend uses a higher-entropy invitation/token plus bounded confirmation attempts, expiry, and one-time consumption.
+The human-facing pairing UX exposes exactly five emojis. The backend may retain a higher-entropy invitation/token plus bounded attempts, expiry, and one-time consumption as internal machinery, but the token is never user-facing. The hidden pairing session carries or establishes the long-lived relationship key without sending the raw key to the Worker.
 
-The mobile app must keep technical credentials invisible to the user.
+The mobile app must keep all technical credentials invisible to the user. The two user-facing transports are manual five-emoji entry and the HTTPS five-emoji share link.
 
 ### Device lifecycle
 
