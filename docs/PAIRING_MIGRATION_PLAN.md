@@ -2,6 +2,8 @@
 
 ## Status
 
+**Current implementation stage:** transport-neutral pairing core is in place; hidden-handshake design is documented in `docs/PAIRING_HANDSHAKE.md`; the cryptographic implementation remains gated on primitive/runtime validation.
+
 This is the implementation contract for replacing the current transitional pairing-payload + five-emojis flow with the intended emoji-only user experience and the alternative share-link transport.
 
 The migration is deliberately incremental. Existing secure pairing, identity, invitation, commitment, expiry, and lifecycle code should be reused wherever its semantics remain correct. The goal is not to rewrite the pairing stack.
@@ -274,12 +276,14 @@ Exit condition:
 Refactor the existing pairing implementation without changing the underlying relationship lifecycle:
 
 - separate invitation creation from transport;
+- define the hidden PAKE/session boundary before wiring transport-specific screens;
 - separate hidden protocol state from presentation state;
 - keep the relationship-key commitment;
 - keep secure identity persistence;
 - make PairingManager the single pairing owner;
 - introduce a small transport/input abstraction;
 - remove pairing-package details from screen types;
+- keep the legacy package API isolated strictly as a temporary compatibility adapter;
 - retain compatibility tests for the existing Worker primitives.
 
 Exit condition:
@@ -287,6 +291,8 @@ Exit condition:
 > Screens can request a pairing invitation and receive only the human-facing code plus the link representation.
 
 ### Phase 2 — emoji transport
+
+**Prerequisite:** complete the hidden-handshake gate in `docs/PAIRING_HANDSHAKE.md`.
 
 Implement:
 
