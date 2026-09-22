@@ -3,7 +3,6 @@ import { hkdf } from '@noble/hashes/hkdf';
 import { sha256 } from '@noble/hashes/sha2';
 import { canonicalizePairingCode } from './pairingTransport.ts';
 import { base64ToBytes, bytesToBase64, utf8Encode } from '../crypto/encoding.ts';
-import { normalizeRelationshipKey } from '../crypto/relationshipKey.ts';
 
 export const PAIRING_HANDSHAKE_VERSION = 'rucola-cpace20-v1';
 const INITIATOR_ID = utf8Encode('A_initiator');
@@ -67,6 +66,19 @@ function decodeShare(value: string): Uint8Array {
   const bytes = base64ToBytes(value);
   if (bytes.length !== 32) throw new Error('Pairing share is invalid.');
   return bytes;
+}
+
+function normalizeRelationshipKeyLocal(value: string): string {
+  if (typeof value !== 'string' || value.trim() !== value || value.length === 0) {
+    throw new Error('Relationship encryption key is invalid.');
+  }
+  try {
+    const bytes = base64ToBytes(value);
+    if (bytes.length !== 32) throw new Error();
+    return bytesToBase64(bytes);
+  } catch {
+    throw new Error('Relationship encryption key is invalid.');
+  }
 }
 
 function deriveKey(isk: Uint8Array, sessionId: Uint8Array, info: Uint8Array): string {
@@ -169,7 +181,7 @@ export async function encryptRelationshipKey(
   secrets: PairingHandshakeSecrets,
   peerShareBase64: string,
 ): Promise<string> {
-  const normalizedKey = await normalizeRelationshipKey(relationshipKey);
+  const normalizedKey = normalizeRelationshipKeyLocal(relationshipKey);
   const { wrapKey } = await derivePairingKeys(secrets, peerShareBase64);
   const aad = utf8Encode(JSON.stringify([
     PAIRING_HANDSHAKE_VERSION,
@@ -209,7 +221,7 @@ export async function decryptRelationshipKey(
       ciphertext: base64ToBytes(fields[2] ?? ''),
       tag: base64ToBytes(fields[3] ?? ''),
     }, wrapKey, aad);
-    return normalizeRelationshipKey(new TextDecoder().decode(plaintext));
+    return normalizeRelationshipKeyLocal(new TextDecoder().decode(plaintext));
   } catch {
     throw new Error('Pairing handoff is invalid.');
   }
