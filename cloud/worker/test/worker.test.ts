@@ -113,6 +113,16 @@ describe("Rucola cloud worker", () => {
     expect(invitation?.consumed_at).not.toBeNull();
     expect(invitation?.consumed_by_device_id).toBe(completed.partnerDeviceId);
 
+    const responderPoll = await exports.default.fetch("https://rucola.test/v1/pairing/session", {
+      method: "POST",
+      headers: { "content-type": "application/json", "cf-connecting-ip": "198.51.100.241" },
+      body: JSON.stringify({ action: "POLL", sessionId, confirmationCode: body.confirmationCode }),
+    });
+    expect(responderPoll.status).toBe(200);
+    const responderState = await json(responderPoll);
+    expect(responderState.completed).toBe(true);
+    expect(responderState.partnerDeviceId).toBe(completed.partnerDeviceId);
+
     const session = await env.DB.prepare(
       "SELECT completed_at FROM pairing_sessions WHERE id = ?1",
     ).bind(sessionId).first<{ completed_at: number | null }>();
