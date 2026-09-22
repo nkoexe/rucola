@@ -25,7 +25,29 @@
       "expo-status-bar"
     ],
     "android": {
-      "package": "com.rucola.app"
+      "package": "com.rucola.app",
+      "intentFilters": [
+        {
+          "action": "VIEW",
+          "autoVerify": true,
+          "category": [
+            "BROWSABLE",
+            "DEFAULT"
+          ],
+          "data": [
+            {
+              "scheme": "https",
+              "host": "rucola.njco.dev",
+              "pathPrefix": "/"
+            },
+            {
+              "scheme": "http",
+              "host": "rucola.njco.dev",
+              "pathPrefix": "/"
+            }
+          ]
+        }
+      ]
     },
     "ios": {
       "bundleIdentifier": "com.rucola.app"
