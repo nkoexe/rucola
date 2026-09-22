@@ -171,6 +171,27 @@ async function getLiveInvitationByCode(env: Env, confirmationCode: string) {
   }>();
 }
 
+async function getInvitationForSessionCode(
+  env: Env,
+  invitationId: string,
+  confirmationCode: string,
+) {
+  const confirmationHash = await sha256Hex(confirmationCode);
+  return env.DB.prepare(
+    "SELECT i.id, i.relationship_id, i.expires_at, i.consumed_at, " +
+    "r.status, r.relationship_key_commitment " +
+    "FROM invitations i JOIN relationships r ON r.id = i.relationship_id " +
+    "WHERE i.id = ?1 AND i.confirmation_code_hash = ?2",
+  ).bind(invitationId, confirmationHash).first<{
+    id: string;
+    relationship_id: string;
+    expires_at: number;
+    consumed_at: number | null;
+    status: "PAIRING" | "ACTIVE" | "ENDED";
+    relationship_key_commitment: string | null;
+  }>();
+}
+
 async function startSession(
   env: Env,
   body: SessionRequest,
@@ -562,10 +583,13 @@ async function pollSession(
   }
 
   if (!isPairingCode(body.confirmationCode)) return invalidSession();
-  const invitation = await getLiveInvitationByCode(env, body.confirmationCode);
+  const invitation = await getInvitationForSessionCode(
+    env,
+    session.invitation_id,
+    body.confirmationCode,
+  );
   if (
     !invitation ||
-    invitation.id !== session.invitation_id ||
     invitation.expires_at <= Date.now() ||
     (invitation.consumed_at !== null && session.completed_at === null)
   ) {
