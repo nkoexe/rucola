@@ -96,7 +96,7 @@ function pairingInputs(
 
 export function createPairingSessionId(bytes: Uint8Array): string {
   if (bytes.length !== 16) throw new Error('Pairing session must be 16 bytes.');
-  return bytesToBase64(bytes).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '');
+  return bytesToBase64(bytes);
 }
 
 export async function generatePairingSessionId(): Promise<string> {
