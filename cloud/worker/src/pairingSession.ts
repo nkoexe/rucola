@@ -602,10 +602,9 @@ async function pollSession(
       handoff: session.handoff,
       confirmation: session.confirmation,
       partnerCredentialHash: session.partner_credential_hash,
-      partnerDeviceId: session.partner_device_id,
       completed: session.completed_at !== null,
       relationshipKeyCommitment: relationship?.relationship_key_commitment ?? null,
-      partnerDeviceId: partnerDevice?.id ?? null,
+      partnerDeviceId: partnerDevice?.id ?? session.partner_device_id ?? null,
     });
   }
 
