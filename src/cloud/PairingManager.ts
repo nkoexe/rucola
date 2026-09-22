@@ -164,7 +164,6 @@ export class PairingManager {
         if (!session.partnerDeviceId) throw new Error('Completed pairing did not return the partner device ID.');
         if (!partnerCredential) throw new Error('Pairing completed before local credential generation.');
         const relationshipKey = await this.relationshipKeyFromSession(
-          pairingCode,
           secrets,
           session.initiatorShare,
           session.handoff,
@@ -195,7 +194,6 @@ export class PairingManager {
       const relationshipKey = await decryptRelationshipKey(
         session.handoff,
         joined.relationshipKeyCommitment,
-        pairingCode,
         secrets,
         session.initiatorShare,
       );
@@ -210,7 +208,6 @@ export class PairingManager {
 
       if (!confirmationPublished) {
         const confirmation = await createPairingConfirmation(
-          pairingCode,
           secrets,
           session.initiatorShare,
         );
@@ -285,7 +282,6 @@ export class PairingManager {
         const handoff = await encryptRelationshipKey(
           current.relationshipKey,
           secrets.relationshipKeyCommitment,
-          current.pendingPairing.confirmationCode,
           secrets,
           session.responderShare,
         );
@@ -307,7 +303,6 @@ export class PairingManager {
 
       try {
         await this.verifyInitiatorConfirmation(
-          current.pendingPairing.confirmationCode,
           secrets,
           afterHandoff.responderShare,
           afterHandoff.confirmation,
@@ -500,17 +495,15 @@ export class PairingManager {
   }
 
   private async verifyInitiatorConfirmation(
-    pairingCode: string,
     secrets: PairingHandshakeSecrets,
     responderShare: string | null,
     confirmation: string,
   ): Promise<void> {
     if (!responderShare) throw new Error('Pairing responder share is missing.');
-    await verifyPairingConfirmation(confirmation, pairingCode, secrets, responderShare);
+    await verifyPairingConfirmation(confirmation, secrets, responderShare);
   }
 
   private async relationshipKeyFromSession(
-    pairingCode: string,
     secrets: PairingHandshakeSecrets,
     responderShare: string,
     handoff: string | null,
@@ -520,7 +513,6 @@ export class PairingManager {
     const key = await decryptRelationshipKey(
       handoff,
       commitment,
-      pairingCode,
       secrets,
       responderShare,
     );
