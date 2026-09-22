@@ -20,11 +20,11 @@ Current foundation status:
 - final navigation architecture: not complete
 - final Home UX: not complete
 - three-day stale Home behavior: not complete
-- real two-device application pairing: not complete
+- real two-device application pairing: implementation complete; physical validation pending
 - application-level cloud credential persistence/lifecycle: complete
 - first application-owned encrypted SyncEngine runtime: complete
 - end-to-end online message exchange: pending two-device validation
-- pairing migration: transport-neutral boundary complete; hidden handshake gate prepared
+- pairing migration: Steps 2 and 3 prototype implementation complete; production crypto/runtime gate and physical validation pending
 - final Figma implementation: not started
 
 The cloud workstream is on `cloud/research`. Its current Worker implementation already covers the core transport foundation, including pairing, directional mailbox synchronization, receipts, media/R2 handling, cleanup, bounded payloads, and concurrency hardening. That work is ahead of the stable mobile integration on `main` and should not be described as merely a proposed backend.
