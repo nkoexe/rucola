@@ -65,7 +65,7 @@ test('a wrong five-emoji code cannot derive the same session key', async () => {
 
 test('session identifiers are 16-byte standard Base64 values', () => {
   const sessionId = createPairingSessionId(SESSION_BYTES);
-  assert.equal(sessionId, 'BwcHBwcHBwcHBwcHBwcHBQ==');
+  assert.equal(sessionId, 'BwcHBwcHBwcHBwcHBwcHBw==');
   assert.equal(Buffer.from(sessionId, 'base64').length, 16);
 });
 
