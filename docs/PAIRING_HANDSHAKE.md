@@ -23,11 +23,11 @@ Both user transports terminate in one pairing-session API.
 
 Rucola needs a **balanced PAKE** because both phones know the same short-lived pairing secret.
 
-**SPAKE2 (RFC 9382)** is a protocol fit: it is a two-party balanced PAKE, includes key confirmation, and defines a symmetric variant when fixed roles are undesirable. It is nevertheless an Informational RFC, and the repository currently has no clearly suitable maintained SPAKE2 JavaScript/React-Native implementation to adopt blindly. citeturn642392search0
+**SPAKE2 (RFC 9382)** is a protocol fit: it is a two-party balanced PAKE, includes key confirmation, and defines a symmetric variant when fixed roles are undesirable. It is nevertheless an Informational RFC, and the repository currently has no clearly suitable maintained SPAKE2 JavaScript/React-Native implementation to adopt blindly. https://www.rfc-editor.org/rfc/rfc9382
 
-**SPAKE2+ (RFC 9383)** is not the default choice. It is an augmented PAKE aimed at client/server verifier-style use, which does not match our peer-to-peer-through-a-relay ceremony. citeturn868802search0
+**SPAKE2+ (RFC 9383)** is not the default choice. It is an augmented PAKE aimed at client/server verifier-style use, which does not match our peer-to-peer-through-a-relay ceremony. https://www.rfc-editor.org/rfc/rfc9383
 
-**CPace** is a strong architectural fit because it is balanced/composable and designed for two parties sharing a low-entropy secret. The current CFRG draft is revision 21 and is in the RFC Editor process, but it remains a work-in-progress Internet-Draft. citeturn642392search1turn642392search2
+**CPace** is a strong architectural fit because it is balanced/composable and designed for two parties sharing a low-entropy secret. The current CFRG draft is revision 21 and is in the RFC Editor process, but it remains a work-in-progress Internet-Draft. https://datatracker.ietf.org/doc/draft-irtf-cfrg-cpace/
 
 The current JavaScript package `@cipherman/pake-js` exposes Ristretto255/SHA-512 CPace and reports test-vector coverage, but it is pre-1.0 and explicitly says independent audit is still required before production. Its published runtime targets are Node/Deno/Bun/browser; React Native/Expo compatibility therefore needs an actual dev-build probe before adoption. citeturn512573search1turn512573search2
 
