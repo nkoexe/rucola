@@ -1,5 +1,7 @@
 import { cpace } from '@cipherman/pake-js';
 import { hkdf } from '@noble/hashes/hkdf';
+import { sha512 } from '@noble/hashes/sha2';
+import { argon2id } from '@noble/hashes/argon2';
 import { sha256 } from '@noble/hashes/sha2';
 import { canonicalizePairingCode } from './pairingTransport.ts';
 import { base64ToBytes, bytesToBase64, utf8Encode } from '../crypto/encoding.ts';
@@ -10,6 +12,7 @@ const RESPONDER_ID = utf8Encode('B_responder');
 const CONFIRMATION_TEXT = utf8Encode(PAIRING_HANDSHAKE_VERSION + ':confirmed');
 const WRAP_INFO = utf8Encode(PAIRING_HANDSHAKE_VERSION + ':wrap');
 const CONFIRM_INFO = utf8Encode(PAIRING_HANDSHAKE_VERSION + ':confirm');
+const CPACE_MHF_SALT = utf8Encode(PAIRING_HANDSHAKE_VERSION + ':prs-salt');
 
 export interface PairingHandshakeInit {
   sessionId: string;
@@ -100,6 +103,18 @@ function sessionInputs(
   };
 }
 
+function derivePairingSecret(pairingCode: string): Uint8Array {
+  const password = utf8Encode(pairingCode);
+  // CPace requires the password-derived PRS to be the output of a memory-hard
+  // function. The emoji code is deliberately not used directly as the CPace PRS.
+  return argon2id(password, CPACE_MHF_SALT, {
+    t: 2,
+    m: 64 * 1024,
+    p: 1,
+    dkLen: 32,
+  });
+}
+
 function pairingInputs(
   pairingCode: string,
   sessionId: string,
@@ -107,7 +122,7 @@ function pairingInputs(
 ) {
   const { sid } = sessionInputs(sessionId, relationshipKeyCommitment);
   return {
-    PRS: utf8Encode(canonicalizePairingCode(pairingCode)),
+    PRS: derivePairingSecret(canonicalizePairingCode(pairingCode)),
     sid,
     CI: buildChannelIdentifier(),
   };
