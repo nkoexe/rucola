@@ -118,6 +118,17 @@ test('overwrites the previous identity', async () => {
   assert.deepEqual(await store.load(), identity({ deviceId: 'device-2', participant: 'PARTNER' }));
 });
 
+test('clear removes both identity and pending responder pairing state', async () => {
+  const backend = createStore();
+  const store = new CloudIdentityStore(backend);
+  await store.save(identity());
+  await store.savePendingPairingSession(pendingPairingSession());
+  await store.clear();
+  assert.equal(await store.load(), null);
+  assert.equal(await store.loadPendingPairingSession(), null);
+  assert.equal(backend.values.size, 0);
+});
+
 test('clear removes all identity material', async () => {
   const backend = createStore();
   const store = new CloudIdentityStore(backend);
