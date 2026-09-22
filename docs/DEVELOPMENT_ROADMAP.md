@@ -177,16 +177,17 @@ This is now the first application-owned online runtime, but it is not yet the co
 
 ### Remaining backend/workstream work
 
-1. Keep the hardened Worker implementation and the stable mobile contract aligned.
-2. Adapt the backend pairing protocol so the first online prototype can establish a shared relationship encryption secret without sending that secret to the Worker.
-3. Validate the mobile cloud identity lifecycle on two physical devices, including restart and reset.
-4. Validate encrypted TEXT/EMOJI exchange, offline bursts, retries, and cursor/ACK durability on two physical devices.
-5. Add an in-app QR/camera pairing transport after the share-sheet prototype is proven.
-6. Keep local message creation and foreground synchronization covered by real-device validation.
-7. Keep the 14-day mailbox / 30-day durable-receipt retention contract aligned between Worker code, tests, and client behavior.
-8. Finish end-to-end photo/video synchronization after TEXT/EMOJI online sync is proven.
-9. Add later E2E hardening such as key rotation/recovery only after the first encrypted two-device prototype works.
-
+1. Keep the hardened Worker implementation and stable mobile contract aligned.
+2. Introduce a transport-neutral pairing core that preserves the existing invitation, commitment, identity, expiry, and lifecycle machinery.
+3. Choose and implement a vetted hidden key-establishment/password-authenticated pairing construction so the five emojis are the only human-facing credential while the 256-bit relationship key remains protected from the Worker.
+4. Implement emoji-only pairing: entering the five canonical emojis is sufficient; no pairing pass/package is requested from the user.
+5. Implement the HTTPS share-link transport using https://rucola.njco.dev/<five-emojis>, Android App Links, and a non-consuming web fallback.
+6. Audit Unicode canonicalization, percent-encoding, link-preview behavior, caching, analytics, and log redaction for pairing links.
+7. Remove transitional pairing-pass UI and package handling from the presentation layer.
+8. Validate both pairing transports on two physical Android devices, including restart, expiry, retry, reset, and key-commitment checks.
+9. Keep the 14-day mailbox / 30-day durable-receipt retention contract aligned between Worker code, tests, and client behavior.
+10. Finish end-to-end photo/video synchronization after TEXT/EMOJI online sync is proven.
+11. Add later E2E hardening such as key rotation/recovery only after the first encrypted two-device prototype works.
 ## Phase 4 — First usable online prototype
 
 This is the major halfway milestone and the first real product checkpoint.
@@ -197,22 +198,22 @@ Two real people can use two real Android devices and:
 
 - install the same signed dev-test APK;
 - complete anonymous local setup;
-- pair using the intended five-emoji human-facing flow;
-- transfer the high-entropy relationship key through the secure pairing payload without exposing it to the Worker;
+- pair using **only the five-emojis user-facing credential**;
+- use either manual five-emoji entry or the HTTPS share link;
+- complete the hidden key-establishment step without exposing the relationship key to the Worker;
 - persist the resulting cloud credentials and encryption key locally;
-- exchange encrypted `TEXT` and `EMOJI` messages over the Internet in both directions;
+- exchange encrypted TEXT and EMOJI messages over the Internet in both directions;
 - queue multiple outbound messages while the other person is offline;
 - reconnect and recover the complete ordered message history;
 - preserve the one-active-message-per-participant model;
 - continue using the app after restart or normal process death;
 - retry safely after ambiguous network failures without creating duplicate messages;
 - reset the relationship and remove local cloud/encryption secrets.
-
 ### Prototype quality
 
-The UI may still be rough. The current mobile implementation uses the native Android share sheet for the high-entropy pairing payload and five emojis for human confirmation.
+The UI may still be rough. The share action uses the native Android share sheet for the HTTPS five-emoji link; the user is never asked to share a technical pairing payload.
 
-The prototype is successful only when the central relationship loop works across two real devices, not merely in unit tests or on one device.
+The prototype is successful only when both pairing transports and the central relationship loop work across two real devices, not merely in unit tests or on one device.
 
 The exact test matrix and exit criteria are maintained in `docs/ONLINE_PROTOTYPE_PLAN.md`.
 
