@@ -20,14 +20,15 @@ function parseError(status: number, body: JsonValue): CloudClientError { if (bod
 function invalidResponse(message: string): never { throw new CloudClientError({ code: 'INVALID_RESPONSE', message, status: 200 }); }
 function isRecord(value: unknown): value is Record<string, unknown> { return value !== null && typeof value === 'object' && !Array.isArray(value); }
 function isString(value: unknown): value is string { return typeof value === 'string' && value.length > 0; }
+function isSafeId(value: unknown): value is string { return typeof value === 'string' && /^[A-Za-z0-9_-]{1,128}$/.test(value); }
 function isSafePositiveInteger(value: unknown): value is number { return Number.isSafeInteger(value) && (value as number) > 0; }
 function isSafeNonNegativeInteger(value: unknown): value is number { return Number.isSafeInteger(value) && (value as number) >= 0; }
 function isEncryptionVersion(value: unknown): value is number { return isSafePositiveInteger(value) && (value as number) <= MAX_ENCRYPTION_VERSION; }
 function isSha256Hex(value: unknown): value is string { return typeof value === 'string' && /^[0-9a-f]{64}$/.test(value); }
 function isBase64Bytes(value: unknown, expectedBytes: number): value is string { if (typeof value !== 'string' || !/^[A-Za-z0-9+/]+={0,2}$/.test(value)) return false; try { return atob(value).length === expectedBytes; } catch { return false; } }
 function assertPairingSessionStart(body: unknown): asserts body is PairingSessionStartResponse { if (!isRecord(body) || !isString(body.sessionId) || !isBase64Bytes(body.sessionId, 16) || !isSafePositiveInteger(body.expiresAt) || !isSha256Hex(body.relationshipKeyCommitment)) invalidResponse('Cloud returned an invalid pairing session start response.'); }
-function assertPairingSessionJoin(body: unknown): asserts body is PairingSessionJoinResponse { if (!isRecord(body) || !isString(body.sessionId) || !isBase64Bytes(body.sessionId, 16) || !isSafePositiveInteger(body.expiresAt) || !isBase64Bytes(body.initiatorShare, 32) || !isString(body.relationshipId) || !isSha256Hex(body.relationshipKeyCommitment)) invalidResponse('Cloud returned an invalid pairing session join response.'); }
-function assertPairingSessionPoll(body: unknown): asserts body is PairingSessionPollResponse { if (!isRecord(body) || !isString(body.sessionId) || !isBase64Bytes(body.sessionId, 16) || !isString(body.relationshipId) || !isSafePositiveInteger(body.expiresAt) || !isBase64Bytes(body.initiatorShare, 32) || !(body.responderShare === null || isBase64Bytes(body.responderShare, 32)) || !(body.handoff === null || isString(body.handoff)) || !(body.confirmation === null || isString(body.confirmation)) || !(body.partnerCredentialHash === undefined || body.partnerCredentialHash === null || isSha256Hex(body.partnerCredentialHash)) || typeof body.completed !== 'boolean' || !isSha256Hex(body.relationshipKeyCommitment) || !(body.partnerDeviceId === undefined || body.partnerDeviceId === null || isString(body.partnerDeviceId))) invalidResponse('Cloud returned an invalid pairing session poll response.'); }
+function assertPairingSessionJoin(body: unknown): asserts body is PairingSessionJoinResponse { if (!isRecord(body) || !isString(body.sessionId) || !isBase64Bytes(body.sessionId, 16) || !isString(body.invitationId) || !isSafeId(body.invitationId) || !isSafePositiveInteger(body.expiresAt) || !isBase64Bytes(body.initiatorShare, 32) || !isString(body.relationshipId) || !isSafeId(body.relationshipId) || !isSha256Hex(body.relationshipKeyCommitment)) invalidResponse('Cloud returned an invalid pairing session join response.'); }
+function assertPairingSessionPoll(body: unknown): asserts body is PairingSessionPollResponse { if (!isRecord(body) || !isString(body.sessionId) || !isBase64Bytes(body.sessionId, 16) || !isString(body.relationshipId) || !isSafeId(body.relationshipId) || !isSafePositiveInteger(body.expiresAt) || !isBase64Bytes(body.initiatorShare, 32) || !(body.responderShare === null || isBase64Bytes(body.responderShare, 32)) || !(body.handoff === null || isString(body.handoff)) || !(body.confirmation === null || isString(body.confirmation)) || !(body.partnerCredentialHash === undefined || body.partnerCredentialHash === null || isSha256Hex(body.partnerCredentialHash)) || typeof body.completed !== 'boolean' || !isSha256Hex(body.relationshipKeyCommitment) || !(body.partnerDeviceId === undefined || body.partnerDeviceId === null || isSafeId(body.partnerDeviceId))) invalidResponse('Cloud returned an invalid pairing session poll response.'); }
 function assertPairingSessionMutation(body: unknown): asserts body is PairingSessionMutationResponse { if (!isRecord(body) || body.ok !== true) invalidResponse('Cloud returned an invalid pairing session mutation response.'); }
 function assertPairingSessionComplete(body: unknown): asserts body is PairingSessionCompleteResponse { if (!isRecord(body) || body.completed !== true || !isString(body.relationshipId) || !isString(body.partnerDeviceId)) invalidResponse('Cloud returned an invalid pairing session completion response.'); }
 
@@ -103,11 +104,11 @@ export class CloudClient {
       validator: assertPairingSessionMutation,
     });
   }
-  async publishPairingConfirmation(sessionId: string, confirmationCode: string, confirmation: string, partnerCredentialHash: string): Promise<PairingSessionMutationResponse> {
+  async publishPairingConfirmation(sessionId: string, confirmationCode: string, confirmation: string, partnerCredentialHash: string, partnerDeviceId: string): Promise<PairingSessionMutationResponse> {
     return this.request<PairingSessionMutationResponse>({
       method: 'POST',
       path: '/v1/pairing/session',
-      body: { action: 'PUBLISH_CONFIRMATION', sessionId, confirmationCode, confirmation, partnerCredentialHash },
+      body: { action: 'PUBLISH_CONFIRMATION', sessionId, confirmationCode, confirmation, partnerCredentialHash, partnerDeviceId },
       validator: assertPairingSessionMutation,
     });
   }
