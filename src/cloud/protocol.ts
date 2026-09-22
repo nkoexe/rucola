@@ -5,6 +5,7 @@ export type CloudMediaType = 'PHOTO' | 'VIDEO';
 export interface PairingBootstrapRequest {
   expiresInSeconds?: number;
   relationshipKeyCommitment: string;
+  partnerDeviceId?: string | null;
 }
 
 export interface PairingBootstrapResponse {
@@ -123,6 +124,7 @@ export interface CompleteMediaResponse {
 export type PairingSessionAction =
   | 'START'
   | 'JOIN'
+  | 'PUBLISH_RESPONDER_SHARE'
   | 'PUBLISH_HANDOFF'
   | 'PUBLISH_CONFIRMATION'
   | 'COMPLETE'
@@ -149,8 +151,12 @@ export interface PairingSessionJoinResponse {
   sessionId: string;
   expiresAt: number;
   initiatorShare: string;
-  responderShare: string;
+  relationshipId: string;
   relationshipKeyCommitment: string;
+}
+
+export interface PairingSessionResponderShareResponse {
+  ok: true;
 }
 
 export interface PairingSessionMutationResponse {
@@ -165,6 +171,7 @@ export interface PairingSessionCompleteResponse {
 
 export interface PairingSessionPollResponse {
   sessionId: string;
+  relationshipId: string;
   expiresAt: number;
   initiatorShare: string;
   responderShare: string | null;
