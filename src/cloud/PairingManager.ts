@@ -5,6 +5,7 @@ import { createPairingPackage, decodePairingPackage } from './pairingPackage.ts'
 import { isValidPairingConfirmationCode } from './pairingCode.ts';
 import {
   createPairingShareUrl,
+  normalizePairingInput,
   type PairingInput,
   type PairingInvitationView,
 } from './pairingTransport.ts';
@@ -142,14 +143,8 @@ export class PairingManager {
     };
   }
 
-  normalizePairingInput(input: PairingInput) {
-    if (input.transport === 'EMOJI') {
-      return { transport: 'EMOJI' as const, pairingCode: input.value };
-    }
-    if (input.transport === 'SHARE_LINK') {
-      return { transport: 'SHARE_LINK' as const, pairingCode: input.value };
-    }
-    throw new Error('Pairing input transport is invalid.');
+  normalizePairingInput(input: PairingInput): { transport: 'EMOJI' | 'SHARE_LINK'; pairingCode: string } {
+    return normalizePairingInput(input);
   }
 
   async acceptPairingPackage(encodedPackage: string, confirmationCode: string): Promise<PairingAcceptResult> {
