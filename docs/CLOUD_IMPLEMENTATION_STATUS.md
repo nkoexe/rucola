@@ -1,11 +1,11 @@
 # Rucola Cloud Implementation Status
 
-Date: 2026-09-20  
+Date: 2026-09-22  
 Branch: `feature/pairing-emoji-share-link`
 
 ## Current status
 
-The cloud backend foundation is implemented and hardened through the temporary mailbox, ACK, media, cleanup, pairing, concurrency, and database-invariant boundaries. The React Native side now has secure identity/key storage, pairing lifecycle state, the first Android pairing UX, and a real application-owned `CloudRuntime` that constructs the encrypted `SyncEngine` from persisted identity state.
+The cloud backend foundation is implemented and hardened through the temporary mailbox, ACK, media, cleanup, pairing, concurrency, and database-invariant boundaries. The React Native side now has secure identity/key storage, pairing lifecycle state, the transport-neutral pairing boundary, and a real application-owned `CloudRuntime` that constructs the encrypted `SyncEngine` from persisted identity state.
 
 ## Sync protocol
 
@@ -107,7 +107,7 @@ npm run typecheck
 npm test
 ```
 
-The latest completed backend validation before the current CI workflow fix was 15 test files and 111 tests passing. A fresh CI run is required to validate the current workflow and remote Cloudflare resources end-to-end.
+The cloud Worker test suite remains the backend validation boundary. CI status is intentionally tracked by GitHub Actions rather than frozen in this document.
 
 ## Current mobile security and pairing foundation
 
@@ -142,14 +142,15 @@ The implementation is committed for the transitional pairing flow. The transport
 1. Validate the real encrypted TEXT/EMOJI online loop on two Android devices against the dev Worker, including offline bursts and retry/restart behavior.
 2. Validate the signed dev APK path against the dev Worker and the current Worker schema.
 3. Add an in-app QR/camera transfer path if the share-sheet prototype proves insufficient for the physical test.
-4. Add background synchronization/notifications only after the foreground two-device loop is proven.
+4. Complete the hidden pairing handshake and emoji-only acceptance path.
+5. Validate both pairing transports on two real Android devices against the dev Worker.
 6. Finish end-to-end PHOTO_VIDEO synchronization.
-7. Add background synchronization/notifications.
+7. Add background synchronization/notifications only after the foreground path is proven.
 8. Complete production migration/recovery, resource/secrets verification, and observability.
 9. Decide whether to remove the legacy `mailbox_messages.acknowledged_at` field after the current protocol is fully migrated.
 
 ## Next step
 
-The code/CI milestone is green. The next gate is a two-device signed-dev-Apk test against `https://dev.rucola.njco.dev`; no production deployment should happen before that.
+The next pairing gate is the hidden handshake implementation defined in `docs/PAIRING_HANDSHAKE.md`. Two-device validation follows only after the handshake and both transports are wired.
 
 Do not make the UI depend directly on cloud endpoints.
