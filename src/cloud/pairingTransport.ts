@@ -81,6 +81,9 @@ export function parsePairingShareUrl(value: string, baseUrl = PAIRING_SHARE_BASE
   } catch {
     throw new Error('Pairing share link is invalid.');
   }
+  if (/\s/gu.test(decodedCode)) {
+    throw new Error('Pairing share link is invalid.');
+  }
 
   return canonicalizePairingCode(decodedCode);
 }
