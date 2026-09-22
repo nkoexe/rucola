@@ -118,12 +118,11 @@ export function createPairingHandshake(
 }
 
 export async function derivePairingKeys(
-  pairingCode: string,
   secrets: PairingHandshakeSecrets,
   peerShareBase64: string,
 ): Promise<{ wrapKey: string; confirmKey: string }> {
-  const { PRS, sid, CI, initiatorAD, responderAD } = pairingInputs(
-    pairingCode,
+  const { sid, initiatorAD, responderAD } = pairingInputs(
+    '😀😀😀😀😀',
     secrets.sessionId,
     secrets.relationshipKeyCommitment,
   );
@@ -153,12 +152,11 @@ export async function derivePairingKeys(
 export async function encryptRelationshipKey(
   relationshipKey: string,
   relationshipKeyCommitment: string,
-  pairingCode: string,
   secrets: PairingHandshakeSecrets,
   peerShareBase64: string,
 ): Promise<string> {
   const normalizedKey = await normalizeRelationshipKey(relationshipKey);
-  const { wrapKey } = await derivePairingKeys(pairingCode, secrets, peerShareBase64);
+  const { wrapKey } = await derivePairingKeys(secrets, peerShareBase64);
   const aad = utf8Encode(JSON.stringify([
     PAIRING_HANDSHAKE_VERSION,
     secrets.sessionId,
@@ -176,7 +174,6 @@ export async function encryptRelationshipKey(
 export async function decryptRelationshipKey(
   envelope: string,
   relationshipKeyCommitment: string,
-  pairingCode: string,
   secrets: PairingHandshakeSecrets,
   peerShareBase64: string,
 ): Promise<string> {
@@ -184,7 +181,7 @@ export async function decryptRelationshipKey(
   if (fields.length !== 4 || fields[0] !== PAIRING_HANDSHAKE_VERSION) {
     throw new Error('Pairing handoff is invalid.');
   }
-  const { wrapKey } = await derivePairingKeys(pairingCode, secrets, peerShareBase64);
+  const { wrapKey } = await derivePairingKeys(secrets, peerShareBase64);
   const aad = utf8Encode(JSON.stringify([
     PAIRING_HANDSHAKE_VERSION,
     secrets.sessionId,
@@ -203,11 +200,10 @@ export async function decryptRelationshipKey(
 }
 
 export async function createPairingConfirmation(
-  pairingCode: string,
   secrets: PairingHandshakeSecrets,
   peerShareBase64: string,
 ): Promise<string> {
-  const { confirmKey } = await derivePairingKeys(pairingCode, secrets, peerShareBase64);
+  const { confirmKey } = await derivePairingKeys(secrets, peerShareBase64);
   const aad = utf8Encode(JSON.stringify([
     PAIRING_HANDSHAKE_VERSION,
     secrets.sessionId,
@@ -224,7 +220,6 @@ export async function createPairingConfirmation(
 
 export async function verifyPairingConfirmation(
   envelope: string,
-  pairingCode: string,
   secrets: PairingHandshakeSecrets,
   peerShareBase64: string,
 ): Promise<void> {
@@ -232,7 +227,7 @@ export async function verifyPairingConfirmation(
   if (fields.length !== 4 || fields[0] !== PAIRING_HANDSHAKE_VERSION) {
     throw new Error('Pairing confirmation is invalid.');
   }
-  const { confirmKey } = await derivePairingKeys(pairingCode, secrets, peerShareBase64);
+  const { confirmKey } = await derivePairingKeys(secrets, peerShareBase64);
   const aad = utf8Encode(JSON.stringify([
     PAIRING_HANDSHAKE_VERSION,
     secrets.sessionId,
