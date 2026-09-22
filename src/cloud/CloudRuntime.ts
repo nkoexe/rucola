@@ -61,6 +61,10 @@ export class CloudRuntime {
     return this.pairing.completePendingPairing();
   }
 
+  resumePendingPartnerPairing(): Promise<CloudIdentity | null> {
+    return this.pairing.resumePendingPartnerPairing();
+  }
+
   normalizePairingInput(input: PairingInput) {
     return this.pairing.normalizePairingInput(input);
   }
