@@ -121,8 +121,9 @@ Implemented on the current development branch:
 - Unit tests cover round-trip encryption, nonce uniqueness, tampering, wrong keys, malformed envelopes, encoding, and secure-identity validation.
 - The native integration harness includes a SecureStore/AES-GCM smoke test using a dedicated test storage key so it cannot overwrite a real paired identity.
 - Pairing now binds the installation-generated relationship key to the Worker invitation through a SHA-256 commitment; the raw relationship key never crosses the Worker API.
-- The mobile pairing protocol persists recoverable `PAIRING` state separately from `ACTIVE` state and can recreate a pending pairing package after restart.
-- The human confirmation is exactly five emojis; the high-entropy invitation token and encryption key remain technical pairing material.
+- The mobile pairing protocol persists recoverable `PAIRING` state separately from `ACTIVE` state and can resume a pending invitation after restart.
+- The user-facing pairing credential is exactly five emojis; the invitation token, cloud credential, relationship key, and any serialized pairing package remain technical pairing material and must not be exposed in the UI.
+- The target migration replaces the current visible pairing-package handoff with two transport options: emoji-only entry and an HTTPS five-emoji share link.
 - Auth probing now exposes the relationship lifecycle state so the initiating device can transition from `PAIRING` to `ACTIVE` after the partner joins.
 - `CloudRuntime` now owns `CloudClient`, `CloudIdentityStore`, `PairingManager`, the SQLite sync-state store, `AesGcmSyncCodec`, and one coalescing `SyncEngine` instance for the active identity.
 - `SyncEngine` now passes the durable sender sequence into the codec, so the sequence is covered by AES-GCM authenticated context exactly as designed.
@@ -132,7 +133,7 @@ Implemented on the current development branch:
 - The sync test suite now exercises a simulated two-device encrypted TEXT burst in both directions and a lost-response/idempotent retry.
 - The Worker cleanup suite now covers expiry of an unpaired pairing relationship without touching active relationships.
 
-The implementation is committed. The Android UX uses the native Android share sheet for the out-of-band pairing payload; the intended recipient path is direct device-to-device transfer (for example Quick Share), while the raw pairing payload is never displayed in the app.
+The implementation is committed for the transitional pairing flow. The next pairing migration removes the visible out-of-band pairing payload and makes the five emojis the only human-facing pairing credential. The intended share transport is an HTTPS five-emoji link handled through Android App Links; the hidden cryptographic handoff remains inside the pairing core.
 
 ## Remaining work
 
