@@ -19,8 +19,8 @@ describe("Rucola cloud worker", () => {
     const sessionId = "BwcHBwcHBwcHBwcHBwcHBQ==";
     const initiatorShare = "AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE=";
     const responderShare = "AgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgI=";
-    const handoff = "rucola-pairing-v1.AAAA.AAAA.AAAA";
-    const confirmation = "rucola-pairing-v1.AAAA.AAAA.AAAA";
+    const handoff = "rucola-cpace20-v1.AAAA.AAAA.AAAA";
+    const confirmation = "rucola-cpace20-v1.AAAA.AAAA.AAAA";
     const partnerCredentialHash = "c".repeat(64);
 
     const start = await exports.default.fetch("https://rucola.test/v1/pairing/session", {
