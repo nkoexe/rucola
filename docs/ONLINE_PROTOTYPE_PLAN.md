@@ -70,7 +70,7 @@ For E2E v1, the relationship has one cryptographically random **256-bit relation
 
 Device A creates it locally during pairing.
 
-The relationship key is transferred or established through a hidden pairing session that the Worker cannot read. The user-facing experience has two transports: manual five-emoji entry and the HTTPS five-emoji share link. No technical payload is shown or manually transferred by the user.
+The relationship key is established and handed off through a hidden pairing session that the Worker cannot decrypt or complete as a cryptographic endpoint. The user-facing experience has two transports: manual five-emoji entry and the HTTPS five-emoji share link. No technical payload is shown or manually transferred by the user.
 
 The server may receive:
 
@@ -90,7 +90,10 @@ Device A
   │
   ├─ create invitation + hidden pairing session
   │
-  └─ transfer payload directly to Device B
+  └─ keep relationship key local
+                           │
+                           ▼
+                 hidden PAKE/key handoff
                            │
                            ▼
                      Device B
@@ -189,9 +192,11 @@ acceptByEmojis(fiveEmojis)
 acceptFromShareLink(url)
 ~~~
 
-The manager may continue to use the existing invitation token/package internally while the migration is underway.
+The manager may continue to use the existing invitation token/package internally only as compatibility material while the hidden handshake migration is underway.
 
 ### Phase C — implement the hidden pairing session
+
+**Status:** design prepared in `docs/PAIRING_HANDSHAKE.md`; implementation is gated on PAKE primitive and Expo/Android runtime validation.
 
 Before coding the handshake, choose and document a vetted password-authenticated/key-establishment construction or equivalent reviewed primitive.
 
