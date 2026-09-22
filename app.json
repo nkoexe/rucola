@@ -39,11 +39,6 @@
               "scheme": "https",
               "host": "rucola.njco.dev",
               "pathPrefix": "/"
-            },
-            {
-              "scheme": "http",
-              "host": "rucola.njco.dev",
-              "pathPrefix": "/"
             }
           ]
         }
