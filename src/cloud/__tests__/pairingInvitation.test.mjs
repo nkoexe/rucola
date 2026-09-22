@@ -1,1 +1,86 @@
-import assert from 'node:assert/strict';\nimport test from 'node:test';\nimport { PairingManager } from '../PairingManager.ts';\n\nconst KEY = Buffer.alloc(32, 7).toString('base64');\nconst CODE = '😀😃😄😁😆';\nconst COMMITMENT = 'a'.repeat(64);\n\nfunction identityStore(initial = null) {\n  let identity = initial;\n  return {\n    async load() { return identity; },\n    async save(next) { identity = next; },\n    async clear() { identity = null; },\n  };\n}\n\nfunction cloudStub() {\n  return {\n    setCredential() {},\n    async bootstrapPairing() {\n      return {\n        relationshipId: 'relationship-1',\n        invitationId: 'invitation-1',\n        deviceId: 'device-1',\n        participant: 'ME',\n        credential: 'credential-1',\n        token: 'a'.repeat(43),\n        confirmationCode: CODE,\n        relationshipKeyCommitment: COMMITMENT,\n        expiresAt: 10_000,\n      };\n    },\n  };\n}\n\ntest('startPairingInvitation exposes only human pairing data', async () => {\n  const manager = new PairingManager({\n    cloud: cloudStub(),\n    identityStore: identityStore(),\n    keyGenerator: async () => KEY,\n    keyCommitment: async () => COMMITMENT,\n    now: () => 1_000,\n  });\n\n  const invitation = await manager.startPairingInvitation(600);\n  assert.deepEqual(invitation, {\n    pairingCode: CODE,\n    shareUrl: 'https://rucola.njco.dev/%F0%9F%98%80%F0%9F%98%83%F0%9F%98%84%F0%9F%98%81%F0%9F%98%86',\n    expiresAt: 10_000,\n  });\n  assert.equal('token' in invitation, false);\n  assert.equal('relationshipId' in invitation, false);\n  assert.equal('deviceId' in invitation, false);\n  assert.equal('relationshipKey' in invitation, false);\n});\n\ntest('resumePendingPairingInvitation reconstructs the same human-facing view', async () => {\n  const store = identityStore({\n    relationshipId: 'relationship-1',\n    deviceId: 'device-1',\n    participant: 'ME',\n    state: 'PAIRING',\n    credential: 'credential-1',\n    relationshipKey: KEY,\n    pendingPairing: {\n      invitationId: 'invitation-1',\n      token: 'a'.repeat(43),\n      confirmationCode: CODE,\n      expiresAt: 10_000,\n    },\n  });\n  const manager = new PairingManager({\n    cloud: cloudStub(),\n    identityStore: store,\n    keyCommitment: async () => COMMITMENT,\n    now: () => 1_000,\n  });\n\n  const invitation = await manager.resumePendingPairingInvitation();\n  assert.deepEqual(invitation, {\n    pairingCode: CODE,\n    shareUrl: 'https://rucola.njco.dev/%F0%9F%98%80%F0%9F%98%83%F0%9F%98%84%F0%9F%98%81%F0%9F%98%86',\n    expiresAt: 10_000,\n  });\n});\n
+import assert from 'node:assert/strict';
+import test from 'node:test';
+import { PairingManager } from '../PairingManager.ts';
+
+const KEY = Buffer.alloc(32, 7).toString('base64');
+const CODE = '😀😃😄😁😆';
+const COMMITMENT = 'a'.repeat(64);
+
+function identityStore(initial = null) {
+  let identity = initial;
+  return {
+    async load() { return identity; },
+    async save(next) { identity = next; },
+    async clear() { identity = null; },
+  };
+}
+
+function cloudStub() {
+  return {
+    setCredential() {},
+    async bootstrapPairing() {
+      return {
+        relationshipId: 'relationship-1',
+        invitationId: 'invitation-1',
+        deviceId: 'device-1',
+        participant: 'ME',
+        credential: 'credential-1',
+        token: 'a'.repeat(43),
+        confirmationCode: CODE,
+        relationshipKeyCommitment: COMMITMENT,
+        expiresAt: 10_000,
+      };
+    },
+  };
+}
+
+test('startPairingInvitation exposes only human pairing data', async () => {
+  const manager = new PairingManager({
+    cloud: cloudStub(),
+    identityStore: identityStore(),
+    keyGenerator: async () => KEY,
+    keyCommitment: async () => COMMITMENT,
+    now: () => 1_000,
+  });
+
+  const invitation = await manager.startPairingInvitation(600);
+  assert.deepEqual(invitation, {
+    pairingCode: CODE,
+    shareUrl: 'https://rucola.njco.dev/%F0%9F%98%80%F0%9F%98%83%F0%9F%98%84%F0%9F%98%81%F0%9F%98%86',
+    expiresAt: 10_000,
+  });
+  assert.equal('token' in invitation, false);
+  assert.equal('relationshipId' in invitation, false);
+  assert.equal('deviceId' in invitation, false);
+  assert.equal('relationshipKey' in invitation, false);
+});
+
+test('resumePendingPairingInvitation reconstructs the same human-facing view', async () => {
+  const store = identityStore({
+    relationshipId: 'relationship-1',
+    deviceId: 'device-1',
+    participant: 'ME',
+    state: 'PAIRING',
+    credential: 'credential-1',
+    relationshipKey: KEY,
+    pendingPairing: {
+      invitationId: 'invitation-1',
+      token: 'a'.repeat(43),
+      confirmationCode: CODE,
+      expiresAt: 10_000,
+    },
+  });
+  const manager = new PairingManager({
+    cloud: cloudStub(),
+    identityStore: store,
+    keyCommitment: async () => COMMITMENT,
+    now: () => 1_000,
+  });
+
+  const invitation = await manager.resumePendingPairingInvitation();
+  assert.deepEqual(invitation, {
+    pairingCode: CODE,
+    shareUrl: 'https://rucola.njco.dev/%F0%9F%98%80%F0%9F%98%83%F0%9F%98%84%F0%9F%98%81%F0%9F%98%86',
+    expiresAt: 10_000,
+  });
+});
