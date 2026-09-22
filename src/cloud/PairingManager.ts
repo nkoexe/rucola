@@ -83,7 +83,7 @@ export class PairingManager {
     return pending ? this.toInvitationView(pending.response.confirmationCode, pending.response.expiresAt) : null;
   }
 
-  normalizePairingInput(input: PairingInput): { transport: 'EMOJI' | 'SHARE_LINK'; pairingCode: string } {
+  normalizePairingInput(input: PairingInput): ReturnType<typeof normalizePairingInput> {
     return normalizePairingInput(input);
   }
 
