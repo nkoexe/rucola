@@ -1,11 +1,9 @@
 import { cpace } from '@cipherman/pake-js';
-import { getRandomBytesAsync } from 'expo-crypto';
 import { hkdf } from '@noble/hashes/hkdf';
 import { sha256 } from '@noble/hashes/sha2';
 import { canonicalizePairingCode } from './pairingTransport.ts';
 import { base64ToBytes, bytesToBase64, utf8Encode } from '../crypto/encoding.ts';
 import { normalizeRelationshipKey } from '../crypto/relationshipKey.ts';
-import { expoAesGcmProvider } from '../crypto/expoAesGcm.ts';
 
 export const PAIRING_HANDSHAKE_VERSION = 'rucola-cpace20-v1';
 const INITIATOR_ID = utf8Encode('A_initiator');
@@ -109,7 +107,15 @@ export function createPairingSessionId(bytes: Uint8Array): string {
 }
 
 export async function generatePairingSessionId(): Promise<string> {
+  if (globalThis.crypto?.getRandomValues) {
+    return createPairingSessionId(globalThis.crypto.getRandomValues(new Uint8Array(16)));
+  }
+  const { getRandomBytesAsync } = await import('expo-crypto');
   return createPairingSessionId(await getRandomBytesAsync(16));
+}
+
+async function aesProvider() {
+  return (await import('../crypto/expoAesGcm.ts')).expoAesGcmProvider;
 }
 
 export function createPairingHandshake(
@@ -170,7 +176,8 @@ export async function encryptRelationshipKey(
     secrets.sessionId,
     relationshipKeyCommitment,
   ]));
-  const parts = await expoAesGcmProvider.encrypt(utf8Encode(normalizedKey), wrapKey, aad);
+  const provider = await aesProvider();
+  const parts = await provider.encrypt(utf8Encode(normalizedKey), wrapKey, aad);
   return [
     PAIRING_HANDSHAKE_VERSION,
     bytesToBase64(parts.iv),
@@ -196,7 +203,8 @@ export async function decryptRelationshipKey(
     relationshipKeyCommitment,
   ]));
   try {
-    const plaintext = await expoAesGcmProvider.decrypt({
+    const provider = await aesProvider();
+    const plaintext = await provider.decrypt({
       iv: base64ToBytes(fields[1] ?? ''),
       ciphertext: base64ToBytes(fields[2] ?? ''),
       tag: base64ToBytes(fields[3] ?? ''),
@@ -217,7 +225,8 @@ export async function createPairingConfirmation(
     secrets.sessionId,
     'confirmation',
   ]));
-  const parts = await expoAesGcmProvider.encrypt(CONFIRMATION_TEXT, confirmKey, aad);
+  const provider = await aesProvider();
+  const parts = await provider.encrypt(CONFIRMATION_TEXT, confirmKey, aad);
   return [
     PAIRING_HANDSHAKE_VERSION,
     bytesToBase64(parts.iv),
@@ -242,7 +251,8 @@ export async function verifyPairingConfirmation(
     'confirmation',
   ]));
   try {
-    const plaintext = await expoAesGcmProvider.decrypt({
+    const provider = await aesProvider();
+    const plaintext = await provider.decrypt({
       iv: base64ToBytes(fields[1] ?? ''),
       ciphertext: base64ToBytes(fields[2] ?? ''),
       tag: base64ToBytes(fields[3] ?? ''),
