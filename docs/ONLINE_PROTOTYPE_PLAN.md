@@ -161,305 +161,117 @@ The exact secure-store schema should be hidden behind a small application abstra
 
 ## 4. Implementation phases
 
-## Phase A — crypto and identity foundation
-
-### Files
-
-Planned shape:
-
-```text
-src/crypto/
-  relationshipKey.ts
-  messageCodec.ts
-  encoding.ts
-
-src/cloud/
-  CloudIdentityStore.ts
-```
-
-Keep this layer small. Do not introduce a general-purpose cryptography framework.
-
-### Responsibilities
-
-`relationshipKey.ts`
-
-- generate a cryptographically random 256-bit relationship key;
-- validate/import/export its representation;
-- never log the key;
-- support secure persistence and loading.
-
-`messageCodec.ts`
+### Phase A — preserve and isolate the crypto/identity foundation
 
-- implement `SyncCodec`;
-- encrypt message payloads;
-- decrypt cloud payloads;
-- build and verify AAD;
-- classify authentication failures as the explicit expected-decryption failure used by `SyncEngine`;
-- reject malformed, unsupported, or oversized envelopes.
-
-`encoding.ts`
-
-- define one canonical binary/string encoding;
-- reject ambiguous encodings;
-- round-trip arbitrary UTF-8, including emoji.
-
-`CloudIdentityStore.ts`
-
-- persist/read/delete cloud credentials and relationship encryption material;
-- expose typed identity state;
-- provide one atomic-ish lifecycle boundary for pairing completion and reset;
-- never expose secrets through logging or error messages.
-
-### Required tests
-
-- encrypt/decrypt round trip;
-- Unicode and emoji round trip;
-- empty/invalid inputs rejected;
-- wrong key rejected;
-- tampered ciphertext rejected;
-- tampered nonce rejected;
-- modified AAD rejected;
-- modified message ID/type/sequence rejected;
-- unsupported encryption version rejected;
-- malformed envelope rejected;
-- fresh messages receive independent nonces;
-- secure-store lifecycle save/load/clear behavior;
-- no secret is accidentally included in errors or diagnostics.
-
-## Phase B — pairing protocol adaptation
-
-The existing Worker pairing contract currently creates:
-
-- relationship;
-- first device;
-- invitation;
-- device credential;
-- confirmation code.
-
-Keep that security boundary, but add the data needed by E2E v1 without leaking the relationship key.
+Keep the existing:
 
-The Worker protocol needs an explicit design for:
+- random 256-bit relationship key generation;
+- key commitment;
+- SecureStore-backed cloud identity;
+- cloud credential;
+- relationship lifecycle state;
+- pairing expiry/cancel/reset;
+- encrypted sync runtime.
 
-- invitation binding;
-- pairing payload/proof;
-- device metadata required for peer pairing;
-- confirmation of successful key establishment;
-- one-time consumption/expiry;
-- replay protection.
-
-The relationship key itself must never be stored in D1 and must never appear in request/response bodies sent to the Worker.
-
-### Pairing sequence
-
-```text
-A opens pairing
-        ↓
-A creates anonymous device identity
-        ↓
-A generates relationship key locally
-        ↓
-A creates server invitation
-        ↓
-A receives secure invitation metadata
-        ↓
-A presents human-facing pairing confirmation
-        ↓
-B receives pairing payload out-of-band
-        ↓
-B creates its anonymous device identity
-        ↓
-B accepts invitation
-        ↓
-Server binds B as PARTNER
-        ↓
-B stores the relationship key locally
-        ↓
-both devices enter ACTIVE/paired state
-```
+Add no user-visible pairing credential beyond the five emojis.
 
-The high-entropy transport of the relationship key and the human-readable five-emoji confirmation are separate concerns.
-
-## Phase C — real mobile pairing UX
-
-**Status:** first Android pairing flow implemented; QR/camera transfer remains a follow-up.
-
-The UI hides technical credentials, UUIDs, tokens, and server terminology.
-
-For the first physical test, keep the flow intentionally simple.
-
-### Creator
-
-```text
-connect with your person
-
-[ create pairing ]
-        ↓
-five little emojis
-        ↓
-secure local share / QR / link payload
-        ↓
-waiting for them...
-```
+### Phase B — introduce a transport-neutral pairing core
 
-### Joiner
+Refactor the current PairingManager so screens no longer exchange a serialized pairing package.
 
-```text
-connect with your person
+Target presentation API:
 
-[ join pairing ]
-        ↓
-paste / receive pairing payload
-        ↓
-confirm the five emojis
-        ↓
-connected!
-```
+~~~text
+startPairing()
+  → fiveEmojis + shareUrl + expiresAt
 
-The first prototype accepts the pairing payload through the join screen. An in-app camera/QR path is intentionally left as the next UX increment so QR generation/scanning can be introduced without leaking the secret payload through an uncontrolled service.
+acceptByEmojis(fiveEmojis)
+acceptFromShareLink(url)
+~~~
 
-The exact visual presentation can remain rough for the prototype. The current Android implementation uses the native share sheet for the pairing payload and instructs users to use a direct trusted transfer such as Quick Share; the payload itself is not displayed or logged.
-
-The pairing UI must handle:
-
-- expired invitation;
-- already-consumed invitation;
-- wrong confirmation;
-- repeated attempts/rate limiting;
-- network failure;
-- retry;
-- successful pairing;
-- app restart during pairing;
-- cancellation/reset.
+The manager may continue to use the existing invitation token/package internally while the migration is underway.
 
-## Phase D — application cloud runtime
+### Phase C — implement the hidden pairing session
 
-**Status:** implemented for the first TEXT/EMOJI sync path.
+Before coding the handshake, choose and document a vetted password-authenticated/key-establishment construction or equivalent reviewed primitive.
 
-Introduce one lifecycle owner instead of creating cloud/sync objects ad hoc inside screens.
+Requirements:
 
-Conceptually:
-
-```text
-CloudRuntime
- ├─ CloudIdentityStore
- ├─ CloudClient
- ├─ SyncCodec
- ├─ SQLiteSyncStateStore
- └─ SyncEngine
-```
-
-The runtime is responsible for:
-
-- loading identity state;
-- determining paired/unpaired state;
-- constructing the correct cloud client;
-- constructing the codec only when key material is available;
-- configuring the local sync state;
-- owning one coalescing `SyncEngine` instance;
-- starting synchronization after startup, pairing, local send, and foreground resume;
-- exposing a small application-facing status model;
-- clearing cloud state on reset.
-
-No screen should directly instantiate `CloudClient` or `SyncEngine`.
-
-The existing startup health probe should move under this lifecycle rather than remaining an isolated side effect.
-
-## Phase E — integrate message writes with the durable outbox
-
-**Status:** runtime trigger is implemented; real-device validation remains.
-
-Sending remains offline-first.
-
-The local write path becomes:
-
-```text
-User sends message
-       ↓
-persist local message
-       ↓
-reserve sender sequence
-       ↓
-create durable outbox row
-       ↓
-update local UI immediately
-       ↓
-CloudRuntime triggers sync
-       ↓
-encrypt once and persist ciphertext in the outbox
-       ↓
-push ciphertext asynchronously
-```
-
-The UI must never require a successful network request before showing a locally accepted message.
-
-For the first online milestone, only `TEXT` and `EMOJI` should pass through the real encrypted codec.
-
-`PHOTO_VIDEO` and `DRAWING` remain explicitly blocked in SyncEngine until their complete media protocols are wired.
-
-## Phase F — startup/foreground/after-send synchronization
-
-**Status:** implemented for the foreground prototype path.
-
-Initial triggers:
-
-- after pairing succeeds;
-- after a local message is created;
-- app startup when paired;
-- app foreground/resume;
-- explicit retry after a visible sync error.
-
-Do not add a complicated background scheduler yet.
-
-The first foreground run should:
-
-```text
-1. reconcile outbox
-2. push due outbound messages
-3. pull partner messages
-4. decrypt/validate
-5. durably commit inbound state
-6. ACK only after local commit
-7. repeat if more inbound data exists
-```
-
-This matches the existing SyncEngine boundary.
-
-## Phase G — integration and failure hardening
-
-### Two-device integration cases
-
-At minimum:
-
-| Case | Expected result |
-| --- | --- |
-| A pairs with B | both become paired |
-| A sends TEXT | B receives exactly one message |
-| B sends TEXT | A receives exactly one message |
-| A sends EMOJI | B receives exactly one message |
-| B sends EMOJI | A receives exactly one message |
-| A sends A/B/C while B offline | B receives A/B/C in order |
-| force-close during pending outbound sync | next run retries safely |
-| network dies after server acceptance | retry does not duplicate |
-| repeated pull | no duplicate local rows |
-| repeated ACK | harmless/idempotent |
-| restart after pairing | credentials/key survive |
-| restart with pending outbox | message eventually syncs |
-| malformed ciphertext | item is rejected according to codec contract |
-| tampered ciphertext | never becomes a valid local partner message |
-| reset relationship | local cloud identity/key material is removed |
-| pair again after reset | fresh identity and key work |
-
-### Local-state assertions
-
-After every successful two-device exchange:
-
-- exactly one active message per participant;
-- older messages remain in History;
-- message order is preserved;
-- sync state is `SYNCED` where appropriate;
-- pull cursor never moves backwards;
-- outbox is empty after successful delivery;
-- server mailbox rows are eventually ACKed/deleted according to the existing Worker lifecycle.
+- five emojis authenticate/rendezvous the pairing attempt;
+- the relationship key is transferred/established without entering the Worker API;
+- replay is rejected;
+- failed attempts are bounded;
+- the invitation expires;
+- interrupted pairing never leaves false local ACTIVE state;
+- the final commitment must match.
+
+Do not invent a bespoke low-entropy password protocol.
+
+### Phase D — emoji transport
+
+Creator:
+
+~~~text
+start pairing
+    ↓
+show five emojis
+    ↓
+wait
+~~~
+
+Joiner:
+
+~~~text
+enter five emojis
+    ↓
+hidden pairing session
+    ↓
+paired
+~~~
+
+The user does not see the hidden session, token, key, or package.
+
+### Phase E — share-link transport
+
+Create:
+
+    https://rucola.njco.dev/<five-emojis>
+
+Requirements:
+
+- verified Android App Link;
+- exact Unicode/percent-encoding handling;
+- website fallback;
+- non-consuming GET/HEAD;
+- no-store;
+- no intentional indexing/analytics;
+- pairing-path log redaction;
+- hidden handoff into the same pairing core;
+- one-time consumption only after app-side acceptance.
+
+### Phase F — remove transitional pairing-pass UX
+
+Delete:
+
+- pairing-pass copy;
+- serialized-package input fields;
+- Quick Share/manual payload instructions;
+- separate confirmation + package acceptance UI.
+
+Keep the package serializer only when it remains useful internally for the hidden protocol; otherwise remove it during cleanup.
+
+### Phase G — two-device validation
+
+Test both transports on physical Android devices, then repeat:
+
+- restart;
+- encrypted TEXT;
+- encrypted EMOJI;
+- offline burst;
+- reconnect;
+- reset.
+
+A passing unit suite without two-device validation does not complete this milestone.
 
 ## 5. Explicit protocol boundaries
 
