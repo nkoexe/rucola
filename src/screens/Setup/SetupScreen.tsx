@@ -4,15 +4,18 @@ import type { getRepository } from '../../data/repository';
 import type { Relationship } from '../../domain/models';
 import { GetRelationship, SaveSetup } from '../../domain/useCases';
 import { PairingScreen } from '../Pairing/PairingScreen';
+import type { PairingInput } from '../../cloud/pairingTransport';
 
 type Props = {
   repositoryPromise: ReturnType<typeof getRepository>;
   onComplete: (relationship: Relationship) => void;
+  initialPairingInput?: PairingInput | null;
+  onPairingInputHandled?: () => void;
 };
 
 type Step = 'partner' | 'own' | 'together';
 
-export function SetupScreen({ repositoryPromise, onComplete }: Props) {
+export function SetupScreen({ repositoryPromise, onComplete, initialPairingInput, onPairingInputHandled }: Props) {
   const [step, setStep] = useState<Step>('partner');
   const [partnerNickname, setPartnerNickname] = useState('');
   const [ownName, setOwnName] = useState('');
@@ -45,7 +48,14 @@ export function SetupScreen({ repositoryPromise, onComplete }: Props) {
   const parsedDate = parseTogetherSince(dateText);
 
   if (savedRelationship) {
-    return <PairingScreen relationship={savedRelationship} onComplete={onComplete} />;
+    return (
+      <PairingScreen
+        relationship={savedRelationship}
+        onComplete={onComplete}
+        initialPairingInput={initialPairingInput}
+        onPairingInputHandled={onPairingInputHandled}
+      />
+    );
   }
 
   if (step === 'partner') {
