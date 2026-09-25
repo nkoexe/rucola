@@ -5,6 +5,34 @@ Branch: `feature/pairing-emoji-share-link`
 
 ## Current status
 
+The implementation gate for the prototype is complete. The remaining work is validation rather than another pairing-protocol implementation pass.
+
+### Implemented
+
+- five-emoji pairing transport;
+- HTTPS five-emoji share link;
+- hidden pairing session and CPace draft-20 prototype;
+- encrypted relationship-key handoff;
+- responder recovery and atomic relationship activation;
+- secure local identity/key storage;
+- encrypted foreground TEXT/EMOJI sync;
+- hardened Worker mailbox, receipts, ACK, media lifecycle, and database invariants.
+
+### Prototype-tested / CI-validated
+
+- unit and Worker protocol tests;
+- pairing state/recovery and race handling;
+- encrypted sync and retry semantics;
+- Android build/typecheck/test gates covered by CI.
+
+### Not yet validated for production
+
+- two physical Android devices against the dev Worker;
+- Expo/Hermes runtime behavior for the CPace dependency;
+- upstream CPace draft-20 vectors as an independent dependency-review gate;
+- actual Android App Link certificate fingerprint and association;
+- independent cryptographic/dependency review.
+
 The cloud backend foundation is implemented and hardened through the temporary mailbox, ACK, media, cleanup, pairing, concurrency, and database-invariant boundaries. The React Native side now has secure identity/key storage, pairing lifecycle state, the transport-neutral pairing boundary, and a real application-owned `CloudRuntime` that constructs the encrypted `SyncEngine` from persisted identity state.
 
 ## Sync protocol
@@ -154,6 +182,6 @@ The prototype implementation now completes the transport-neutral pairing flow en
 
 ## Next step
 
-The code gate is complete for the prototype. Next is two-device Android validation plus the production cryptographic/runtime review and real App Link association.
+Merge the prototype implementation to `main`, then run two-device Android validation against the dev Worker from `main`. Production approval remains blocked on the cryptographic/runtime review and real App Link association.
 
 Do not make the UI depend directly on cloud endpoints.
