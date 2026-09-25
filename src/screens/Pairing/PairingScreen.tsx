@@ -25,6 +25,7 @@ export function PairingScreen({
   const [mode, setMode] = useState<Mode>('loading');
   const [pending, setPending] = useState<PairingInvitationView | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [pairingProgress, setPairingProgress] = useState<number | null>(null);
   const initialized = useRef(false);
   const externalStarted = useRef(false);
   const completionStartedFor = useRef<string | null>(null);
@@ -45,10 +46,13 @@ export function PairingScreen({
         // A creator stores its ME/PAIRING identity before the handshake finishes.
         // Resume that initiator state first; responder recovery rejects an existing
         // identity by design and must only run when no initiator pairing exists.
-        const pendingPairing = await cloudRuntime.resumePendingPairingInvitation();
+        const pendingPairing = await cloudRuntime.resumePendingPairingInvitation((progress) => {
+          setPairingProgress(progress);
+        });
         if (!mounted) return;
         if (pendingPairing) {
           setPending(pendingPairing);
+          setPairingProgress(null);
           setMode('create');
           return;
         }
@@ -60,9 +64,12 @@ export function PairingScreen({
           return;
         }
 
+        setPairingProgress(null);
         setMode('choice');
       } catch (cause) {
         if (!mounted) return;
+        setPairingProgress(null);
+        setPairingProgress(null);
         setError(toUserMessage(cause));
         setMode('choice');
       }
@@ -83,13 +90,19 @@ export function PairingScreen({
 
     externalStarted.current = true;
     setError(null);
+    setPairingProgress(0);
     setMode('joining');
     onPairingInputHandledRef.current?.();
 
     let mounted = true;
-    void cloudRuntime.acceptPairingInput(initialPairingInput)
+    void cloudRuntime.acceptPairingInput(initialPairingInput, (progress) => {
+      if (mounted) setPairingProgress(progress);
+    })
       .then(() => {
-        if (mounted) onCompleteRef.current(relationship);
+        if (mounted) {
+          setPairingProgress(null);
+          onCompleteRef.current(relationship);
+        }
       })
       .catch((cause) => {
         if (!mounted) return;
@@ -127,11 +140,16 @@ export function PairingScreen({
 
   const start = async () => {
     setError(null);
+    setPairingProgress(0);
     setMode('create');
     try {
-      const next = await cloudRuntime.startPairingInvitation(15 * 60);
+      const next = await cloudRuntime.startPairingInvitation(15 * 60, (progress) => {
+        setPairingProgress(progress);
+      });
       setPending(next);
+      setPairingProgress(null);
     } catch (cause) {
+      setPairingProgress(null);
       setMode('choice');
       setError(toUserMessage(cause));
     }
@@ -140,6 +158,7 @@ export function PairingScreen({
   const cancel = async () => {
     await cloudRuntime.cancelPendingPairing();
     setPending(null);
+    setPairingProgress(null);
     setError(null);
     setMode('choice');
   };
@@ -148,18 +167,23 @@ export function PairingScreen({
     if (!isValidPairingConfirmationCode(value)) return;
 
     setError(null);
+    setPairingProgress(0);
     setMode('joining');
     try {
-      await cloudRuntime.acceptPairingInput({ transport: 'EMOJI', value });
+      await cloudRuntime.acceptPairingInput({ transport: 'EMOJI', value }, (progress) => {
+        setPairingProgress(progress);
+      });
+      setPairingProgress(null);
       onCompleteRef.current(relationship);
     } catch (cause) {
+      setPairingProgress(null);
       setError(toUserMessage(cause));
       setMode('choice');
     }
   };
 
-  if (mode === 'loading') return <PairingLoading />;
-  if (mode === 'joining') return <JoiningPairing error={error} />;
+  if (mode === 'loading') return <PairingLoading progress={pairingProgress} />;
+  if (mode === 'joining') return <JoiningPairing error={error} progress={pairingProgress} />;
   if (mode === 'create' && pending) {
     return (
       <CreatePairing
@@ -170,7 +194,7 @@ export function PairingScreen({
       />
     );
   }
-  if (mode === 'create') return <PairingLoading />;
+  if (mode === 'create') return <PairingLoading progress={pairingProgress} />;
   if (mode === 'join') {
     return (
       <JoinPairing
@@ -193,16 +217,25 @@ export function PairingScreen({
   );
 }
 
-function PairingLoading() {
+function PairingLoading({ progress }: { progress: number | null }) {
   return (
     <View style={styles.container}>
       <Text style={styles.logo}>rucola</Text>
       <Text style={styles.heading}>getting things ready...</Text>
+      {progress !== null ? (
+        <Text style={styles.progress}>secure setup {Math.round(progress * 100)}%</Text>
+      ) : null}
     </View>
   );
 }
 
-function JoiningPairing({ error }: { error: string | null }) {
+function JoiningPairing({
+  error,
+  progress,
+}: {
+  error: string | null;
+  progress: number | null;
+}) {
   return (
     <View style={styles.container}>
       <Text style={styles.logo}>rucola</Text>
@@ -210,6 +243,9 @@ function JoiningPairing({ error }: { error: string | null }) {
       <Text style={styles.body}>
         rucola is doing the secure connection in the background. You can leave this screen open.
       </Text>
+      {progress !== null ? (
+        <Text style={styles.progress}>secure setup {Math.round(progress * 100)}%</Text>
+      ) : null}
       {error ? <Text style={styles.error}>{error}</Text> : null}
     </View>
   );
@@ -441,6 +477,12 @@ const styles = StyleSheet.create({
     fontSize: 40,
     letterSpacing: 4,
     marginBottom: 24,
+  },
+  progress: {
+    marginTop: 4,
+    fontSize: 15,
+    fontWeight: '700',
+    opacity: 0.6,
   },
   waiting: {
     marginTop: 24,
