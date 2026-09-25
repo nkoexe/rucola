@@ -1,7 +1,7 @@
 import { cpace } from '@cipherman/pake-js';
-import { hkdf } from '@noble/hashes/hkdf';
-import { argon2idAsync } from '@noble/hashes/argon2';
-import { sha256 } from '@noble/hashes/sha2';
+import { hkdf } from '@noble/hashes/hkdf.js';
+import { argon2idAsync } from '@noble/hashes/argon2.js';
+import { sha256 } from '@noble/hashes/sha2.js';
 import { canonicalizePairingCode } from './pairingTransport.ts';
 import { base64ToBytes, bytesToBase64, utf8Encode } from '../crypto/encoding.ts';
 
@@ -102,7 +102,14 @@ function sessionInputs(
   };
 }
 
-async function derivePairingSecret(pairingCode: string): Promise<Uint8Array> {
+export interface PairingHandshakeOptions {
+  onProgress?: (progress: number) => void;
+}
+
+async function derivePairingSecret(
+  pairingCode: string,
+  options: PairingHandshakeOptions = {},
+): Promise<Uint8Array> {
   const password = utf8Encode(pairingCode);
   // CPace requires the password-derived PRS to be the output of a memory-hard
   // function. The emoji code is deliberately not used directly as the CPace PRS.
@@ -114,6 +121,7 @@ async function derivePairingSecret(pairingCode: string): Promise<Uint8Array> {
     p: 1,
     dkLen: 32,
     asyncTick: 8,
+    onProgress: options.onProgress,
   });
 }
 
@@ -121,10 +129,11 @@ async function pairingInputs(
   pairingCode: string,
   sessionId: string,
   relationshipKeyCommitment: string,
+  options: PairingHandshakeOptions = {},
 ) {
   const { sid } = sessionInputs(sessionId, relationshipKeyCommitment);
   return {
-    PRS: await derivePairingSecret(canonicalizePairingCode(pairingCode)),
+    PRS: await derivePairingSecret(canonicalizePairingCode(pairingCode), options),
     sid,
     CI: buildChannelIdentifier(),
   };
@@ -151,8 +160,9 @@ export async function createPairingHandshake(
   sessionId: string,
   pairingCode: string,
   relationshipKeyCommitment: string,
+  options: PairingHandshakeOptions = {},
 ): Promise<PairingHandshakeInit> {
-  const { PRS, sid, CI } = await pairingInputs(pairingCode, sessionId, relationshipKeyCommitment);
+  const { PRS, sid, CI } = await pairingInputs(pairingCode, sessionId, relationshipKeyCommitment, options);
   const init = cpace.ristretto255.init({ PRS, sid, CI });
   return {
     sessionId,
