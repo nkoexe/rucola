@@ -14,8 +14,8 @@ const SESSION_BYTES = new Uint8Array(16).fill(7);
 
 test('CPace initiator and responder derive identical session keys', async () => {
   const sessionId = createPairingSessionId(SESSION_BYTES);
-  const initiator = createPairingHandshake(sessionId, CODE, COMMITMENT);
-  const responder = createPairingHandshake(sessionId, CODE, COMMITMENT);
+  const initiator = await createPairingHandshake(sessionId, CODE, COMMITMENT);
+  const responder = await createPairingHandshake(sessionId, CODE, COMMITMENT);
 
   const initiatorKeys = await derivePairingKeys({
     sessionId,
@@ -39,9 +39,9 @@ test('CPace initiator and responder derive identical session keys', async () => 
 
 test('a wrong five-emoji code cannot derive the same session key', async () => {
   const sessionId = createPairingSessionId(SESSION_BYTES);
-  const initiator = createPairingHandshake(sessionId, CODE, COMMITMENT);
-  const correctResponder = createPairingHandshake(sessionId, CODE, COMMITMENT);
-  const wrongResponder = createPairingHandshake(sessionId, WRONG_CODE, COMMITMENT);
+  const initiator = await createPairingHandshake(sessionId, CODE, COMMITMENT);
+  const correctResponder = await createPairingHandshake(sessionId, CODE, COMMITMENT);
+  const wrongResponder = await createPairingHandshake(sessionId, WRONG_CODE, COMMITMENT);
 
   const correctKeys = await derivePairingKeys({
     sessionId,
@@ -70,22 +70,22 @@ test('session identifiers are 16-byte standard Base64 values', () => {
 });
 
 test('same code and different session identifiers produce different keys', async () => {
-  const first = createPairingHandshake(
+  const first = await createPairingHandshake(
     createPairingSessionId(new Uint8Array(16).fill(7)),
     CODE,
     COMMITMENT,
   );
-  const second = createPairingHandshake(
+  const second = await createPairingHandshake(
     createPairingSessionId(new Uint8Array(16).fill(8)),
     CODE,
     COMMITMENT,
   );
-  const firstPeer = createPairingHandshake(
+  const firstPeer = await createPairingHandshake(
     createPairingSessionId(new Uint8Array(16).fill(7)),
     CODE,
     COMMITMENT,
   );
-  const secondPeer = createPairingHandshake(
+  const secondPeer = await createPairingHandshake(
     createPairingSessionId(new Uint8Array(16).fill(8)),
     CODE,
     COMMITMENT,

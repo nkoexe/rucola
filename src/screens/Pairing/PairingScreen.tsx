@@ -42,18 +42,21 @@ export function PairingScreen({
 
     void (async () => {
       try {
-        const resumedPartner = await cloudRuntime.resumePendingPartnerPairing();
-        if (!mounted) return;
-        if (resumedPartner) {
-          onCompleteRef.current(relationship);
-          return;
-        }
-
+        // A creator stores its ME/PAIRING identity before the handshake finishes.
+        // Resume that initiator state first; responder recovery rejects an existing
+        // identity by design and must only run when no initiator pairing exists.
         const pendingPairing = await cloudRuntime.resumePendingPairingInvitation();
         if (!mounted) return;
         if (pendingPairing) {
           setPending(pendingPairing);
           setMode('create');
+          return;
+        }
+
+        const resumedPartner = await cloudRuntime.resumePendingPartnerPairing();
+        if (!mounted) return;
+        if (resumedPartner) {
+          onCompleteRef.current(relationship);
           return;
         }
 
