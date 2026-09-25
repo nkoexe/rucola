@@ -38,7 +38,7 @@ describe("cleanup lifecycle", () => {
     expect(response.status).toBe(201);
     const body = (await json(response)) as unknown as PairingBody & { relationshipId: string; invitationId: string };
     const now = Date.now();
-    await env.DB.prepare("UPDATE invitations SET expires_at = ? WHERE id = ?").bind(now - 1, body.invitationId).run();
+    await env.DB.prepare("UPDATE invitations SET created_at = ?, expires_at = ? WHERE id = ?").bind(now - 1000, now - 1, body.invitationId).run();
     await env.DB.prepare("INSERT INTO pairing_sessions (id, invitation_id, relationship_id, expires_at, initiator_share, created_at) VALUES (?, ?, ?, ?, ?, ?)").bind("expired-session-" + testId, body.invitationId, body.relationshipId, now - 1, "AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE=", now - 1000).run();
 
     const result = await runCleanup(env, now);
