@@ -170,7 +170,7 @@ GET/HEAD never consumes or activates pairing. The mobile app now handles the HTT
 ## 10. Acceptance tests
 
 Primitive:
-- official vectors pass unchanged;
+- official vectors must pass unchanged during production validation;
 - same valid inputs derive the same session material;
 - changed input/session produces different material;
 - wrong code fails;
