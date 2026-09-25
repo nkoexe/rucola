@@ -69,7 +69,6 @@ export function PairingScreen({
       } catch (cause) {
         if (!mounted) return;
         setPairingProgress(null);
-        setPairingProgress(null);
         setError(toUserMessage(cause));
         setMode('choice');
       }
@@ -106,6 +105,7 @@ export function PairingScreen({
       })
       .catch((cause) => {
         if (!mounted) return;
+        setPairingProgress(null);
         setError(toUserMessage(cause));
         setMode('choice');
       });
