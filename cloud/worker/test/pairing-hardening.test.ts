@@ -32,12 +32,18 @@ async function relationshipCount(): Promise<number> {
 
 
 
+function bytesToBase64(bytes: Uint8Array): string {
+  let binary = "";
+  for (const byte of bytes) binary += String.fromCharCode(byte);
+  return btoa(binary);
+}
+
 function sessionId(value: number): string {
-  return Buffer.alloc(16, value).toString("base64");
+  return bytesToBase64(new Uint8Array(16).fill(value));
 }
 
 function cpaceShare(value: number): string {
-  return Buffer.alloc(32, value).toString("base64");
+  return bytesToBase64(new Uint8Array(32).fill(value));
 }
 
 const TEST_ENVELOPE = "rucola-cpace20-v1.AA==.AA==.AA==";
