@@ -1,6 +1,6 @@
 # Rucola — First Online Prototype Plan
 
-**Status:** mobile runtime and foreground encrypted sync implemented; two-device physical validation pending  
+**Status:** implementation phases complete; two-device physical validation pending  
 **Target:** first real two-device Android prototype against the dev backend  
 **Backend:** `https://dev.rucola.njco.dev`  
 **Primary branch:** `main` after integration PRs are merged
@@ -70,7 +70,7 @@ For E2E v1, the relationship has one cryptographically random **256-bit relation
 
 Device A creates it locally during pairing.
 
-The relationship key is transferred to Device B through an out-of-band pairing payload that the server never learns. The user-facing pairing experience may use a secure QR/deep-link/share payload while keeping the five-emoji UX as the human-facing pairing confirmation.
+The relationship key is established and handed off through a hidden pairing session that the Worker cannot decrypt or complete as a cryptographic endpoint. The user-facing experience has two transports: manual five-emoji entry and the HTTPS five-emoji share link. No technical payload is shown or manually transferred by the user.
 
 The server may receive:
 
@@ -88,9 +88,12 @@ Device A
   │
   ├─ generate random 256-bit relationship key
   │
-  ├─ create secure pairing payload
+  ├─ create invitation + hidden pairing session
   │
-  └─ transfer payload directly to Device B
+  └─ keep relationship key local
+                           │
+                           ▼
+                 hidden PAKE/key handoff
                            │
                            ▼
                      Device B
@@ -161,177 +164,123 @@ The exact secure-store schema should be hidden behind a small application abstra
 
 ## 4. Implementation phases
 
-## Phase A — crypto and identity foundation
+The implementation work described in Phases A–F is now complete for the prototype. Phases H–K are likewise implemented to the extent stated by their individual status notes. The current milestone is validation, not further protocol implementation: physical Android testing, runtime compatibility checks, App Link verification, and the remaining production security review are still open.
 
-### Files
+### Phase A — preserve and isolate the crypto/identity foundation
 
-Planned shape:
+Keep the existing:
 
-```text
-src/crypto/
-  relationshipKey.ts
-  messageCodec.ts
-  encoding.ts
+- random 256-bit relationship key generation;
+- key commitment;
+- SecureStore-backed cloud identity;
+- cloud credential;
+- relationship lifecycle state;
+- pairing expiry/cancel/reset;
+- encrypted sync runtime.
 
-src/cloud/
-  CloudIdentityStore.ts
-```
+Add no user-visible pairing credential beyond the five emojis.
 
-Keep this layer small. Do not introduce a general-purpose cryptography framework.
+### Phase B — introduce a transport-neutral pairing core
 
-### Responsibilities
+Refactor the current PairingManager so screens no longer exchange a serialized pairing package.
 
-`relationshipKey.ts`
+Target presentation API:
 
-- generate a cryptographically random 256-bit relationship key;
-- validate/import/export its representation;
-- never log the key;
-- support secure persistence and loading.
+~~~text
+startPairing()
+  → fiveEmojis + shareUrl + expiresAt
 
-`messageCodec.ts`
+acceptByEmojis(fiveEmojis)
+acceptFromShareLink(url)
+~~~
 
-- implement `SyncCodec`;
-- encrypt message payloads;
-- decrypt cloud payloads;
-- build and verify AAD;
-- classify authentication failures as the explicit expected-decryption failure used by `SyncEngine`;
-- reject malformed, unsupported, or oversized envelopes.
+The manager may continue to use the existing invitation token/package internally only as compatibility material while the hidden handshake migration is underway.
 
-`encoding.ts`
+### Phase C — implement the hidden pairing session
 
-- define one canonical binary/string encoding;
-- reject ambiguous encodings;
-- round-trip arbitrary UTF-8, including emoji.
+**Status:** implemented as an experimental CPace draft-20 adapter and hidden relay. Production use remains gated on vector, dependency, and Expo/Android runtime validation.
 
-`CloudIdentityStore.ts`
+Requirements:
 
-- persist/read/delete cloud credentials and relationship encryption material;
-- expose typed identity state;
-- provide one atomic-ish lifecycle boundary for pairing completion and reset;
-- never expose secrets through logging or error messages.
+- five emojis authenticate/rendezvous the pairing attempt;
+- the relationship key is transferred/established without entering the Worker API;
+- replay is rejected;
+- failed attempts are bounded;
+- the invitation expires;
+- interrupted pairing never leaves false local ACTIVE state;
+- the final commitment must match.
 
-### Required tests
+Do not invent a bespoke low-entropy password protocol.
 
-- encrypt/decrypt round trip;
-- Unicode and emoji round trip;
-- empty/invalid inputs rejected;
-- wrong key rejected;
-- tampered ciphertext rejected;
-- tampered nonce rejected;
-- modified AAD rejected;
-- modified message ID/type/sequence rejected;
-- unsupported encryption version rejected;
-- malformed envelope rejected;
-- fresh messages receive independent nonces;
-- secure-store lifecycle save/load/clear behavior;
-- no secret is accidentally included in errors or diagnostics.
+### Phase D — emoji transport
 
-## Phase B — pairing protocol adaptation
+Creator:
 
-The existing Worker pairing contract currently creates:
+~~~text
+start pairing
+    ↓
+show five emojis
+    ↓
+wait
+~~~
 
-- relationship;
-- first device;
-- invitation;
-- device credential;
-- confirmation code.
+Joiner:
 
-Keep that security boundary, but add the data needed by E2E v1 without leaking the relationship key.
+~~~text
+enter five emojis
+    ↓
+hidden pairing session
+    ↓
+paired
+~~~
 
-The Worker protocol needs an explicit design for:
+The user does not see the hidden session, token, key, or package.
 
-- invitation binding;
-- pairing payload/proof;
-- device metadata required for peer pairing;
-- confirmation of successful key establishment;
-- one-time consumption/expiry;
-- replay protection.
+### Phase E — share-link transport
 
-The relationship key itself must never be stored in D1 and must never appear in request/response bodies sent to the Worker.
+Create:
 
-### Pairing sequence
+    https://rucola.njco.dev/<five-emojis>
 
-```text
-A opens pairing
-        ↓
-A creates anonymous device identity
-        ↓
-A generates relationship key locally
-        ↓
-A creates server invitation
-        ↓
-A receives secure invitation metadata
-        ↓
-A presents human-facing pairing confirmation
-        ↓
-B receives pairing payload out-of-band
-        ↓
-B creates its anonymous device identity
-        ↓
-B accepts invitation
-        ↓
-Server binds B as PARTNER
-        ↓
-B stores the relationship key locally
-        ↓
-both devices enter ACTIVE/paired state
-```
+Requirements:
 
-The high-entropy transport of the relationship key and the human-readable five-emoji confirmation are separate concerns.
+- verified Android App Link;
+- exact Unicode/percent-encoding handling;
+- website fallback;
+- non-consuming GET/HEAD;
+- no-store;
+- no intentional indexing/analytics;
+- pairing-path log redaction;
+- hidden handoff into the same pairing core;
+- one-time consumption only after app-side acceptance.
 
-## Phase C — real mobile pairing UX
+### Phase F — remove transitional pairing-pass UX
 
-**Status:** first Android pairing flow implemented; QR/camera transfer remains a follow-up.
+**Status:** the user-facing pairing-pass/package flow has been removed. The package serializer remains only where required by the internal compatibility API.
 
-The UI hides technical credentials, UUIDs, tokens, and server terminology.
+Delete:
 
-For the first physical test, keep the flow intentionally simple.
+- pairing-pass copy;
+- serialized-package input fields;
+- Quick Share/manual payload instructions;
+- separate confirmation + package acceptance UI.
 
-### Creator
+Keep the package serializer only as internal compatibility material; it must not return to the user-facing pairing contract.
 
-```text
-connect with your person
+### Phase G — two-device validation
 
-[ create pairing ]
-        ↓
-five little emojis
-        ↓
-secure local share / QR / link payload
-        ↓
-waiting for them...
-```
+Test both transports on physical Android devices, then repeat:
 
-### Joiner
+- restart;
+- encrypted TEXT;
+- encrypted EMOJI;
+- offline burst;
+- reconnect;
+- reset.
 
-```text
-connect with your person
+A passing unit suite without two-device validation does not complete this milestone.
 
-[ join pairing ]
-        ↓
-paste / receive pairing payload
-        ↓
-confirm the five emojis
-        ↓
-connected!
-```
-
-The first prototype accepts the pairing payload through the join screen. An in-app camera/QR path is intentionally left as the next UX increment so QR generation/scanning can be introduced without leaking the secret payload through an uncontrolled service.
-
-The exact visual presentation can remain rough for the prototype. The current Android implementation uses the native share sheet for the pairing payload and instructs users to use a direct trusted transfer such as Quick Share; the payload itself is not displayed or logged.
-
-The pairing UI must handle:
-
-- expired invitation;
-- already-consumed invitation;
-- wrong confirmation;
-- repeated attempts/rate limiting;
-- network failure;
-- retry;
-- successful pairing;
-- app restart during pairing;
-- cancellation/reset.
-
-## Phase D — application cloud runtime
+## Phase H — application cloud runtime
 
 **Status:** implemented for the first TEXT/EMOJI sync path.
 
@@ -364,7 +313,7 @@ No screen should directly instantiate `CloudClient` or `SyncEngine`.
 
 The existing startup health probe should move under this lifecycle rather than remaining an isolated side effect.
 
-## Phase E — integrate message writes with the durable outbox
+## Phase I — integrate message writes with the durable outbox
 
 **Status:** runtime trigger is implemented; real-device validation remains.
 
@@ -396,7 +345,7 @@ For the first online milestone, only `TEXT` and `EMOJI` should pass through the 
 
 `PHOTO_VIDEO` and `DRAWING` remain explicitly blocked in SyncEngine until their complete media protocols are wired.
 
-## Phase F — startup/foreground/after-send synchronization
+## Phase J — startup/foreground/after-send synchronization
 
 **Status:** implemented for the foreground prototype path.
 
@@ -424,7 +373,7 @@ The first foreground run should:
 
 This matches the existing SyncEngine boundary.
 
-## Phase G — integration and failure hardening
+## Phase K — integration and failure hardening
 
 ### Two-device integration cases
 
@@ -460,6 +409,7 @@ After every successful two-device exchange:
 - pull cursor never moves backwards;
 - outbox is empty after successful delivery;
 - server mailbox rows are eventually ACKed/deleted according to the existing Worker lifecycle.
+
 
 ## 5. Explicit protocol boundaries
 
@@ -568,8 +518,8 @@ Before installation:
 1. Open A.
 2. Complete local setup.
 3. Start pairing.
-4. Transfer the secure pairing payload to B.
-5. Confirm the five-emoji pairing code.
+4. Either enter the five emojis on B, or open the shared HTTPS five-emoji link on B.
+5. Let the hidden pairing session complete; no technical payload is entered by the user.
 6. Complete pairing on B.
 7. Restart both apps.
 8. Verify both still show paired state.
@@ -686,7 +636,7 @@ The important design decisions captured by this plan are:
 2. **The cloud is a temporary mailbox, not permanent history.**
 3. **Cloud authentication credentials and message-encryption material are separate secrets.**
 4. **Prototype E2E uses a random 256-bit relationship key.**
-5. **The relationship key must be transferred out-of-band and never sent to the Worker.**
+5. **The relationship key must be transferred/established through the hidden pairing session and never sent raw to the Worker.**
 6. **AES-256-GCM is the message encryption primitive for E2E v1.**
 7. **AAD binds encrypted content to message identity/context.**
 8. **The server never needs plaintext.**

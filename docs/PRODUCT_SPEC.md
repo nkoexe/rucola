@@ -92,11 +92,20 @@ The exact transitions and visual treatment are a later Figma/UX task, but the or
 
 ### Pairing
 
-Pairing uses **five emojis. Period.**
+Pairing has exactly one human-facing credential:
 
-The human-facing pairing interaction should never expose technical IDs, tokens, device IDs, or account concepts.
+> **five emojis**
 
-The security implementation behind the flow may use an opaque high-entropy invitation token, but that token is an implementation detail and must not replace the five-emoji user experience.
+Technical IDs, invitation tokens, cloud credentials, relationship keys, serialized pairing packages, and other protocol material must never be exposed to the user.
+
+There are two pairing transports:
+
+1. **Five-emojis:** the two phones are together; the creator shows five emojis and the partner enters the same five emojis. The app performs the technical pairing exchange automatically.
+2. **Share link:** the creator uses Share to send a personalized HTTPS link in the form https://rucola.njco.dev/<five-emojis>. The link opens Rucola through Android App Links when installed and falls back to the website otherwise. The link must not contain a raw relationship key, invitation token, cloud credential, or serialized pairing package.
+
+The five emojis act as a short-lived pairing password/rendezvous secret. They are **not** the long-lived relationship encryption key. The first online prototype keeps the existing locally generated random 256-bit relationship key; the hidden pairing protocol transfers or establishes it without sending the raw key to the Worker.
+
+The user should never be instructed to copy or paste a separate pairing pass. The current payload-based transport is an implementation detail being migrated away from the UI.
 
 There are no normal user accounts or login screens in the initial product.
 

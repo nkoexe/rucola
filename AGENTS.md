@@ -106,25 +106,45 @@ The UI is deliberately barebones. Do not spend the current implementation phase 
 
 Real two-device pairing requires the remote service and must **not** be faked as local-only communication.
 
-The intended eventual flow is:
+The user-facing pairing credential is **exactly five emojis**. Technical invitation credentials remain invisible.
 
-```text
-unpaired
-  ↓
-create invitation
-  ↓
-show five emojis
-  ↓
-partner uses the five-emoji flow
-  ↓
-server validates secure invitation
-  ↓
-paired relationship
-```
+There are two user-facing transports into the same pairing core:
 
-The five-emoji sequence is the user-facing mechanism, not a security credential. The real invitation token uses high-entropy server-side protocol machinery with expiry, bounded confirmation attempts, and one-time consumption. Pairing state should remain behind an abstraction so screens are not coupled directly to HTTP.
+~~~text
+five emojis entered manually ─┐
+                              ├─→ hidden pairing session → paired
+share link / five-emoji path ─┘
+~~~
 
-The product now has the pairing and sync plumbing wired together, but do not claim the online milestone is complete until real two-device acceptance/exchange has been validated.
+The five emojis are a short-lived pairing password/rendezvous secret, not the long-lived relationship encryption key.
+
+The existing random 256-bit relationship key remains app-owned. The Worker must never receive the raw key.
+
+The hidden pairing session must use a vetted password-authenticated/key-establishment construction or equivalent reviewed primitive. Do not invent a custom low-entropy password protocol.
+
+Keep and reuse the existing:
+
+- PairingManager;
+- CloudIdentityStore;
+- anonymous device identity;
+- relationship-key commitment;
+- invitation expiry;
+- bounded failed-attempt handling;
+- one-time invitation consumption;
+- PAIRING → ACTIVE transition;
+- secure local cloud credential/key storage.
+
+The current serialized pairing package is transitional. It may survive internally if useful to the hidden transport, but it must not remain a user-facing input or share action.
+
+Share links use:
+
+    https://rucola.njco.dev/<five-emojis>
+
+The link must not contain a raw relationship key, cloud credential, invitation token, or serialized package. Android should handle the HTTPS route through a verified App Link, with the website as fallback. GET/HEAD must never consume the invitation, and pairing URLs must not be intentionally cached, indexed, analytics-tracked, or logged verbatim.
+
+Unicode pairing input must use a canonical application-owned emoji alphabet. Do not compare arbitrary rendered strings or assume that one visual emoji always equals one Unicode scalar value.
+
+Do not claim the online pairing milestone is complete until both transports have been exercised on two real Android devices.
 
 ## Onboarding
 

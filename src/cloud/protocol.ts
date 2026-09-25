@@ -119,3 +119,67 @@ export interface CompleteMediaResponse {
   uploadId: string;
   status: 'READY';
 }
+
+export type PairingSessionAction =
+  | 'START'
+  | 'JOIN'
+  | 'PUBLISH_RESPONDER_SHARE'
+  | 'PUBLISH_HANDOFF'
+  | 'PUBLISH_CONFIRMATION'
+  | 'COMPLETE'
+  | 'POLL';
+
+export interface PairingSessionRequest {
+  action: PairingSessionAction;
+  sessionId?: string;
+  invitationId?: string;
+  confirmationCode?: string;
+  share?: string;
+  handoff?: string;
+  confirmation?: string;
+  partnerCredentialHash?: string;
+  partnerDeviceId?: string;
+}
+
+export interface PairingSessionStartResponse {
+  sessionId: string;
+  expiresAt: number;
+  relationshipKeyCommitment: string;
+}
+
+export interface PairingSessionJoinResponse {
+  sessionId: string;
+  invitationId: string;
+  expiresAt: number;
+  initiatorShare: string;
+  relationshipId: string;
+  relationshipKeyCommitment: string;
+}
+
+export interface PairingSessionResponderShareResponse {
+  ok: true;
+}
+
+export interface PairingSessionMutationResponse {
+  ok: true;
+}
+
+export interface PairingSessionCompleteResponse {
+  completed: true;
+  relationshipId: string;
+  partnerDeviceId: string;
+}
+
+export interface PairingSessionPollResponse {
+  sessionId: string;
+  relationshipId: string;
+  expiresAt: number;
+  initiatorShare: string;
+  responderShare: string | null;
+  handoff: string | null;
+  confirmation: string | null;
+  partnerCredentialHash?: string | null;
+  completed: boolean;
+  relationshipKeyCommitment: string;
+  partnerDeviceId?: string | null;
+}

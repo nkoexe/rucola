@@ -39,12 +39,14 @@ describe("cleanup lifecycle", () => {
     const body = (await json(response)) as unknown as PairingBody & { relationshipId: string; invitationId: string };
     const now = Date.now();
     await env.DB.prepare("UPDATE invitations SET expires_at = ? WHERE id = ?").bind(now - 1, body.invitationId).run();
+    await env.DB.prepare("INSERT INTO pairing_sessions (id, invitation_id, relationship_id, expires_at, initiator_share, created_at) VALUES (?, ?, ?, ?, ?, ?)").bind("expired-session-" + testId, body.invitationId, body.relationshipId, now - 1, "AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE=", now - 1000).run();
 
     const result = await runCleanup(env, now);
     expect(result.expiredPairing).toBe(1);
     expect(await env.DB.prepare("SELECT id FROM relationships WHERE id = ?").bind(body.relationshipId).first()).toBeNull();
     expect(await env.DB.prepare("SELECT id FROM invitations WHERE id = ?").bind(body.invitationId).first()).toBeNull();
     expect(await env.DB.prepare("SELECT id FROM devices WHERE relationship_id = ?").bind(body.relationshipId).first()).toBeNull();
+    expect(await env.DB.prepare("SELECT id FROM pairing_sessions WHERE relationship_id = ?").bind(body.relationshipId).first()).toBeNull();
   });
   it("removes an expired pending upload and its object", async () => {
     const { me } = await bootstrapAndAccept(); const uploadId = await createMedia(me.credential); const row = await env.DB.prepare("SELECT object_key FROM media_uploads WHERE id = ?").bind(uploadId).first<{ object_key: string }>(); expect(row).not.toBeNull(); await env.MEDIA_BUCKET.put(row!.object_key, new Uint8Array([1, 2, 3, 4])); const now = Date.now(); await env.DB.prepare("UPDATE media_uploads SET created_at = ?, expires_at = ? WHERE id = ?").bind(now - 1000, now - 1, uploadId).run(); const result = await runCleanup(env); expect(result.mediaObjectsDeleted).toBe(1); expect(await env.DB.prepare("SELECT id FROM media_uploads WHERE id = ?").bind(uploadId).first()).toBeNull(); expect(await env.MEDIA_BUCKET.head(row!.object_key)).toBeNull();

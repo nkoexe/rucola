@@ -1,5 +1,5 @@
 import { StatusBar } from 'expo-status-bar';
-import { AppState, Pressable, SafeAreaView, StyleSheet, Text, View } from 'react-native';
+import { AppState, Linking, Pressable, SafeAreaView, StyleSheet, Text, View } from 'react-native';
 import { useEffect, useState } from 'react';
 import { getRepository } from '../data/repository';
 import { recoverPendingPickerResult } from '../data/pendingPicker';
@@ -12,6 +12,7 @@ import { PairingScreen } from '../screens/Pairing/PairingScreen';
 import { SettingsScreen } from '../screens/Settings/SettingsScreen';
 import { SetupScreen } from '../screens/Setup/SetupScreen';
 import { cloudRuntime } from '../cloud/CloudRuntime';
+import { createPairingShareUrl, parsePairingDeepLink, type PairingInput } from '../cloud/pairingTransport';
 import { checkCloudRuntime } from '../cloud/runtime';
 
 type AppScreen = 'home' | 'history' | 'calendar' | 'settings' | 'pairing';
@@ -23,6 +24,32 @@ export default function App() {
   const [pairingComplete, setPairingComplete] = useState(false);
   const [ready, setReady] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [pendingPairingInput, setPendingPairingInput] = useState<PairingInput | null>(null);
+
+  useEffect(() => {
+    let mounted = true;
+
+    const capture = (url: string | null) => {
+      if (!url || !mounted) return;
+      try {
+        const pairingCode = parsePairingDeepLink(url);
+        setPendingPairingInput({
+          transport: 'SHARE_LINK',
+          value: createPairingShareUrl(pairingCode),
+        });
+      } catch {
+        // Ignore unrelated or malformed links. They do not belong to the pairing flow.
+      }
+    };
+
+    void Linking.getInitialURL().then(capture).catch(() => {});
+    const subscription = Linking.addEventListener('url', ({ url }) => capture(url));
+
+    return () => {
+      mounted = false;
+      subscription.remove();
+    };
+  }, []);
 
   useEffect(() => {
     void checkCloudRuntime().then((status) => {
@@ -98,6 +125,7 @@ export default function App() {
   };
 
   const completePairing = (value: Relationship) => {
+    setPendingPairingInput(null);
     setRelationship(value);
     setPairingComplete(true);
     void repositoryPromise
@@ -114,8 +142,8 @@ export default function App() {
 
   if (!ready) return <LoadingScreen />;
   if (error && !relationship) return <ErrorScreen message={error} onRetry={retry} />;
-  if (!relationship) return <SetupScreen repositoryPromise={repositoryPromise} onComplete={completePairing} />;
-  if (!pairingComplete) return <PairingScreen relationship={relationship} onComplete={completePairing} />;
+  if (!relationship) return <SetupScreen repositoryPromise={repositoryPromise} onComplete={completePairing} initialPairingInput={pendingPairingInput} onPairingInputHandled={() => setPendingPairingInput(null)} />;
+  if (!pairingComplete) return <PairingScreen relationship={relationship} onComplete={completePairing} initialPairingInput={pendingPairingInput} onPairingInputHandled={() => setPendingPairingInput(null)} />;
 
   return (
     <MainApp

@@ -3,6 +3,8 @@ import { databaseHealthy, checkSchema } from "./db";
 import { runCleanup } from "./cleanup";
 import { errorResponse, json, methodNotAllowed } from "./http";
 import { acceptInvitation, bootstrapPairing, createInvitation } from "./pairing";
+import { handlePairingSession } from "./pairingSession";
+import { handlePairingWebRoute } from "./pairingWeb";
 import { completeMedia, createMediaReservation, uploadMedia } from "./media";
 import { pullMessages } from "./sync-pull";
 import { acknowledgeMessages } from "./sync-ack";
@@ -73,6 +75,12 @@ export default {
       });
     }
 
+    const pairingWebResponse = handlePairingWebRoute(
+      request,
+      env.RUCOLA_ANDROID_APP_LINK_FINGERPRINTS,
+    );
+    if (pairingWebResponse) return pairingWebResponse;
+
     if (url.pathname === "/health") {
       if (request.method !== "GET") return methodNotAllowed(["GET", "OPTIONS"]);
       return handleHealth(env);
@@ -93,6 +101,10 @@ export default {
     if (url.pathname === "/v1/pairing/create") {
       if (request.method !== "POST") return methodNotAllowed(["POST", "OPTIONS"]);
       return handleCreateInvitation(env, request);
+    }
+    if (url.pathname === "/v1/pairing/session") {
+      if (request.method !== "POST") return methodNotAllowed(["POST", "OPTIONS"]);
+      return handlePairingSession(env, request);
     }
     if (url.pathname === "/v1/pairing/accept") {
       if (request.method !== "POST") return methodNotAllowed(["POST", "OPTIONS"]);

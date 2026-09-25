@@ -67,9 +67,9 @@ The mobile `SyncEngine` enforces the important client boundary: cursor advanceme
 
 ### Pairing
 
-The human-facing pairing UX is a product concern separate from the security credential. The backend uses a higher-entropy invitation/token plus bounded confirmation attempts, expiry, and one-time consumption.
+The human-facing pairing UX exposes exactly five emojis. The backend may retain a higher-entropy invitation/token plus bounded attempts, expiry, and one-time consumption as internal machinery, but the token is never user-facing. The hidden pairing session carries or establishes the long-lived relationship key without sending the raw key to the Worker.
 
-The mobile app must keep technical credentials invisible to the user.
+The mobile app must keep all technical credentials invisible to the user. The two user-facing transports are manual five-emoji entry and the HTTPS five-emoji share link.
 
 ### Device lifecycle
 
@@ -171,7 +171,7 @@ The cloud workstream is substantially beyond the original C1 proposal:
 - finite retention is encoded in Worker behavior;
 - concurrency/idempotency and cursor-gap behavior are covered by regression tests.
 
-The remaining gap is integration into the complete mobile product lifecycle: credential persistence, pairing UI flow, application/background sync ownership, and end-to-end media synchronization still need to be completed before the first real online product milestone.
+The remaining pairing gap is physical two-device validation and production crypto/runtime review. Credential persistence, the emoji/share-link pairing UI flow, and foreground pairing/session ownership are implemented on the feature branch. Background sync and end-to-end media synchronization remain separate product work.
 
 ## 10. Maintenance rule
 

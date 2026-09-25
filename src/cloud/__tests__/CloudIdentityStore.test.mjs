@@ -24,6 +24,24 @@ function identity(overrides = {}) {
   };
 }
 
+
+function pendingPairingSession(overrides = {}) {
+  return {
+    invitationId: 'invitation-1',
+    relationshipId: 'relationship-1',
+    relationshipKeyCommitment: 'a'.repeat(64),
+    sessionId: Buffer.alloc(16, 7).toString('base64'),
+    confirmationCode: '😀😃😄😁😆',
+    expiresAt: Date.now() + 60_000,
+    ephemeralSecret: Buffer.alloc(32, 8).toString('base64'),
+    ownShare: Buffer.alloc(32, 9).toString('base64'),
+    partnerDeviceId: 'partner_device_1',
+    credential: 'a'.repeat(43),
+    relationshipKey: null,
+    ...overrides,
+  };
+}
+
 function pairing() {
   return {
     invitationId: 'invitation-1',
@@ -32,6 +50,32 @@ function pairing() {
     expiresAt: Date.now() + 60_000,
   };
 }
+
+
+test('persists and loads a pending responder pairing session', async () => {
+  const backend = createStore();
+  const store = new CloudIdentityStore(backend);
+  const pending = pendingPairingSession();
+  await store.savePendingPairingSession(pending);
+  assert.deepEqual(await store.loadPendingPairingSession(), pending);
+});
+
+test('pending responder pairing session may gain its relationship key', async () => {
+  const backend = createStore();
+  const store = new CloudIdentityStore(backend);
+  const pending = pendingPairingSession({ relationshipKey: Buffer.alloc(32, 7).toString('base64') });
+  await store.savePendingPairingSession(pending);
+  assert.equal((await store.loadPendingPairingSession()).relationshipKey, pending.relationshipKey);
+});
+
+test('clear removes pending responder pairing session independently', async () => {
+  const backend = createStore();
+  const store = new CloudIdentityStore(backend);
+  await store.savePendingPairingSession(pendingPairingSession());
+  await store.clearPendingPairingSession();
+  assert.equal(await store.loadPendingPairingSession(), null);
+  assert.equal(backend.values.has('rucola.cloud.pending-pairing-session.v1'), false);
+});
 
 test('persists and loads a cloud identity', async () => {
   const backend = createStore();
@@ -72,6 +116,17 @@ test('overwrites the previous identity', async () => {
   await store.save(identity());
   await store.save(identity({ deviceId: 'device-2', participant: 'PARTNER' }));
   assert.deepEqual(await store.load(), identity({ deviceId: 'device-2', participant: 'PARTNER' }));
+});
+
+test('clear removes both identity and pending responder pairing state', async () => {
+  const backend = createStore();
+  const store = new CloudIdentityStore(backend);
+  await store.save(identity());
+  await store.savePendingPairingSession(pendingPairingSession());
+  await store.clear();
+  assert.equal(await store.load(), null);
+  assert.equal(await store.loadPendingPairingSession(), null);
+  assert.equal(backend.values.size, 0);
 });
 
 test('clear removes all identity material', async () => {

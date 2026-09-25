@@ -2,6 +2,7 @@ import { writeFile } from "node:fs/promises";
 
 const environment = process.env.RUCOLA_DEPLOY_ENV;
 const databaseId = process.env.RUCOLA_D1_DATABASE_ID;
+const androidLinkFingerprints = process.env.RUCOLA_ANDROID_APP_LINK_FINGERPRINTS?.trim();
 
 const environments = {
   dev: {
@@ -49,6 +50,7 @@ const config = {
       jurisdiction: "eu",
     },
   ],
+  ...(androidLinkFingerprints ? { vars: { RUCOLA_ANDROID_APP_LINK_FINGERPRINTS: androidLinkFingerprints } } : {}),
   ratelimits: [
     {
       name: "PAIRING_BOOTSTRAP_LIMITER",

@@ -1,11 +1,39 @@
 # Rucola Cloud Implementation Status
 
-Date: 2026-09-20  
-Branch: `feat/dev-cloud-runtime-wiring`
+Date: 2026-09-22  
+Branch: `feature/pairing-emoji-share-link`
 
 ## Current status
 
-The cloud backend foundation is implemented and hardened through the temporary mailbox, ACK, media, cleanup, pairing, concurrency, and database-invariant boundaries. The React Native side now has secure identity/key storage, pairing lifecycle state, the first Android pairing UX, and a real application-owned `CloudRuntime` that constructs the encrypted `SyncEngine` from persisted identity state.
+The implementation gate for the prototype is complete. The remaining work is validation rather than another pairing-protocol implementation pass.
+
+### Implemented
+
+- five-emoji pairing transport;
+- HTTPS five-emoji share link;
+- hidden pairing session and CPace draft-20 prototype;
+- encrypted relationship-key handoff;
+- responder recovery and atomic relationship activation;
+- secure local identity/key storage;
+- encrypted foreground TEXT/EMOJI sync;
+- hardened Worker mailbox, receipts, ACK, media lifecycle, and database invariants.
+
+### Prototype-tested / CI-validated
+
+- unit and Worker protocol tests;
+- pairing state/recovery and race handling;
+- encrypted sync and retry semantics;
+- Android build/typecheck/test gates covered by CI.
+
+### Not yet validated for production
+
+- two physical Android devices against the dev Worker;
+- Expo/Hermes runtime behavior for the CPace dependency;
+- upstream CPace draft-20 vectors as an independent dependency-review gate;
+- actual Android App Link certificate fingerprint and association;
+- independent cryptographic/dependency review.
+
+The cloud backend foundation is implemented and hardened through the temporary mailbox, ACK, media, cleanup, pairing, concurrency, and database-invariant boundaries. The React Native side now has secure identity/key storage, pairing lifecycle state, the transport-neutral pairing boundary, and a real application-owned `CloudRuntime` that constructs the encrypted `SyncEngine` from persisted identity state.
 
 ## Sync protocol
 
@@ -57,14 +85,18 @@ The receipt survives mailbox deletion so a sender can safely retry after a lost 
 
 ## Pairing
 
-**Status: complete and hardened at the backend layer.**
+**Status: prototype handshake and transport migration complete; production validation pending.**
 
-- bootstrap creates the first device and invitation;
-- invitation acceptance creates the partner device;
-- confirmation attempts are bounded and lockable;
-- concurrent acceptance is tested so an invitation is consumed only once;
-- relationship and device ownership are enforced by the database and Worker;
-- the user-facing confirmation code remains separate from the higher-entropy invitation token and device credentials.
+- bootstrap creates the first device and short-lived invitation;
+- five-emoji codes are the only human-facing pairing credential;
+- emoji entry and HTTPS share-link inputs converge on the same pairing session;
+- `pairing_sessions` relays CPace draft-20 shares and opaque handoff/confirmation envelopes without receiving the relationship key;
+- responder device ID and credential hash are bound to the session;
+- duplicate confirmation publication is idempotent for the same responder identity;
+- responder pairing state is stored securely before relay publication and can be resumed after restart;
+- completion inserts the exact responder device and atomically consumes the invitation / activates the relationship;
+- the Worker serves a no-store five-emoji HTTPS landing page and an optional `assetlinks.json` response when a real Android signing fingerprint is configured;
+- the old serialized package path remains only as an internal compatibility API.
 
 ## Media / R2
 
@@ -107,7 +139,7 @@ npm run typecheck
 npm test
 ```
 
-The latest completed backend validation before the current CI workflow fix was 15 test files and 111 tests passing. A fresh CI run is required to validate the current workflow and remote Cloudflare resources end-to-end.
+The cloud Worker test suite remains the backend validation boundary. CI status is intentionally tracked by GitHub Actions rather than frozen in this document.
 
 ## Current mobile security and pairing foundation
 
@@ -121,8 +153,11 @@ Implemented on the current development branch:
 - Unit tests cover round-trip encryption, nonce uniqueness, tampering, wrong keys, malformed envelopes, encoding, and secure-identity validation.
 - The native integration harness includes a SecureStore/AES-GCM smoke test using a dedicated test storage key so it cannot overwrite a real paired identity.
 - Pairing now binds the installation-generated relationship key to the Worker invitation through a SHA-256 commitment; the raw relationship key never crosses the Worker API.
-- The mobile pairing protocol persists recoverable `PAIRING` state separately from `ACTIVE` state and can recreate a pending pairing package after restart.
-- The human confirmation is exactly five emojis; the high-entropy invitation token and encryption key remain technical pairing material.
+- The mobile pairing protocol persists recoverable `PAIRING` state separately from `ACTIVE` state and can resume a pending invitation after restart.
+- The user-facing pairing credential is exactly five emojis; the invitation token, cloud credential, relationship key, and any serialized pairing package remain technical pairing material and must not be exposed in the UI.
+- The target migration is implemented with two transport options: emoji-only entry and an HTTPS five-emoji share link.
+- The transport-neutral pairing boundary is now implemented in `pairingTransport.ts`; direct emoji input and share-link input normalize to the same canonical five-emoji code.
+- `PairingManager` and `CloudRuntime` now expose a human-facing invitation projection containing only the pairing code, share URL, and expiry. The legacy package-bearing path remains isolated as temporary compatibility code until the hidden handshake is implemented.
 - Auth probing now exposes the relationship lifecycle state so the initiating device can transition from `PAIRING` to `ACTIVE` after the partner joins.
 - `CloudRuntime` now owns `CloudClient`, `CloudIdentityStore`, `PairingManager`, the SQLite sync-state store, `AesGcmSyncCodec`, and one coalescing `SyncEngine` instance for the active identity.
 - `SyncEngine` now passes the durable sender sequence into the codec, so the sequence is covered by AES-GCM authenticated context exactly as designed.
@@ -132,21 +167,21 @@ Implemented on the current development branch:
 - The sync test suite now exercises a simulated two-device encrypted TEXT burst in both directions and a lost-response/idempotent retry.
 - The Worker cleanup suite now covers expiry of an unpaired pairing relationship without touching active relationships.
 
-The implementation is committed. The Android UX uses the native Android share sheet for the out-of-band pairing payload; the intended recipient path is direct device-to-device transfer (for example Quick Share), while the raw pairing payload is never displayed in the app.
+The prototype implementation now completes the transport-neutral pairing flow end-to-end in code: five-emoji entry and HTTPS share links feed the hidden pairing session, the responder can recover after restart, the Worker completes the relationship atomically, and the app exposes no package/token/credential/key material. The legacy package API remains only for compatibility. Production approval and physical two-device validation are still separate gates.
 
 ## Remaining work
 
-1. Validate the real encrypted TEXT/EMOJI online loop on two Android devices against the dev Worker, including offline bursts and retry/restart behavior.
-2. Validate the signed dev APK path against the dev Worker and the current Worker schema.
-3. Add an in-app QR/camera transfer path if the share-sheet prototype proves insufficient for the physical test.
-4. Add background synchronization/notifications only after the foreground two-device loop is proven.
-6. Finish end-to-end PHOTO_VIDEO synchronization.
-7. Add background synchronization/notifications.
-8. Complete production migration/recovery, resource/secrets verification, and observability.
-9. Decide whether to remove the legacy `mailbox_messages.acknowledged_at` field after the current protocol is fully migrated.
+1. Validate the encrypted TEXT/EMOJI online loop on two Android devices against the dev Worker, including restart/retry behavior.
+2. Validate both emoji entry and HTTPS share-link/App Link pairing on two real Android devices.
+3. Configure and verify `RUCOLA_ANDROID_APP_LINK_FINGERPRINTS` with the actual signing certificate used by the installed APK.
+4. Complete the production CPace/dependency/runtime review; the repository implementation is intentionally pinned to draft-20 while the active CFRG draft is newer.
+5. Finish end-to-end PHOTO_VIDEO synchronization.
+6. Add background synchronization/notifications only after the foreground path is proven.
+7. Complete production migration/recovery, resource/secrets verification, and observability.
+8. Decide whether to remove the legacy `mailbox_messages.acknowledged_at` field after the current protocol is fully migrated.
 
 ## Next step
 
-The code/CI milestone is green. The next gate is a two-device signed-dev-Apk test against `https://dev.rucola.njco.dev`; no production deployment should happen before that.
+Merge the prototype implementation to `main`, then run two-device Android validation against the dev Worker from `main`. Production approval remains blocked on the cryptographic/runtime review and real App Link association.
 
 Do not make the UI depend directly on cloud endpoints.
