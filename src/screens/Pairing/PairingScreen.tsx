@@ -32,6 +32,11 @@ export function PairingScreen({
   const onCompleteRef = useRef(onComplete);
   const onPairingInputHandledRef = useRef(onPairingInputHandled);
 
+  const updatePairingProgress = (progress: number) => {
+    const rounded = Math.round(progress * 100) / 100;
+    setPairingProgress((current) => current === rounded ? current : rounded);
+  };
+
   onCompleteRef.current = onComplete;
   onPairingInputHandledRef.current = onPairingInputHandled;
 
@@ -47,7 +52,7 @@ export function PairingScreen({
         // Resume that initiator state first; responder recovery rejects an existing
         // identity by design and must only run when no initiator pairing exists.
         const pendingPairing = await cloudRuntime.resumePendingPairingInvitation((progress) => {
-          setPairingProgress(progress);
+          updatePairingProgress(progress);
         });
         if (!mounted) return;
         if (pendingPairing) {
