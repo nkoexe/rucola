@@ -31,21 +31,20 @@ WHEN NEW.participant = 'PARTNER'
       AND ps.completed_at IS NULL
   )
 BEGIN
-  SELECT CASE
-    WHEN NOT EXISTS (
-      SELECT 1
-      FROM pairing_sessions ps
-      JOIN invitations i ON i.id = ps.invitation_id
-      JOIN relationships r ON r.id = ps.relationship_id
-      WHERE ps.relationship_id = NEW.relationship_id
-        AND ps.partner_credential_hash = NEW.credential_hash
-        AND ps.completed_at IS NULL
-        AND ps.expires_at > NEW.created_at
-        AND i.consumed_at IS NULL
-        AND i.expires_at > NEW.created_at
-        AND r.status = 'PAIRING'
-    ) THEN RAISE(ABORT, 'pairing session completion invariant violated')
-  END;
+  SELECT RAISE(ABORT, 'pairing session completion invariant violated')
+  WHERE NOT EXISTS (
+    SELECT 1
+    FROM pairing_sessions ps
+    JOIN invitations i ON i.id = ps.invitation_id
+    JOIN relationships r ON r.id = ps.relationship_id
+    WHERE ps.relationship_id = NEW.relationship_id
+      AND ps.partner_credential_hash = NEW.credential_hash
+      AND ps.completed_at IS NULL
+      AND ps.expires_at > NEW.created_at
+      AND i.consumed_at IS NULL
+      AND i.expires_at > NEW.created_at
+      AND r.status = 'PAIRING'
+  );
 
   UPDATE invitations
      SET consumed_at = NEW.created_at,
@@ -61,32 +60,30 @@ BEGIN
      AND consumed_at IS NULL
      AND expires_at > NEW.created_at;
 
-  SELECT CASE
-    WHEN NOT EXISTS (
-      SELECT 1 FROM invitations
-      WHERE id = (
-        SELECT invitation_id FROM pairing_sessions
-        WHERE relationship_id = NEW.relationship_id
-          AND partner_credential_hash = NEW.credential_hash
-          AND completed_at IS NULL
-        LIMIT 1
-      )
-      AND consumed_at = NEW.created_at
-      AND consumed_by_device_id = NEW.id
-    ) THEN RAISE(ABORT, 'pairing invitation consumption invariant violated')
-  END;
+  SELECT RAISE(ABORT, 'pairing invitation consumption invariant violated')
+  WHERE NOT EXISTS (
+    SELECT 1 FROM invitations
+    WHERE id = (
+      SELECT invitation_id FROM pairing_sessions
+      WHERE relationship_id = NEW.relationship_id
+        AND partner_credential_hash = NEW.credential_hash
+        AND completed_at IS NULL
+      LIMIT 1
+    )
+    AND consumed_at = NEW.created_at
+    AND consumed_by_device_id = NEW.id
+  );
 
   UPDATE relationships
      SET status = 'ACTIVE'
    WHERE id = NEW.relationship_id
      AND status = 'PAIRING';
 
-  SELECT CASE
-    WHEN NOT EXISTS (
-      SELECT 1 FROM relationships
-      WHERE id = NEW.relationship_id AND status = 'ACTIVE'
-    ) THEN RAISE(ABORT, 'pairing relationship activation invariant violated')
-  END;
+  SELECT RAISE(ABORT, 'pairing relationship activation invariant violated')
+  WHERE NOT EXISTS (
+    SELECT 1 FROM relationships
+    WHERE id = NEW.relationship_id AND status = 'ACTIVE'
+  );
 
   UPDATE pairing_sessions
      SET completed_at = NEW.created_at
@@ -94,14 +91,13 @@ BEGIN
      AND partner_credential_hash = NEW.credential_hash
      AND completed_at IS NULL;
 
-  SELECT CASE
-    WHEN NOT EXISTS (
-      SELECT 1 FROM pairing_sessions
-      WHERE relationship_id = NEW.relationship_id
-        AND partner_credential_hash = NEW.credential_hash
-        AND completed_at = NEW.created_at
-    ) THEN RAISE(ABORT, 'pairing session completion invariant violated')
-  END;
+  SELECT RAISE(ABORT, 'pairing session completion invariant violated')
+  WHERE NOT EXISTS (
+    SELECT 1 FROM pairing_sessions
+    WHERE relationship_id = NEW.relationship_id
+      AND partner_credential_hash = NEW.credential_hash
+      AND completed_at = NEW.created_at
+  );
 END;
 
 CREATE INDEX IF NOT EXISTS idx_pairing_sessions_credential
