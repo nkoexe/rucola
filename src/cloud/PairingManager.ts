@@ -159,7 +159,7 @@ export class PairingManager {
     }
 
     const joined = await this.cloud.joinPairingSession(pairingCode);
-    const handshake = createPairingHandshake(
+    const handshake = await createPairingHandshake(
       joined.sessionId,
       pairingCode,
       joined.relationshipKeyCommitment,
