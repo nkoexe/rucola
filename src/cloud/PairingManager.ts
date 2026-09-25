@@ -579,7 +579,7 @@ export class PairingManager {
 
     if (!pending.handshake) {
       const sessionId = await generatePairingSessionId();
-      const handshake = createPairingHandshake(
+      const handshake = await createPairingHandshake(
         sessionId,
         pending.confirmationCode,
         await this.keyCommitment(identity.relationshipKey),
