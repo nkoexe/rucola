@@ -1,6 +1,6 @@
 # Rucola — First Online Prototype Plan
 
-**Status:** mobile runtime and foreground encrypted sync implemented; two-device physical validation pending  
+**Status:** implementation phases complete; two-device physical validation pending  
 **Target:** first real two-device Android prototype against the dev backend  
 **Backend:** `https://dev.rucola.njco.dev`  
 **Primary branch:** `main` after integration PRs are merged
@@ -164,6 +164,8 @@ The exact secure-store schema should be hidden behind a small application abstra
 
 ## 4. Implementation phases
 
+The implementation work described in Phases A–F is now complete for the prototype. Phases H–K are likewise implemented to the extent stated by their individual status notes. The current milestone is validation, not further protocol implementation: physical Android testing, runtime compatibility checks, App Link verification, and the remaining production security review are still open.
+
 ### Phase A — preserve and isolate the crypto/identity foundation
 
 Keep the existing:
@@ -196,9 +198,7 @@ The manager may continue to use the existing invitation token/package internally
 
 ### Phase C — implement the hidden pairing session
 
-**Status:** experimental CPace draft-20 adapter and hidden relay are implemented; production use remains gated on vector, dependency, and Expo/Android runtime validation.
-
-Before coding the handshake, choose and document a vetted password-authenticated/key-establishment construction or equivalent reviewed primitive.
+**Status:** implemented as an experimental CPace draft-20 adapter and hidden relay. Production use remains gated on vector, dependency, and Expo/Android runtime validation.
 
 Requirements:
 
@@ -256,6 +256,8 @@ Requirements:
 
 ### Phase F — remove transitional pairing-pass UX
 
+**Status:** the user-facing pairing-pass/package flow has been removed. The package serializer remains only where required by the internal compatibility API.
+
 Delete:
 
 - pairing-pass copy;
@@ -263,7 +265,7 @@ Delete:
 - Quick Share/manual payload instructions;
 - separate confirmation + package acceptance UI.
 
-Keep the package serializer only when it remains useful internally for the hidden protocol; otherwise remove it during cleanup.
+Keep the package serializer only as internal compatibility material; it must not return to the user-facing pairing contract.
 
 ### Phase G — two-device validation
 
