@@ -9,6 +9,7 @@ import {
   generatePairingSessionId,
   verifyPairingConfirmation,
   type PairingHandshakeSecrets,
+  type PairingHandshakeOptions,
 } from './pairingHandshake.ts';
 import { createPairingPackage, decodePairingPackage } from './pairingPackage.ts';
 import { isValidPairingConfirmationCode } from './pairingCode.ts';
@@ -21,6 +22,8 @@ import {
 } from './pairingTransport.ts';
 
 export type { PairingInput, PairingInvitationView };
+
+export type PairingPreparationProgress = (progress: number) => void;
 
 export interface PairingManagerOptions {
   cloud: CloudClient;
@@ -119,9 +122,12 @@ export class PairingManager {
     return this.toLegacyPendingView(pending.response, pending.relationshipKey);
   }
 
-  async startPairingInvitation(expiresInSeconds?: number): Promise<PairingInvitationView> {
+  async startPairingInvitation(
+    expiresInSeconds?: number,
+    onProgress?: PairingPreparationProgress,
+  ): Promise<PairingInvitationView> {
     const pending = await this.createPendingPairing(expiresInSeconds);
-    await this.ensureInitiatorHandshake(pending.identity);
+    await this.ensureInitiatorHandshake(pending.identity, { onProgress });
     return this.toInvitationView(pending.response.confirmationCode, pending.response.expiresAt);
   }
 
@@ -131,10 +137,12 @@ export class PairingManager {
     return this.toLegacyPendingView(pending.response, pending.identity.relationshipKey);
   }
 
-  async resumePendingPairingInvitation(): Promise<PairingInvitationView | null> {
+  async resumePendingPairingInvitation(
+    onProgress?: PairingPreparationProgress,
+  ): Promise<PairingInvitationView | null> {
     const pending = await this.loadPendingPairing();
     if (!pending) return null;
-    await this.ensureInitiatorHandshake(pending.identity);
+    await this.ensureInitiatorHandshake(pending.identity, { onProgress });
     return this.toInvitationView(pending.response.confirmationCode, pending.response.expiresAt);
   }
 
@@ -142,7 +150,10 @@ export class PairingManager {
     return normalizePairingInput(input);
   }
 
-  async acceptPairingInput(input: PairingInput): Promise<CloudIdentity> {
+  async acceptPairingInput(
+    input: PairingInput,
+    onProgress?: PairingPreparationProgress,
+  ): Promise<CloudIdentity> {
     const { pairingCode } = normalizePairingInput(input);
 
     const existing = await this.identityStore.load();
@@ -163,6 +174,7 @@ export class PairingManager {
       joined.sessionId,
       pairingCode,
       joined.relationshipKeyCommitment,
+      { onProgress },
     );
     const partnerCredential = await generatePartnerCredential();
     const partnerDeviceId = bytesToBase64Url(await secureRandomBytes(16));
@@ -573,7 +585,10 @@ export class PairingManager {
     return { response, relationshipKey, identity };
   }
 
-  private async ensureInitiatorHandshake(identity: CloudIdentity): Promise<void> {
+  private async ensureInitiatorHandshake(
+    identity: CloudIdentity,
+    options: PairingHandshakeOptions = {},
+  ): Promise<void> {
     const pending = identity.pendingPairing;
     if (!pending) throw new Error('Pending pairing invitation is missing.');
 
@@ -583,6 +598,7 @@ export class PairingManager {
         sessionId,
         pending.confirmationCode,
         await this.keyCommitment(identity.relationshipKey),
+        options,
       );
       const updated: CloudIdentity = {
         ...identity,

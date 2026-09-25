@@ -11,6 +11,7 @@ import {
   type PairingInput,
   type PairingInvitationView,
   type PendingPairingView,
+  type PairingPreparationProgress,
 } from './PairingManager.ts';
 import { getCloudBaseUrl } from './config.ts';
 import { expoSecureValueStore } from './expoSecureStore.ts';
@@ -41,20 +42,28 @@ export class CloudRuntime {
     return this.pairing.startPairing(expiresInSeconds);
   }
 
-  startPairingInvitation(expiresInSeconds?: number): Promise<PairingInvitationView> {
-    return this.pairing.startPairingInvitation(expiresInSeconds);
+  startPairingInvitation(
+    expiresInSeconds?: number,
+    onProgress?: PairingPreparationProgress,
+  ): Promise<PairingInvitationView> {
+    return this.pairing.startPairingInvitation(expiresInSeconds, onProgress);
   }
 
   resumePendingPairing(): Promise<PendingPairingView | null> {
     return this.pairing.resumePendingPairing();
   }
 
-  resumePendingPairingInvitation(): Promise<PairingInvitationView | null> {
-    return this.pairing.resumePendingPairingInvitation();
+  resumePendingPairingInvitation(
+    onProgress?: PairingPreparationProgress,
+  ): Promise<PairingInvitationView | null> {
+    return this.pairing.resumePendingPairingInvitation(onProgress);
   }
 
-  acceptPairingInput(input: PairingInput): Promise<CloudIdentity> {
-    return this.pairing.acceptPairingInput(input);
+  acceptPairingInput(
+    input: PairingInput,
+    onProgress?: PairingPreparationProgress,
+  ): Promise<CloudIdentity> {
+    return this.pairing.acceptPairingInput(input, onProgress);
   }
 
   completePendingPairing(): Promise<CloudIdentity | null> {

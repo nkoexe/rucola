@@ -27,7 +27,7 @@
     "react-native-safe-area-context": "~5.7.0",
     "react-native-screens": "~4.26.0",
     "@cipherman/pake-js": "0.1.1",
-    "@noble/hashes": "1.8.0"
+    "@noble/hashes": "2.4.0"
   },
   "devDependencies": {
     "@types/react": "~19.2.0",
