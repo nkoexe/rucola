@@ -80,6 +80,7 @@ describe("Rucola cloud worker", () => {
         confirmationCode: body.confirmationCode,
         confirmation,
         partnerCredentialHash,
+        partnerDeviceId: "partner-device-test",
       }),
     });
     expect(publishConfirmation.status).toBe(200);
