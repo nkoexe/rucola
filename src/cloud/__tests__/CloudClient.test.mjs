@@ -107,7 +107,7 @@ test('browser uploads do not attempt to set forbidden Content-Length', async () 
   let captured;
   try {
     const client = new CloudClient({
-      baseUrl: 'https://cloud.example.test', credential: 'credential',
+      baseUrl: 'https://cloud.example.test', credential: 'credential', platform: 'web',
       fetchImpl: async (url, init) => {
         captured = { url, init };
         return jsonResponse({ uploadId: 'upload', status: 'UPLOADED' });
@@ -117,7 +117,7 @@ test('browser uploads do not attempt to set forbidden Content-Length', async () 
     assert.equal(captured.init.headers['Content-Length'], undefined);
     assert.equal(captured.init.headers['Content-Type'], 'image/jpeg');
   } finally {
-    // Restore test globals implicitly; Platform.OS remains the native default in this Node test.
+    // No global browser state is modified by this test.
   }
 });
 
