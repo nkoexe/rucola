@@ -1,41 +1,20 @@
 import { writeFile } from "node:fs/promises";
 
-const environment = process.env.RUCOLA_DEPLOY_ENV;
 const databaseId = process.env.RUCOLA_D1_DATABASE_ID;
 const androidLinkFingerprints = process.env.RUCOLA_ANDROID_APP_LINK_FINGERPRINTS?.trim();
-
-const environments = {
-  dev: {
-    workerName: "rucola-cloud-dev",
-    databaseName: "rucola-dev",
-    bucketName: "rucola-media-dev",
-    rateLimitNamespaceId: "910001",
-  },
-  production: {
-    workerName: "rucola-cloud",
-    databaseName: "rucola",
-    bucketName: "rucola-media",
-    rateLimitNamespaceId: "910002",
-  },
-};
-
-if (!(environment in environments)) {
-  throw new Error("RUCOLA_DEPLOY_ENV must be 'dev' or 'production'");
-}
 
 if (!databaseId || !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(databaseId)) {
   throw new Error("RUCOLA_D1_DATABASE_ID must contain a valid Cloudflare D1 UUID");
 }
 
-const target = environments[environment];
 const config = {
   "$schema": "./node_modules/wrangler/config-schema.json",
-  name: target.workerName,
+  name: "rucola-cloud",
   main: "src/index.ts",
   compatibility_date: "2026-09-12",
   routes: [
     {
-      pattern: environment === "production" ? "rucola.njco.dev" : "dev.rucola.njco.dev",
+      pattern: "rucola.njco.dev",
       custom_domain: true,
     },
   ],
@@ -45,25 +24,25 @@ const config = {
   d1_databases: [
     {
       binding: "DB",
-      database_name: target.databaseName,
+      database_name: "rucola",
       database_id: databaseId,
     },
   ],
   r2_buckets: [
     {
       binding: "MEDIA_BUCKET",
-      bucket_name: target.bucketName,
+      bucket_name: "rucola-media",
       jurisdiction: "eu",
     },
   ],
-  ...(environment === "production"
-    ? { assets: { directory: "../site" } }
+  assets: { directory: "../site" },
+  ...(androidLinkFingerprints
+    ? { vars: { RUCOLA_ANDROID_APP_LINK_FINGERPRINTS: androidLinkFingerprints } }
     : {}),
-  ...(androidLinkFingerprints ? { vars: { RUCOLA_ANDROID_APP_LINK_FINGERPRINTS: androidLinkFingerprints } } : {}),
   ratelimits: [
     {
       name: "PAIRING_BOOTSTRAP_LIMITER",
-      namespace_id: target.rateLimitNamespaceId,
+      namespace_id: "910002",
       simple: {
         limit: 10,
         period: 60
