@@ -12,6 +12,7 @@ import {
   type PairingHandshakeOptions,
 } from './pairingHandshake.ts';
 import { bytesToBase64Url } from '../crypto/encoding.ts';
+import { secureRandomBytes } from '../crypto/secureRandom.ts';
 import {
   createPairingShareUrl,
   normalizePairingInput,
@@ -42,14 +43,6 @@ function defaultSleep(milliseconds: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, milliseconds));
 }
 
-async function secureRandomBytes(length: number): Promise<Uint8Array> {
-  if (globalThis.crypto?.getRandomValues) {
-    return globalThis.crypto.getRandomValues(new Uint8Array(length));
-  }
-  const { getRandomBytesAsync } = await import('expo-crypto');
-  return getRandomBytesAsync(length);
-}
-
 async function sha256Text(value: string): Promise<string> {
   if (globalThis.crypto?.subtle) {
     const digest = await globalThis.crypto.subtle.digest('SHA-256', new TextEncoder().encode(value));
@@ -76,6 +69,7 @@ export class PairingManager {
   private readonly sleep: (milliseconds: number) => Promise<void>;
   private readonly pollIntervalMs: number;
   private readonly maxPollAttempts: number;
+  private pairingOperation: Promise<unknown> | null = null;
 
   constructor(options: PairingManagerOptions) {
     this.cloud = options.cloud;
@@ -104,12 +98,31 @@ export class PairingManager {
     expiresInSeconds?: number,
     onProgress?: PairingPreparationProgress,
   ): Promise<PairingInvitationView> {
-    const pending = await this.createPendingPairing(expiresInSeconds);
-    await this.ensureInitiatorHandshake(pending.identity, { onProgress });
-    return this.toInvitationView(pending.response.confirmationCode, pending.response.expiresAt);
+    return this.runExclusive(() => this.startPairingInvitationInternal(expiresInSeconds, onProgress));
+  }
+
+  private async startPairingInvitationInternal(
+    expiresInSeconds?: number,
+    onProgress?: PairingPreparationProgress,
+  ): Promise<PairingInvitationView> {
+    const pending = await this.loadPendingPairing();
+    if (pending) {
+      await this.ensureInitiatorHandshake(pending.identity, { onProgress });
+      return this.toInvitationView(pending.response.confirmationCode, pending.response.expiresAt);
+    }
+
+    const created = await this.createPendingPairing(expiresInSeconds);
+    await this.ensureInitiatorHandshake(created.identity, { onProgress });
+    return this.toInvitationView(created.response.confirmationCode, created.response.expiresAt);
   }
 
   async resumePendingPairingInvitation(
+    onProgress?: PairingPreparationProgress,
+  ): Promise<PairingInvitationView | null> {
+    return this.runExclusive(() => this.resumePendingPairingInvitationInternal(onProgress));
+  }
+
+  private async resumePendingPairingInvitationInternal(
     onProgress?: PairingPreparationProgress,
   ): Promise<PairingInvitationView | null> {
     const pending = await this.loadPendingPairing();
@@ -126,6 +139,13 @@ export class PairingManager {
     input: PairingInput,
     onProgress?: PairingPreparationProgress,
   ): Promise<CloudIdentity> {
+    return this.runExclusive(() => this.acceptPairingInputInternal(input, onProgress));
+  }
+
+  private async acceptPairingInputInternal(
+    input: PairingInput,
+    onProgress?: PairingPreparationProgress,
+  ): Promise<CloudIdentity> {
     const { pairingCode } = normalizePairingInput(input);
 
     const existing = await this.identityStore.load();
@@ -136,7 +156,7 @@ export class PairingManager {
       if (pendingSession.confirmationCode !== pairingCode) {
         throw new Error('Another pairing is already in progress.');
       }
-      const resumed = await this.resumePendingPartnerPairing();
+      const resumed = await this.resumePendingPartnerPairingInternal();
       if (!resumed) throw new Error('Pending pairing session is no longer available.');
       return resumed;
     }
@@ -178,6 +198,10 @@ export class PairingManager {
   }
 
   async resumePendingPartnerPairing(): Promise<CloudIdentity | null> {
+    return this.runExclusive(() => this.resumePendingPartnerPairingInternal());
+  }
+
+  private async resumePendingPartnerPairingInternal(): Promise<CloudIdentity | null> {
     const existing = await this.identityStore.load();
     if (existing) throw new Error('A cloud identity already exists on this device.');
 
@@ -339,6 +363,10 @@ export class PairingManager {
   }
 
   async completePendingPairing(): Promise<CloudIdentity | null> {
+    return this.runExclusive(() => this.completePendingPairingInternal());
+  }
+
+  private async completePendingPairingInternal(): Promise<CloudIdentity | null> {
     const pending = await this.loadPendingPairing();
     if (!pending) return null;
 
@@ -438,6 +466,10 @@ export class PairingManager {
   }
 
   async cancelPendingPairing(): Promise<void> {
+    return this.runExclusive(() => this.cancelPendingPairingInternal());
+  }
+
+  private async cancelPendingPairingInternal(): Promise<void> {
     const identity = await this.identityStore.load();
     const pendingSession = await this.identityStore.loadPendingPairingSession();
     if (!identity && !pendingSession) return;
@@ -579,6 +611,15 @@ export class PairingManager {
   ): Promise<void> {
     if (!responderShare) throw new Error('Pairing responder share is missing.');
     await verifyPairingConfirmation(confirmation, secrets, responderShare);
+  }
+
+  private runExclusive<T>(operation: () => Promise<T>): Promise<T> {
+    const previous = this.pairingOperation ?? Promise.resolve();
+    const current = previous.catch(() => undefined).then(operation);
+    this.pairingOperation = current;
+    return current.finally(() => {
+      if (this.pairingOperation === current) this.pairingOperation = null;
+    });
   }
 
   private async loadPendingPairing(): Promise<{
