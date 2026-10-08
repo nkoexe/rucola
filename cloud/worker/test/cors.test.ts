@@ -29,3 +29,12 @@ describe("web CORS", () => {
     expect(response.headers.has("access-control-allow-origin")).toBe(false);
   });
 });
+
+
+  it("allows IPv6 localhost for Expo web development", async () => {
+    const request = new Request("https://rucola.njco.dev/health", {
+      headers: { Origin: "http://[::1]:8081" },
+    });
+    const response = withCors(request, new Response("ok"));
+    expect(response.headers.get("access-control-allow-origin")).toBe("http://[::1]:8081");
+  });
