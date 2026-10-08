@@ -490,7 +490,7 @@ Build characteristics:
 
 - signed APK;
 - production Worker endpoint;
-- no production credentials/resources;
+- no production credentials/resources packaged in the APK;
 - same release build path used by the eventual release workflow;
 - text/emoji online synchronization enabled.
 
@@ -500,7 +500,7 @@ Before installation:
 2. APK signature verification passes.
 3. Production Worker health check is green.
 4. Worker migrations are current.
-5. No production endpoint is configured.
+5. The APK contains no embedded production credentials or server-side resources.
 6. No debug build is being published by the release job.
 
 ## 8. Manual two-device test procedure
@@ -611,7 +611,7 @@ All of these must be true:
 - ciphertext tampering is rejected;
 - reset removes secrets;
 - signed test APK can be installed on both devices;
-- production backend remains isolated from production;
+- the production backend is the only configured remote prototype target;
 - tests and CI are green.
 
 ## 12. Review checkpoints
