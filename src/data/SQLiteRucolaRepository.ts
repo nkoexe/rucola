@@ -1,4 +1,5 @@
 import { randomUUID } from 'expo-crypto';
+import { Platform } from 'react-native';
 import type { SQLiteDatabase } from 'expo-sqlite';
 import { RELATIONSHIP_ID } from './database';
 import { deleteOwnedMedia, isOwnedMediaUri } from './media';
@@ -177,7 +178,11 @@ export class SQLiteRucolaRepository implements RucolaRepository {
       let committed = false;
       for (let attempt = 0; attempt < SQLITE_WRITE_RETRY_ATTEMPTS; attempt += 1) {
         try {
-          await this.db.withExclusiveTransactionAsync(action);
+          if (Platform.OS === 'web') {
+            await this.db.withTransactionAsync(() => action(this.db));
+          } else {
+            await this.db.withExclusiveTransactionAsync(action);
+          }
           committed = true;
           break;
         } catch (cause) {
