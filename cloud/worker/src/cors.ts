@@ -1,11 +1,16 @@
-const LOCAL_WEB_ORIGIN = /^https?:\\/\\/(localhost|127\\.0\\.0\\.1)(:\\d+)?$/;
 const TRUSTED_WEB_ORIGINS = new Set([
   'https://dev.rucola.njco.dev',
   'https://rucola.njco.dev',
 ]);
 
 function isAllowedOrigin(origin: string): boolean {
-  return LOCAL_WEB_ORIGIN.test(origin) || TRUSTED_WEB_ORIGINS.has(origin);
+  if (TRUSTED_WEB_ORIGINS.has(origin)) return true;
+  try {
+    const url = new URL(origin);
+    return (url.protocol === 'http:' && (url.hostname === 'localhost' || url.hostname === '127.0.0.1'));
+  } catch {
+    return false;
+  }
 }
 
 function addVaryOrigin(headers: Headers): void {
@@ -15,7 +20,7 @@ function addVaryOrigin(headers: Headers): void {
     return;
   }
   const values = vary.split(',').map((value) => value.trim().toLowerCase());
-  if (!values.includes('origin')) headers.set('vary', [...vary.split(','), ' Origin'].join(','));
+  if (!values.includes('origin')) headers.set('vary', vary + ', Origin');
 }
 
 export function withCors(request: Request, response: Response): Response {
