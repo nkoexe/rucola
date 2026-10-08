@@ -56,7 +56,6 @@ The generated remote deployment config always publishes the production static as
 }
 ```
 
-
 Cloudflare Custom Domains send every path on a hostname to the Worker, which matches the desired production setup:
 
 ```text
@@ -67,9 +66,23 @@ The exact Custom Domain attachment is Cloudflare account configuration. Verify t
 
 ## Deployment
 
-Production deployment is deliberately manual through Wrangler. GitHub Actions does not deploy the Worker or site.
+Production deployment is automatic after the `Cloud Worker` validation workflow passes for a push to `main`.
 
-From a trusted machine:
+The GitHub Actions deployment workflow checks out the exact validated commit, renders the production-only Wrangler configuration, applies pending D1 migrations, deploys the Worker and static site, and smoke-tests:
+
+```text
+GET https://rucola.njco.dev/health
+GET https://rucola.njco.dev/
+```
+
+The deployment workflow uses these repository Actions secrets:
+
+- `CLOUDFLARE_ACCOUNT_ID`
+- `CLOUDFLARE_API_TOKEN`
+- `RUCOLA_D1_DATABASE_ID`
+- `RUCOLA_ANDROID_APP_LINK_FINGERPRINTS` (optional)
+
+For a manual recovery deployment from a trusted machine:
 
 ```bash
 cd cloud/worker
@@ -137,7 +150,7 @@ The generated config declares:
 
 The `njco.dev` zone must be managed by the same Cloudflare account. Remove any conflicting DNS record for `rucola.njco.dev` before the first Custom Domain deployment. Cloudflare then provisions the Custom Domain and TLS for the Worker.
 
-The production deployment command above is the complete deployment path.
+The automatic `main` deployment is the normal production release path. The manual deployment sequence above is only for recovery or one-off operational work.
 
 This single deployment publishes both the Worker and the landing page.
 
