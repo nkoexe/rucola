@@ -22,8 +22,7 @@ Local development and isolated test resources remain allowed. The local Wrangler
 
 ## Current inventory
 
-The remaining separate-environment references are concentrated in:
-
+The single-environment application, Worker configuration, CI deployment path, and documentation cleanup are implemented on `main`. The remaining items in this document concern retirement of any old remote resources and GitHub environment configuration; local development/test configuration remains intentionally supported.
 
 The local/test-only cloud/worker/wrangler.jsonc uses rucola-local / rucola-media-local. Keep it: it is local-only test configuration, not a remote environment.
 
@@ -176,7 +175,6 @@ The old D1/R2 resources are disposable development resources; no production data
 Run searches that should return zero operational references outside this plan/history:
 
 ```bash
-git grep -n 'CLOUD_ENVIRONMENT'
 git grep -n 'rucola-cloud-dev'
 git grep -n 'rucola-dev'
 git grep -n 'rucola-media-dev'
