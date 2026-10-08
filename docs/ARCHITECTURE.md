@@ -33,7 +33,7 @@ The product-level source of truth is `docs/PRODUCT_SPEC.md`; the phased implemen
    └──────────────────────────────┘
 ```
 
-The cloud service is a temporary transport/mailbox layer, not permanent message history. Local SQLite remains authoritative for a device's durable history. The hardened Worker currently lives on `cloud/research`; the mobile integration work is on the focused runtime branch and is intended for `main` after validation.
+The cloud service is a temporary transport/mailbox layer, not permanent message history. Local SQLite remains authoritative for a device's durable history.
 
 The central architecture rule is that UI code consumes application/domain state and does not call HTTP or SQLite directly.
 
@@ -224,7 +224,7 @@ This E2E v1 design protects message content from the cloud service under the int
 
 Photo/video messages use the real device picker/camera path. Selected or captured media is copied into an app-owned document `media/` directory before the message is persisted. Message history stores the durable local URI and can render images or videos from that URI.
 
-The current mobile synchronization engine does not yet upload/synchronize photo/video messages end-to-end. The Worker already has the corresponding media reservation/upload/completion lifecycle on `cloud/research`.
+The current mobile synchronization engine does not yet upload/synchronize photo/video messages end-to-end. The Worker already has the corresponding media reservation/upload/completion lifecycle.
 
 Drawing remains a declared message type but is intentionally not implemented yet.
 
@@ -232,9 +232,9 @@ If a media message fails to persist after the file has been copied, the newly co
 
 Media deletion only accepts direct children of the app-owned media directory, preventing a malformed stored URI from escaping that directory through path traversal.
 
-## 11. Database migrations
+## 13. Database migrations
 
-SQLite uses `PRAGMA user_version` for schema versioning. The current schema is **version 5**.
+SQLite uses `PRAGMA user_version` for schema versioning. The current schema is **version 6**.
 
 Fresh databases are created directly at the latest schema. Legacy version-0/version-1 databases are migrated to the current schema; later versions add the durable synchronization tables and blocked-outbox state.
 
@@ -242,7 +242,7 @@ Migration validation checks legacy active-message slots, numeric fields, require
 
 The native integration harness verifies the current schema and migration behavior using disposable databases rather than the normal `rucola.db`.
 
-## 12. Pairing/security direction
+## 14. Pairing/security direction
 
 Fresh installations use anonymous device identities. There is no normal account-registration or login UX.
 
@@ -316,30 +316,11 @@ The target is a transport refactor, not a pairing-system rewrite.
 
 Real two-device pairing is not complete until both transports have been exercised on physical Android devices and encrypted message synchronization still works afterwards.
 
-## 13. Cloud backend
+## 15. Cloud backend
 
-Current direction:
+The cloud backend is implemented with Cloudflare Workers, D1, and R2. The Worker stores opaque ciphertext rather than plaintext message contents. E2E v1 uses an application-level AES-256-GCM relationship key; longer-term key rotation/recovery and asymmetric identity protocols remain later decisions.
 
-- Cloudflare Workers — API, authentication, pairing, synchronization orchestration;
-- D1 — relationship, mailbox, receipt, and media-lifecycle metadata;
-- R2 — temporary media bytes.
-
-The hardened Worker currently lives on `cloud/research`. Its protocol includes:
-
-- device-bound authentication;
-- two-person pairing state;
-- directional push/pull/ACK semantics;
-- durable receipts;
-- sender/server sequence handling;
-- bounded media uploads;
-- cleanup and retention;
-- concurrency/idempotency hardening.
-
-The Worker stores ciphertext rather than plaintext message contents. E2E v1 for the first online prototype is an application-level AES-256-GCM design; the Worker remains unaware of the relationship key. Longer-term key rotation/recovery and asymmetric identity protocols remain later application decisions.
-
-The cloud branch is a parallel workstream, not the current `main` application baseline. The next integration milestone is to connect the mobile lifecycle to the already-hardened protocol rather than redesign the transport.
-
-## 14. Widgets and notifications
+## 16. Widgets and notifications
 
 The long-term Android Home widget is an extension of the same Home state, not a separate message model.
 
@@ -349,7 +330,7 @@ Push notifications are complementary. They should generally prompt synchronizati
 
 Background synchronization is not yet implemented and must respect Android platform execution limits.
 
-## 15. Unpairing
+## 17. Unpairing
 
 Unpairing is different from clearing local data.
 
@@ -365,7 +346,7 @@ app becomes read-only
 
 Export/deletion is a separate future feature. The current Settings `Clear local data` action is an explicit destructive local reset and must not be presented as unpairing.
 
-## 16. Core invariants for tests
+## 18. Core invariants for tests
 
 Tests should protect at least:
 
@@ -393,7 +374,7 @@ Tests should protect at least:
 22. expired local outbox items are terminally removed at the defined 30-day boundary;
 23. the three-day stale Home state does not delete or alter history.
 
-## 17. Technology rule
+## 19. Technology rule
 
 Use the current Expo/React Native stack and stable Expo-compatible packages. Do not add dependencies merely to make a small feature look architectural.
 
