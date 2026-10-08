@@ -38,7 +38,9 @@ The deployment workflow uses these repository Actions secrets:
 - `CLOUDFLARE_ACCOUNT_ID`
 - `CLOUDFLARE_API_TOKEN`
 - `RUCOLA_D1_DATABASE_ID`
-- `RUCOLA_ANDROID_APP_LINK_FINGERPRINTS` (optional)
+- `RUCOLA_ANDROID_APP_LINK_FINGERPRINTS` (optional; intentionally unset until the production Android signing fingerprint is available)
+
+At present the App Links fingerprint secret is intentionally not configured. Until it is set, `/.well-known/assetlinks.json` remains 404; this does not block the Worker or website deployment.
 
 For a manual recovery deployment from a trusted machine:
 
