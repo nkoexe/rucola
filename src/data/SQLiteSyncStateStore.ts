@@ -1,4 +1,5 @@
 import type { SQLiteDatabase } from 'expo-sqlite';
+import { Platform } from 'react-native';
 import { RELATIONSHIP_ID } from './constants.ts';
 import type { MessageType, Participant } from '../domain/models';
 
@@ -92,7 +93,7 @@ export class SQLiteSyncStateStore {
   async setDevice(deviceId: string, participant: Participant): Promise<void> {
     if (!/^[A-Za-z0-9_-]{1,128}$/.test(deviceId)) throw new Error('Device ID is invalid.');
     if (participant !== 'ME' && participant !== 'PARTNER') throw new Error('Invalid participant.');
-    await this.database.withExclusiveTransactionAsync(async (transaction) => {
+    await this.withWriteTransaction(async (transaction) => {
       const current = await transaction.getFirstAsync<{ deviceId: string | null; participant: Participant | null }>('SELECT deviceId, participant FROM sync_state WHERE relationshipId = ? LIMIT 1', RELATIONSHIP_ID);
       if (current?.deviceId && current.deviceId !== deviceId) throw new Error('Cannot replace an active sync device through setDevice. Use replaceDevice after resolving pending outbound messages.');
       if (current?.deviceId === deviceId && current.participant && current.participant !== participant) throw new Error('Cannot change the participant role of an active sync device.');
@@ -103,7 +104,7 @@ export class SQLiteSyncStateStore {
   async replaceDevice(deviceId: string, participant: Participant): Promise<void> {
     if (!/^[A-Za-z0-9_-]{1,128}$/.test(deviceId)) throw new Error('Device ID is invalid.');
     if (participant !== 'ME' && participant !== 'PARTNER') throw new Error('Invalid participant.');
-    await this.database.withExclusiveTransactionAsync(async (transaction) => {
+    await this.withWriteTransaction(async (transaction) => {
       const pending = await transaction.getFirstAsync<{ count: number }>('SELECT COUNT(*) AS count FROM sync_outbox WHERE relationshipId = ? AND blocked = 0', RELATIONSHIP_ID);
       if ((pending?.count ?? 0) !== 0) throw new Error('Cannot replace sync device while outbound messages are pending.');
       const current = await transaction.getFirstAsync<{ pullCursor: number }>('SELECT pullCursor FROM sync_state WHERE relationshipId = ?', RELATIONSHIP_ID);
@@ -115,7 +116,7 @@ export class SQLiteSyncStateStore {
   async reserveSenderSequence(messageId: string): Promise<number> {
     if (!/^[A-Za-z0-9_-]+$/.test(messageId) || messageId.length === 0 || messageId.length > 128) throw new Error('Invalid message ID.');
     let reserved = DEFAULT_NEXT_SENDER_SEQ;
-    await this.database.withExclusiveTransactionAsync(async (transaction) => {
+    await this.withWriteTransaction(async (transaction) => {
       const existing = await transaction.getFirstAsync<{ senderSeq: number }>('SELECT senderSeq FROM sync_outbox WHERE relationshipId = ? AND messageId = ?', RELATIONSHIP_ID, messageId);
       if (existing) { reserved = existing.senderSeq; return; }
       const state = await transaction.getFirstAsync<{ nextSenderSeq: number }>('SELECT nextSenderSeq FROM sync_state WHERE relationshipId = ?', RELATIONSHIP_ID);
@@ -140,7 +141,7 @@ export class SQLiteSyncStateStore {
     if (typeof ciphertext !== 'string' || ciphertext.length === 0 || ciphertext.length > 64 * 1024) throw new Error('Invalid outbound ciphertext.');
     if (!Number.isSafeInteger(encryptionVersion) || encryptionVersion < 1 || encryptionVersion > 255) throw new Error('Invalid outbound encryption version.');
 
-    await this.database.withExclusiveTransactionAsync(async (transaction) => {
+    await this.withWriteTransaction(async (transaction) => {
       const existing = await transaction.getFirstAsync<{ ciphertext: string | null; encryptionVersion: number | null }>(
         'SELECT ciphertext, encryptionVersion FROM sync_outbox WHERE relationshipId = ? AND messageId = ? AND blocked = 0',
         RELATIONSHIP_ID,
@@ -163,7 +164,7 @@ export class SQLiteSyncStateStore {
 
   async markAttemptFailed(messageId: string, cause: unknown, now: number): Promise<void> {
     const error = cause instanceof Error ? cause.message : String(cause);
-    await this.database.withExclusiveTransactionAsync(async (transaction) => {
+    await this.withWriteTransaction(async (transaction) => {
       const row = await transaction.getFirstAsync<{ attempts: number }>('SELECT attempts FROM sync_outbox WHERE relationshipId = ? AND messageId = ? AND blocked = 0', RELATIONSHIP_ID, messageId);
       if (!row) return;
       const attempts = row.attempts + 1;
@@ -174,17 +175,25 @@ export class SQLiteSyncStateStore {
 
   async markBlocked(messageId: string, cause: unknown): Promise<void> {
     const error = cause instanceof Error ? cause.message : String(cause);
-    await this.database.withExclusiveTransactionAsync(async (transaction) => {
+    await this.withWriteTransaction(async (transaction) => {
       await transaction.runAsync('UPDATE sync_outbox SET lastError = ?, nextAttemptAt = ?, blocked = 1 WHERE relationshipId = ? AND messageId = ?', error, Number.MAX_SAFE_INTEGER, RELATIONSHIP_ID, messageId);
       await transaction.runAsync('UPDATE messages SET syncState = ? WHERE id = ? AND relationshipId = ?', 'FAILED', messageId, RELATIONSHIP_ID);
     });
   }
 
   async markSynced(messageId: string): Promise<void> {
-    await this.database.withExclusiveTransactionAsync(async (transaction) => {
+    await this.withWriteTransaction(async (transaction) => {
       await transaction.runAsync('DELETE FROM sync_outbox WHERE relationshipId = ? AND messageId = ?', RELATIONSHIP_ID, messageId);
       await transaction.runAsync('UPDATE messages SET syncState = ? WHERE id = ? AND relationshipId = ?', 'SYNCED', messageId, RELATIONSHIP_ID);
     });
+  }
+
+  private async withWriteTransaction(action: (transaction: SQLiteDatabase) => Promise<void>): Promise<void> {
+    if (Platform.OS === 'web') {
+      await this.database.withTransactionAsync(() => action(this.database));
+      return;
+    }
+    await this.database.withExclusiveTransactionAsync(action);
   }
 
   async getPullCursor(): Promise<number> {
@@ -211,7 +220,7 @@ export class SQLiteSyncStateStore {
     if (messages.length > 0 && messages[messages.length - 1]!.serverSeq > nextCursor) throw new Error('Inbound cursor must not precede the newest message server sequence.');
     if (dropped.some((message) => message.serverSeq > nextCursor)) throw new Error('Dropped inbound server sequence exceeds inbound cursor.');
 
-    await this.database.withExclusiveTransactionAsync(async (transaction) => {
+    await this.withWriteTransaction(async (transaction) => {
       const current = await transaction.getFirstAsync<{ pullCursor: number }>('SELECT pullCursor FROM sync_state WHERE relationshipId = ?', RELATIONSHIP_ID);
       if (nextCursor < (current?.pullCursor ?? DEFAULT_PULL_CURSOR)) throw new Error('Inbound cursor moved backwards.');
       const relationship = await transaction.getFirstAsync<{ id: string }>('SELECT id FROM relationships WHERE id = ?', RELATIONSHIP_ID);
@@ -251,7 +260,7 @@ export class SQLiteSyncStateStore {
 
   async reconcileOutbox(now = this.now()): Promise<number> {
     let created = 0;
-    await this.database.withExclusiveTransactionAsync(async (transaction) => {
+    await this.withWriteTransaction(async (transaction) => {
       const cutoff = now - OUTBOX_RETENTION_MS;
       const expired = await transaction.getAllAsync<{ messageId: string }>('SELECT messageId FROM sync_outbox WHERE relationshipId = ? AND createdAt <= ?', RELATIONSHIP_ID, cutoff);
       for (const item of expired) {
@@ -284,7 +293,7 @@ export class SQLiteSyncStateStore {
   }
 
   async clear(): Promise<void> {
-    await this.database.withExclusiveTransactionAsync(async (transaction) => {
+    await this.withWriteTransaction(async (transaction) => {
       await transaction.runAsync('DELETE FROM active_message_slots WHERE relationshipId = ?', RELATIONSHIP_ID);
       await transaction.runAsync('DELETE FROM sync_outbox WHERE relationshipId = ?', RELATIONSHIP_ID);
       await transaction.runAsync('DELETE FROM sync_inbox WHERE relationshipId = ?', RELATIONSHIP_ID);
