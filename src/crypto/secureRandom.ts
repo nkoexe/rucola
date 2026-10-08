@@ -4,12 +4,12 @@ type RuntimeCrypto = {
   getRandomValues?: RandomValues;
 };
 
-type RuntimeGlobal = typeof globalThis & {
+type RuntimeGlobal = {
   crypto?: RuntimeCrypto;
 };
 
 export function installSecureRandomSource(getRandomValues: RandomValues): void {
-  const runtime = globalThis as RuntimeGlobal;
+  const runtime = globalThis as unknown as RuntimeGlobal;
 
   if (runtime.crypto?.getRandomValues) return;
 
