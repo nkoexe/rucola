@@ -13,7 +13,7 @@ const environments = {
   },
   production: {
     workerName: "rucola-cloud",
-    databaseName: "rucola-prod",
+    databaseName: "rucola",
     bucketName: "rucola-media",
     rateLimitNamespaceId: "910002",
   },
