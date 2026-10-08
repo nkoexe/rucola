@@ -1,6 +1,7 @@
 import { isValidPairingConfirmationCode } from './pairingCode.ts';
 
-export const PAIRING_SHARE_BASE_URL = 'https://rucola.njco.dev';
+const DEFAULT_PAIRING_SHARE_BASE_URL = 'https://rucola.njco.dev';
+export const PAIRING_SHARE_BASE_URL = process.env.EXPO_PUBLIC_RUCOLA_PAIRING_URL?.trim() || DEFAULT_PAIRING_SHARE_BASE_URL;
 export const PAIRING_APP_SCHEME = 'rucola';
 
 export type PairingTransport = 'EMOJI' | 'SHARE_LINK';
