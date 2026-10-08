@@ -11,6 +11,7 @@ import { acknowledgeMessages } from "./sync-ack";
 import { pushMessageDurable } from "./sync-push";
 import type { Env } from "./types";
 import { corsPreflight, withCors } from "./cors";
+import { checkPairingRateLimit } from "./rateLimit";
 
 const VERSION = "sync-hardening-1";
 
@@ -59,10 +60,12 @@ function rateLimitedResponse(): Response {
   return response;
 }
 
-async function allowPairingBootstrap(env: Env, request: Request): Promise<boolean> {
+async function allowPairingBootstrap(
+  env: Env,
+  request: Request,
+): Promise<"ALLOWED" | "LIMITED" | "UNAVAILABLE"> {
   const clientKey = request.headers.get("cf-connecting-ip") ?? "local-development";
-  const result = await env.PAIRING_BOOTSTRAP_LIMITER.limit({ key: `pairing-bootstrap:${clientKey}` });
-  return result.success;
+  return checkPairingRateLimit(env, `pairing-bootstrap:${clientKey}`);
 }
 
 export default {
@@ -92,7 +95,15 @@ export default {
     }
     if (url.pathname === "/v1/pairing/bootstrap") {
       if (request.method !== "POST") return methodNotAllowed(["POST", "OPTIONS"]);
-      if (!(await allowPairingBootstrap(env, request))) return rateLimitedResponse();
+      const rateLimitDecision = await allowPairingBootstrap(env, request);
+      if (rateLimitDecision === "UNAVAILABLE") {
+        return errorResponse(
+          "PAIRING_SERVICE_UNAVAILABLE",
+          "Pairing service is temporarily unavailable",
+          503,
+        );
+      }
+      if (rateLimitDecision === "LIMITED") return rateLimitedResponse();
       return bootstrapPairing(env, request);
     }
     if (url.pathname === "/v1/pairing/create") {
