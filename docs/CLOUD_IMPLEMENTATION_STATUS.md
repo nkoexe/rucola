@@ -1,7 +1,7 @@
 # Rucola Cloud Implementation Status
 
-Date: 2026-09-22  
-Branch: `feature/pairing-emoji-share-link`
+Date: 2026-10-08  
+Branch: `main`
 
 ## Current status
 
@@ -166,7 +166,7 @@ Implemented on the current development branch:
 - The sync test suite now exercises a simulated two-device encrypted TEXT burst in both directions and a lost-response/idempotent retry.
 - The Worker cleanup suite now covers expiry of an unpaired pairing relationship without touching active relationships.
 
-The prototype implementation now completes the transport-neutral pairing flow end-to-end in code: five-emoji entry and HTTPS share links feed the hidden pairing session, the responder can recover after restart, the Worker completes the relationship atomically, and the app exposes no package/token/credential/key material. The legacy package API remains only for compatibility. Production approval and physical two-device validation are still separate gates.
+The prototype implementation now completes the transport-neutral pairing flow end-to-end in code: five-emoji entry and HTTPS share links feed the hidden pairing session, the responder can recover after restart, the Worker completes the relationship atomically, and the app exposes no package/token/credential/key material. The former mobile pairing-package API/path has been removed. Production approval and physical two-device validation are still separate gates.
 
 ## Remaining work
 
