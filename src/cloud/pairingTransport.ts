@@ -1,12 +1,7 @@
 import { isValidPairingConfirmationCode } from './pairingCode.ts';
-import { DEV_CLOUD_BASE_URL, getCloudBaseUrl } from './config.ts';
+import { getCloudBaseUrl } from './config.ts';
 
-const DEV_PAIRING_SHARE_BASE_URL = 'https://dev.rucola.njco.dev';
-const PRODUCTION_PAIRING_SHARE_BASE_URL = 'https://rucola.njco.dev';
-const DEFAULT_PAIRING_SHARE_BASE_URL = getCloudBaseUrl() === DEV_CLOUD_BASE_URL
-  ? DEV_PAIRING_SHARE_BASE_URL
-  : PRODUCTION_PAIRING_SHARE_BASE_URL;
-export const PAIRING_SHARE_BASE_URL = process.env.EXPO_PUBLIC_RUCOLA_PAIRING_URL?.trim() || DEFAULT_PAIRING_SHARE_BASE_URL;
+export const PAIRING_SHARE_BASE_URL = getCloudBaseUrl();
 export const PAIRING_APP_SCHEME = 'rucola';
 
 export type PairingTransport = 'EMOJI' | 'SHARE_LINK';
@@ -111,8 +106,6 @@ export function normalizePairingInput(input: PairingInput): { transport: Pairing
   }
   throw new Error('Pairing input transport is invalid.');
 }
-
-
 
 export function parsePairingAppLink(value: string): string {
   if (typeof value !== 'string' || value.trim() !== value || value.length === 0) {
