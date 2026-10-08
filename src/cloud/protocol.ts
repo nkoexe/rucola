@@ -19,29 +19,6 @@ export interface PairingBootstrapResponse {
   expiresAt: number;
 }
 
-export interface PairingCreateResponse {
-  relationshipId: string;
-  invitationId: string;
-  token: string;
-  confirmationCode: string;
-  relationshipKeyCommitment: string;
-  expiresAt: number;
-}
-
-export interface PairingAcceptRequest {
-  token: string;
-  confirmationCode: string;
-  relationshipKeyCommitment: string;
-}
-
-export interface PairingAcceptResponse {
-  relationshipId: string;
-  deviceId: string;
-  participant: 'PARTNER';
-  credential: string;
-  relationshipKeyCommitment: string;
-}
-
 export type CloudRelationshipStatus = 'PAIRING' | 'ACTIVE' | 'ENDED';
 
 export interface AuthProbeResponse {
