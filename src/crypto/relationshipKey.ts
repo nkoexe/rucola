@@ -2,6 +2,14 @@ import { base64ToBytes, bytesToBase64 } from './encoding.ts';
 
 export const RELATIONSHIP_KEY_BYTES = 32;
 
+function hasBrowserWebCrypto(): boolean {
+  return (
+    typeof window !== 'undefined' &&
+    typeof document !== 'undefined' &&
+    typeof globalThis.crypto?.subtle !== 'undefined'
+  );
+}
+
 async function generateWebRelationshipKey(): Promise<string> {
   const subtle = globalThis.crypto?.subtle;
   if (!subtle) {
@@ -18,7 +26,7 @@ async function generateWebRelationshipKey(): Promise<string> {
 }
 
 export async function generateRelationshipKey(): Promise<string> {
-  if (globalThis.crypto?.subtle) {
+  if (hasBrowserWebCrypto()) {
     return generateWebRelationshipKey();
   }
 
