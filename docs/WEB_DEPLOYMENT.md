@@ -24,17 +24,13 @@ The production Rucola website does **not** use these Pages files; its routing co
 
 ## Runtime configuration
 
-Production Expo web builds should set:
+The app and browser preview use the single production Cloudflare origin:
 
-- `EXPO_PUBLIC_RUCOLA_CLOUD_URL` to the production Worker API origin, normally `https://rucola.njco.dev`.
-- `EXPO_PUBLIC_RUCOLA_PAIRING_URL` to the public pairing website origin, normally `https://rucola.njco.dev`.
+```text
+https://rucola.njco.dev
+```
 
-The development defaults are:
-
-- cloud API: `https://dev.rucola.njco.dev`;
-- pairing links: `https://dev.rucola.njco.dev/<five-emojis>`.
-
-This keeps the development browser client aligned with the development Worker. Production builds must override the cloud origin; pairing links should explicitly use the production website origin.
+There is no separate remote development Worker and no runtime endpoint override. Browser previews remain local/test clients; their browser-only storage behavior must not be treated as native production secret storage.
 
 ## Browser storage
 
