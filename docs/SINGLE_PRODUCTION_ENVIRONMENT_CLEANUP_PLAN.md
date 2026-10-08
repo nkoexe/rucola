@@ -72,43 +72,53 @@ It should:
 - continue accepting optional RUCOLA_ANDROID_APP_LINK_FINGERPRINTS;
 - continue writing ignored .wrangler.deploy.jsonc.
 
-The deployment command becomes a single production sequence with no environment selector:
+The deployment configuration should be rendered in CI from repository Actions secrets rather than committed.
 
-```bash
-RUCOLA_D1_DATABASE_ID="<PRODUCTION_D1_UUID>" \
-RUCOLA_ANDROID_APP_LINK_FINGERPRINTS="<FINGERPRINTS>" \
-npm run render:deploy-config
+## Automatic production deployment
 
-npx wrangler d1 migrations apply rucola \
-  --remote \
-  --config .wrangler.deploy.jsonc
+Production deployment should happen automatically only after the Worker validation workflow has passed for a push to `main`.
 
-npx wrangler deploy \
-  --config .wrangler.deploy.jsonc \
-  --strict
-```
+Use a separate GitHub Actions workflow triggered by completion of the existing `Cloud Worker` workflow:
+
+1. Require the validation workflow conclusion to be `success`.
+2. Require the completed workflow event to be a `push` to `main`.
+3. Check out the exact validated commit SHA, not the moving `main` branch.
+4. Render the production-only deployment configuration.
+5. Apply pending D1 migrations to `rucola`.
+6. Deploy `rucola-cloud` and the static website to `rucola.njco.dev`.
+7. Smoke-test `/health` and `/`.
+8. Keep deployment concurrency serialized and do not cancel an in-progress production deployment.
+
+The deployment workflow should use repository-level Actions secrets:
+
+- CLOUDFLARE_ACCOUNT_ID
+- CLOUDFLARE_API_TOKEN
+- RUCOLA_D1_DATABASE_ID
+- RUCOLA_ANDROID_APP_LINK_FINGERPRINTS (optional)
+
+The validation workflow remains credential-free and validation-only.
+
+For recovery, the existing manual Wrangler sequence remains documented and does not change the production resource contract.
 
 ## CI changes
 
-.github/workflows/cloud-worker.yml is validation-only and must remain validation-only.
+.github/workflows/cloud-worker.yml is validation-only.
 
 Remove:
 
     environment: dev
 
-The workflow currently reads CLOUDFLARE_ACCOUNT_ID and CLOUDFLARE_API_TOKEN from GitHub Actions secrets.
+The validation workflow should not need Cloudflare deployment credentials.
 
-Before removing the GitHub dev Environment, verify where those secrets are stored.
-
-If they exist only as environment-scoped secrets, move them to repository-level Actions secrets (or another deliberately selected non-environment secret location) and verify the validation workflow still authenticates successfully.
-
-Do not introduce deployment credentials or deployment steps into CI.
+Do not put production deployment steps into the validation job. Production deployment belongs in the separate workflow described above.
 
 ## Documentation changes
 
 ### cloud/worker/README.md
 
 Replace the remote environment table with a single production resource table.
+Document automatic `main` deployment and the repository secrets it requires.
+Keep a manual deployment sequence only for recovery/operational use.
 Remove all dev bootstrap/deploy commands and RUCOLA_DEPLOY_ENV.
 Keep npm run dev because that is a local test server, not a deployed environment.
 
@@ -123,6 +133,7 @@ Keep the production routing contract:
 - /health and /health/schema -> Worker health
 
 Remove the development hostname entirely.
+Document automatic deployment after successful main validation.
 The verification section should test only rucola.njco.dev.
 
 ### docs/ONLINE_PROTOTYPE_PLAN.md
@@ -156,13 +167,14 @@ Retire the old remote environment in this order:
 2. Confirm production app flows, pairing, API, website, migrations, health checks, and App Links are working.
 3. Merge the single-environment implementation.
 4. Confirm CI passes without the GitHub dev Environment dependency.
-5. Remove the dev.rucola.njco.dev Custom Domain/DNS attachment from Cloudflare.
-6. Delete the old rucola-cloud-dev Worker.
-7. Delete the old rucola-dev D1 database after confirming it contains no data that must be retained.
-8. Delete the old rucola-media-dev R2 bucket after confirming it contains no data that must be retained.
-9. Retire rate-limit namespace 910001 if Cloudflare's supported management path allows deletion; otherwise leave it unused and remove every repository reference.
-10. Remove the GitHub Actions dev Environment after confirming no workflow still references it and required secrets have been migrated.
-11. Perform a repository-wide search for the old hostname/resource names and environment selector.
+5. Confirm the new main-driven production deployment workflow is configured with the required repository secrets and has successfully deployed once.
+6. Remove the dev.rucola.njco.dev Custom Domain/DNS attachment from Cloudflare.
+7. Delete the old rucola-cloud-dev Worker.
+8. Delete the old rucola-dev D1 database after confirming it contains no data that must be retained.
+9. Delete the old rucola-media-dev R2 bucket after confirming it contains no data that must be retained.
+10. Retire rate-limit namespace 910001 if Cloudflare's supported management path allows deletion; otherwise leave it unused and remove every repository reference.
+11. Remove the GitHub Actions dev Environment after confirming no workflow still references it and required secrets have been migrated.
+12. Perform a repository-wide search for the old hostname/resource names and environment selector.
 
 The old D1/R2 resources are disposable development resources; no production data should be migrated from them.
 
@@ -244,6 +256,23 @@ Use two real Android devices against rucola.njco.dev:
 
 The production backend is now the only remote test target.
 
+### Automatic deployment
+
+After merging to `main`, verify the sequence:
+
+```text
+Cloud Worker validation (success)
+          |
+          v
+Cloud Worker Deploy
+          |
+          +-> D1 migrations
+          +-> Worker + website deploy
+          +-> /health + / smoke test
+```
+
+A push to `main` that does not touch the Cloud Worker/site/workflow paths does not trigger the validation workflow and therefore does not trigger a cloud deployment.
+
 ## Rollback
 
 Before deleting the old remote resources, keep their Cloudflare identifiers and deletion timestamps in the PR/Cloudflare audit trail.
@@ -264,6 +293,7 @@ The cleanup is complete when:
 - the mobile app has exactly one configured cloud endpoint;
 - the repository has exactly one remote Worker deployment configuration;
 - CI no longer targets a GitHub dev Environment;
+- production Worker deployment is automatic after successful main validation;
 - documentation describes only rucola.njco.dev as the remote backend;
 - old dev Worker/D1/R2 resources are deleted or explicitly retired;
 - the old hostname no longer resolves to a Rucola service;
