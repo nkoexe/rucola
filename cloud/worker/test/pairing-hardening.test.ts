@@ -269,6 +269,14 @@ describe("Rucola pairing hardening", () => {
   });
 
 
+  it("keeps the root landing page outside the pairing handler", async () => {
+    const root = await exports.default.fetch("https://rucola.njco.dev/");
+    expect(root.status).toBe(404);
+
+    const unknown = await exports.default.fetch("https://rucola.njco.dev/anything");
+    expect(unknown.status).toBe(404);
+  });
+
   it("serves only valid five-emoji HTTPS pairing paths without caching", async () => {
     const code = "😀😃😄😁😆";
     const response = await exports.default.fetch(
