@@ -9,12 +9,12 @@ CREATE INDEX message_receipts_delivery
 CREATE TRIGGER message_receipt_delivery_invariant
 BEFORE UPDATE OF delivered_to_device_id, delivered_at ON message_receipts
 BEGIN
-  SELECT CASE
+  SELECT (CASE
     WHEN (NEW.delivered_to_device_id IS NULL) <> (NEW.delivered_at IS NULL) THEN
       RAISE(ABORT, 'message receipt delivery fields must be set together')
-  END;
+  END);
 
-  SELECT CASE
+  SELECT (CASE
     WHEN NEW.delivered_to_device_id IS NOT NULL
       AND NOT EXISTS (
         SELECT 1
@@ -25,5 +25,5 @@ BEGIN
           AND id <> NEW.sender_device_id
       ) THEN
       RAISE(ABORT, 'message receipt delivery device is invalid')
-  END;
+  END);
 END;
