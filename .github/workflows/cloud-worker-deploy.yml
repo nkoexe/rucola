@@ -1,0 +1,62 @@
+name: Cloud Worker Deploy
+
+on:
+  workflow_run:
+    workflows: ["Cloud Worker"]
+    types: [completed]
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cloud-worker-production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    if: >-
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.event == 'push' &&
+      github.event.workflow_run.head_branch == 'main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: cloud/worker
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22.13.x
+          cache: npm
+          cache-dependency-path: cloud/worker/package-lock.json
+
+      - run: npm ci
+
+      - name: Render production config
+        env:
+          RUCOLA_D1_DATABASE_ID: ${{ secrets.RUCOLA_D1_DATABASE_ID }}
+          RUCOLA_ANDROID_APP_LINK_FINGERPRINTS: ${{ secrets.RUCOLA_ANDROID_APP_LINK_FINGERPRINTS }}
+        run: npm run render:deploy-config
+
+      - name: Apply D1 migrations
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: npx wrangler d1 migrations apply rucola --remote --config .wrangler.deploy.jsonc
+
+      - name: Deploy Worker and site
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: npx wrangler deploy --config .wrangler.deploy.jsonc --strict
+
+      - name: Smoke test production
+        run: |
+          curl --fail --silent --show-error --retry 5 --retry-delay 2 https://rucola.njco.dev/health
+          curl --fail --silent --show-error --retry 5 --retry-delay 2 https://rucola.njco.dev/

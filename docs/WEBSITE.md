@@ -9,7 +9,6 @@ The production hostname `rucola.njco.dev` serves two things from the same Cloudf
 - `/v1/*` — the existing cloud API.
 - `/.well-known/assetlinks.json` — Android App Links verification.
 
-The development hostname `dev.rucola.njco.dev` remains the development backend and does not receive the public landing page.
 
 ## Repository layout
 
@@ -49,7 +48,7 @@ The site also does not attempt to consume or inspect pairing URLs. The landing p
 
 ## Cloudflare configuration
 
-The generated remote deployment config adds static assets **only for production**:
+The generated remote deployment config always publishes the production static assets:
 
 ```json
 "assets": {
@@ -57,22 +56,33 @@ The generated remote deployment config adds static assets **only for production*
 }
 ```
 
-Development remains Worker-only.
-
 Cloudflare Custom Domains send every path on a hostname to the Worker, which matches the desired production setup:
 
 ```text
-rucola.njco.dev      -> rucola-cloud
-dev.rucola.njco.dev  -> rucola-cloud-dev
+rucola.njco.dev -> rucola-cloud
 ```
 
 The exact Custom Domain attachment is Cloudflare account configuration. Verify that `rucola.njco.dev` is attached to the production Worker before the first website release.
 
 ## Deployment
 
-Production deployment is deliberately manual through Wrangler. GitHub Actions does not deploy the Worker or site.
+Production deployment is automatic after the `Cloud Worker` validation workflow passes for a push to `main`.
 
-From a trusted machine:
+The GitHub Actions deployment workflow checks out the exact validated commit, renders the production-only Wrangler configuration, applies pending D1 migrations, deploys the Worker and static site, and smoke-tests:
+
+```text
+GET https://rucola.njco.dev/health
+GET https://rucola.njco.dev/
+```
+
+The deployment workflow uses these repository Actions secrets:
+
+- `CLOUDFLARE_ACCOUNT_ID`
+- `CLOUDFLARE_API_TOKEN`
+- `RUCOLA_D1_DATABASE_ID`
+- `RUCOLA_ANDROID_APP_LINK_FINGERPRINTS` (optional)
+
+For a manual recovery deployment from a trusted machine:
 
 ```bash
 cd cloud/worker
@@ -80,7 +90,6 @@ npm ci
 
 npx wrangler login
 
-RUCOLA_DEPLOY_ENV=production \
 RUCOLA_D1_DATABASE_ID="<PRODUCTION_D1_UUID>" \
 RUCOLA_ANDROID_APP_LINK_FINGERPRINTS="<FINGERPRINTS>" \
 npm run render:deploy-config
@@ -103,10 +112,9 @@ https://rucola.njco.dev/
 https://rucola.njco.dev/<real five-emoji pairing link>
 https://rucola.njco.dev/health
 https://rucola.njco.dev/.well-known/assetlinks.json
-https://dev.rucola.njco.dev/health
 ```
 
-The App Links endpoint should return 404 until the real production Android signing fingerprints are configured, as it does today.
+The App Links endpoint currently returns 404 because `RUCOLA_ANDROID_APP_LINK_FINGERPRINTS` is intentionally not configured yet. This does not block the Worker or website deployment; configure the secret once the production Android signing fingerprint is available.
 
 ## First-time production bootstrap
 
@@ -140,26 +148,9 @@ The generated config declares:
 ]
 ```
 
-and the dev deployment similarly uses `dev.rucola.njco.dev`.
-
 The `njco.dev` zone must be managed by the same Cloudflare account. Remove any conflicting DNS record for `rucola.njco.dev` before the first Custom Domain deployment. Cloudflare then provisions the Custom Domain and TLS for the Worker.
 
-Finally:
-
-```bash
-RUCOLA_DEPLOY_ENV=production \
-RUCOLA_D1_DATABASE_ID="<PRODUCTION_D1_UUID>" \
-RUCOLA_ANDROID_APP_LINK_FINGERPRINTS="<FINGERPRINTS>" \
-npm run render:deploy-config
-
-npx wrangler d1 migrations apply rucola \
-  --remote \
-  --config .wrangler.deploy.jsonc
-
-npx wrangler deploy \
-  --config .wrangler.deploy.jsonc \
-  --strict
-```
+The automatic `main` deployment is the normal production release path. The manual deployment sequence above is only for recovery or one-off operational work.
 
 This single deployment publishes both the Worker and the landing page.
 

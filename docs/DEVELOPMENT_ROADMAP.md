@@ -197,7 +197,7 @@ This is the major halfway milestone and the first real product checkpoint.
 
 Two real people can use two real Android devices and:
 
-- install the same signed dev-test APK;
+- install the same signed test APK;
 - complete anonymous local setup;
 - pair using **only the five-emojis user-facing credential**;
 - use either manual five-emoji entry or the HTTPS share link;
