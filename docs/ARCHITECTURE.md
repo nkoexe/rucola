@@ -362,7 +362,7 @@ Tests should protect at least:
 10. invalid message input is rejected before persistence;
 11. photo/video media-only messages remain valid with durable app-owned media;
 12. drawing remains intentionally unimplemented until a real editor exists;
-13. legacy databases migrate to schema v5 without losing valid data;
+13. legacy databases migrate to schema v6 without losing valid data;
 14. malformed legacy data causes migration to fail without a partial migration;
 15. sender sequence is durable across restarts;
 16. offline synchronization preserves accepted message bursts;
