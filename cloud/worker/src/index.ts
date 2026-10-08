@@ -2,7 +2,7 @@ import { authenticateDevice } from "./auth";
 import { databaseHealthy, checkSchema } from "./db";
 import { runCleanup } from "./cleanup";
 import { errorResponse, json, methodNotAllowed } from "./http";
-import { bootstrapPairing } from "./pairing";
+import { acceptInvitation, bootstrapPairing, createInvitation } from "./pairing";
 import { handlePairingSession } from "./pairingSession";
 import { handlePairingWebRoute } from "./pairingWeb";
 import { completeMedia, createMediaReservation, uploadMedia } from "./media";
@@ -43,6 +43,12 @@ async function handleAuthProbe(env: Env, request: Request): Promise<Response> {
   const relationship = await env.DB.prepare("SELECT status FROM relationships WHERE id = ?1").bind(device.relationshipId).first<{ status: "PAIRING" | "ACTIVE" | "ENDED" }>();
   if (!relationship) return errorResponse("RELATIONSHIP_NOT_FOUND", "Relationship was not found", 404);
   return json({ authenticated: true, participant: device.participant, relationshipStatus: relationship.status });
+}
+
+async function handleCreateInvitation(env: Env, request: Request): Promise<Response> {
+  const device = await authenticateDevice(env, request);
+  if (!device) return errorResponse("UNAUTHENTICATED", "Valid device credentials are required", 401);
+  return createInvitation(env, request, device);
 }
 
 function rateLimitedResponse(): Response {
@@ -100,9 +106,17 @@ export default {
       if (rateLimitDecision === "LIMITED") return rateLimitedResponse();
       return bootstrapPairing(env, request);
     }
+    if (url.pathname === "/v1/pairing/create") {
+      if (request.method !== "POST") return methodNotAllowed(["POST", "OPTIONS"]);
+      return handleCreateInvitation(env, request);
+    }
     if (url.pathname === "/v1/pairing/session") {
       if (request.method !== "POST") return methodNotAllowed(["POST", "OPTIONS"]);
       return handlePairingSession(env, request);
+    }
+    if (url.pathname === "/v1/pairing/accept") {
+      if (request.method !== "POST") return methodNotAllowed(["POST", "OPTIONS"]);
+      return acceptInvitation(env, request);
     }
     if (url.pathname === "/v1/media/create") {
       if (request.method !== "POST") return methodNotAllowed(["POST", "OPTIONS"]);
