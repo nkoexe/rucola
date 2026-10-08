@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Pressable, Share, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Platform, Pressable, Share, StyleSheet, Text, TextInput, View } from 'react-native';
 import type { Relationship } from '../../domain/models';
 import { cloudRuntime } from '../../cloud/CloudRuntime';
 import { isValidPairingConfirmationCode } from '../../cloud/pairingCode';
@@ -26,6 +26,7 @@ export function PairingScreen({
   const [pending, setPending] = useState<PairingInvitationView | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [pairingProgress, setPairingProgress] = useState<number | null>(null);
+  const [shareStatus, setShareStatus] = useState<string | null>(null);
   const initialized = useRef(false);
   const externalStarted = useRef(false);
   const completionStartedFor = useRef<string | null>(null);
@@ -145,6 +146,7 @@ export function PairingScreen({
 
   const start = async () => {
     setError(null);
+    setShareStatus(null);
     setPairingProgress(0);
     setMode('create');
     try {
@@ -162,6 +164,7 @@ export function PairingScreen({
 
   const cancel = async () => {
     await cloudRuntime.cancelPendingPairing();
+    setShareStatus(null);
     setPending(null);
     setPairingProgress(null);
     setError(null);
@@ -194,7 +197,8 @@ export function PairingScreen({
       <CreatePairing
         pending={pending}
         error={error}
-        onShare={() => void sharePairingLink(pending)}
+        shareStatus={shareStatus}
+        onShare={() => void sharePairingLink(pending).then(setShareStatus)}
         onCancel={() => void cancel()}
       />
     );
@@ -292,11 +296,13 @@ function ChoiceScreen({
 function CreatePairing({
   pending,
   error,
+  shareStatus,
   onShare,
   onCancel,
 }: {
   pending: PairingInvitationView;
   error: string | null;
+  shareStatus: string | null;
   onShare: () => void;
   onCancel: () => void;
 }) {
@@ -311,6 +317,10 @@ function CreatePairing({
         They can enter these five emojis, or you can send them the link.
       </Text>
       <ActionButton label="share link" onPress={onShare} />
+      {shareStatus ? <Text style={styles.shareStatus}>{shareStatus}</Text> : null}
+      {shareStatus?.startsWith('Share is unavailable') ? (
+        <Text style={styles.shareUrl} selectable>{pending.shareUrl}</Text>
+      ) : null}
       <Text style={styles.waiting}>waiting for them... {formatRemaining(remaining)}</Text>
       {error ? <Text style={styles.error}>{error}</Text> : null}
       <Text style={styles.link} onPress={onCancel}>cancel pairing</Text>
@@ -396,13 +406,49 @@ function ActionButton({
   );
 }
 
-function sharePairingLink(pending: PairingInvitationView) {
-  void Share.share({
-    title: 'Pair with me on Rucola',
-    message: pending.shareUrl,
-  }).catch(() => {
-    // Share cancellation is expected. Never log or persist the pairing link.
-  });
+async function sharePairingLink(pending: PairingInvitationView): Promise<string> {
+  if (Platform.OS !== 'web') {
+    try {
+      await Share.share({
+        title: 'Pair with me on Rucola',
+        message: pending.shareUrl,
+      });
+      return 'Share sheet opened.';
+    } catch {
+      return 'Share was cancelled or unavailable.';
+    }
+  }
+
+  const navigatorValue = typeof navigator !== 'undefined' ? navigator : null;
+  if (
+    window.isSecureContext &&
+    navigatorValue &&
+    typeof navigatorValue.share === 'function'
+  ) {
+    try {
+      await navigatorValue.share({
+        title: 'Pair with me on Rucola',
+        text: pending.shareUrl,
+      });
+      return 'Share sheet opened.';
+    } catch (cause) {
+      if (cause instanceof DOMException && cause.name === 'AbortError') {
+        return 'Share was cancelled.';
+      }
+      // Fall through to copy/manual-link fallback when the Web Share API is unavailable or fails.
+    }
+  }
+
+  if (navigatorValue?.clipboard && typeof navigatorValue.clipboard.writeText === 'function') {
+    try {
+      await navigatorValue.clipboard.writeText(pending.shareUrl);
+      return 'Link copied to the clipboard.';
+    } catch {
+      // Fall through to a visible link that the user can copy manually.
+    }
+  }
+
+  return 'Share is unavailable here. Copy this link:';
 }
 
 function useRemainingTime(expiresAt: number) {
@@ -483,6 +529,8 @@ const styles = StyleSheet.create({
     letterSpacing: 4,
     marginBottom: 24,
   },
+  shareStatus: { marginTop: 10, lineHeight: 21, opacity: 0.7 },
+  shareUrl: { marginTop: 6, lineHeight: 22, textDecorationLine: 'underline' },
   progress: {
     marginTop: 4,
     fontSize: 15,

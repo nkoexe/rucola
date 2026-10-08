@@ -288,6 +288,7 @@ describe("Rucola pairing hardening", () => {
     expect(response.headers.get("x-content-type-options")).toBe("nosniff");
     expect(response.headers.get("x-robots-tag")).toBe("noindex, nofollow, noarchive");
     expect(response.headers.get("content-security-policy")).toContain("default-src 'none'");
+    expect(response.headers.get("link")).toContain("https://rucola.njco.dev");
     expect(await response.text()).toContain(code);
 
     const head = await exports.default.fetch(
@@ -296,6 +297,15 @@ describe("Rucola pairing hardening", () => {
     );
     expect(head.status).toBe(200);
     expect(await head.text()).toBe("");
+  });
+
+  it("uses the requesting origin for the pairing landing canonical", async () => {
+    const code = "😀😃😄😁😆";
+    const response = await exports.default.fetch(
+      "https://dev.rucola.njco.dev/" + encodeURIComponent(code),
+    );
+    expect(response.status).toBe(200);
+    expect(response.headers.get("link")).toContain("https://dev.rucola.njco.dev");
   });
 
   it("does not serve malformed pairing paths", async () => {

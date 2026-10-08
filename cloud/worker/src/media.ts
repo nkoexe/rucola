@@ -62,8 +62,6 @@ export async function uploadMedia(env: Env, request: Request, uploadId: string):
   const contentType = request.headers.get("content-type")?.split(";", 1)[0]?.trim().toLowerCase(); if (!contentType) return errorResponse("INVALID_CONTENT_TYPE", "Content-Type is required", 400);
   const upload = await getOwnedUpload(env, device, uploadId); if (!upload) return errorResponse("MEDIA_NOT_FOUND", "Media upload was not found", 404);
   const now = Date.now(); if (upload.status !== "PENDING") return errorResponse("MEDIA_NOT_PENDING", "Media upload is no longer pending", 409); if (now >= upload.expires_at) return errorResponse("MEDIA_EXPIRED", "Media upload has expired", 409); if (contentType !== upload.declared_mime) return errorResponse("CONTENT_TYPE_MISMATCH", "Content-Type does not match the reservation", 400);
-  const contentLengthHeader = request.headers.get("content-length"); if (contentLengthHeader === null) return errorResponse("CONTENT_LENGTH_REQUIRED", "Content-Length is required", 411);
-  const contentLength = Number(contentLengthHeader); if (!Number.isSafeInteger(contentLength) || contentLength !== upload.size_bytes) return errorResponse("MEDIA_SIZE_MISMATCH", "Content-Length does not match the reservation", 400);
   if (!request.body) return errorResponse("INVALID_REQUEST", "Media request body required", 400);
   let stored: R2Object | null = null;
   try { stored = await env.MEDIA_BUCKET.put(upload.object_key, boundedMediaStream(request.body, upload.size_bytes), { httpMetadata: { contentType: upload.declared_mime }, customMetadata: { uploadId: upload.id }, ...(upload.checksum === null ? {} : { sha256: checksumBytes(upload.checksum) }) }); } catch { return errorResponse("MEDIA_UPLOAD_FAILED", "Media upload could not be stored", 502); }

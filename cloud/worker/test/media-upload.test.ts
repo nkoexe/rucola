@@ -101,7 +101,7 @@ describe("media upload", () => {
     expect(object!.customMetadata?.uploadId).toBe(uploadId);
   });
 
-  it("rejects a streamed request without Content-Length before writing to R2", async () => {
+  it("accepts browser-style streamed requests without Content-Length", async () => {
     const { me } = await bootstrapAndAccept();
     const bytes = new TextEncoder().encode("rucola-media");
     const uploadId = await createMedia(me.credential, bytes.byteLength);
@@ -120,11 +120,42 @@ describe("media upload", () => {
       }),
     });
     const response = await exports.default.fetch(request);
-    expect(response.status).toBe(411);
+    expect(response.status).toBe(200);
 
     const row = await env.DB.prepare(
-      "SELECT object_key FROM media_uploads WHERE id = ?1",
-    ).bind(uploadId).first<{ object_key: string }>();
+      "SELECT object_key, status FROM media_uploads WHERE id = ?1",
+    ).bind(uploadId).first<{ object_key: string; status: string }>();
+    expect(row?.status).toBe("PENDING");
+    const object = await env.MEDIA_BUCKET.head(row!.object_key);
+    expect(object?.size).toBe(bytes.byteLength);
+  });
+
+  it("rejects a browser stream that is shorter than its reservation", async () => {
+    const { me } = await bootstrapAndAccept();
+    const reservedBytes = new Uint8Array([1, 2, 3, 4]);
+    const shortBytes = new Uint8Array([1, 2, 3]);
+    const uploadId = await createMedia(me.credential, reservedBytes.byteLength);
+
+    const request = new Request(`https://rucola.test/v1/media/${uploadId}`, {
+      method: "PUT",
+      headers: {
+        authorization: `Bearer ${me.credential}`,
+        "content-type": "image/png",
+      },
+      body: new ReadableStream<Uint8Array>({
+        start(controller) {
+          controller.enqueue(shortBytes);
+          controller.close();
+        },
+      }),
+    });
+    const response = await exports.default.fetch(request);
+    expect(response.status).toBe(502);
+
+    const row = await env.DB.prepare(
+      "SELECT object_key, status FROM media_uploads WHERE id = ?1",
+    ).bind(uploadId).first<{ object_key: string; status: string }>();
+    expect(row?.status).toBe("PENDING");
     expect(await env.MEDIA_BUCKET.head(row!.object_key)).toBeNull();
   });
 

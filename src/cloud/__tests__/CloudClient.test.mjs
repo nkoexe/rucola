@@ -103,6 +103,20 @@ test('media upload uses the reserved MIME and exact content length', async () =>
   assert.equal(captured.init.headers['Content-Length'], '3');
 });
 
+test('browser uploads do not attempt to set forbidden Content-Length', async () => {
+  let captured;
+  const client = new CloudClient({
+    baseUrl: 'https://cloud.example.test', credential: 'credential', platform: 'web',
+    fetchImpl: async (url, init) => {
+      captured = { url, init };
+      return jsonResponse({ uploadId: 'upload', status: 'UPLOADED' });
+    },
+  });
+  await client.uploadMedia('upload', new Uint8Array([1, 2, 3]), 'image/jpeg', 3);
+  assert.equal(captured.init.headers['Content-Length'], undefined);
+  assert.equal(captured.init.headers['Content-Type'], 'image/jpeg');
+});
+
 test('malformed successful JSON is rejected instead of being blindly cast', async () => {
   const client = new CloudClient({
     baseUrl: 'https://cloud.example.test', credential: 'credential',

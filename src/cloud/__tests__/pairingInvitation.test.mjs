@@ -53,7 +53,7 @@ test('startPairingInvitation exposes only human pairing data', async () => {
   const invitation = await manager.startPairingInvitation(600);
   assert.deepEqual(invitation, {
     pairingCode: CODE,
-    shareUrl: 'https://rucola.njco.dev/%F0%9F%98%80%F0%9F%98%83%F0%9F%98%84%F0%9F%98%81%F0%9F%98%86',
+    shareUrl: 'https://dev.rucola.njco.dev/%F0%9F%98%80%F0%9F%98%83%F0%9F%98%84%F0%9F%98%81%F0%9F%98%86',
     expiresAt: 10_000,
   });
   assert.equal('token' in invitation, false);
@@ -87,7 +87,7 @@ test('resumePendingPairingInvitation reconstructs the same human-facing view', a
   const invitation = await manager.resumePendingPairingInvitation();
   assert.deepEqual(invitation, {
     pairingCode: CODE,
-    shareUrl: 'https://rucola.njco.dev/%F0%9F%98%80%F0%9F%98%83%F0%9F%98%84%F0%9F%98%81%F0%9F%98%86',
+    shareUrl: 'https://dev.rucola.njco.dev/%F0%9F%98%80%F0%9F%98%83%F0%9F%98%84%F0%9F%98%81%F0%9F%98%86',
     expiresAt: 10_000,
   });
 });

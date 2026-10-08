@@ -1,10 +1,9 @@
 import { useEffect, useRef, useState } from 'react';
 import * as ImagePicker from 'expo-image-picker';
-import { Alert, KeyboardAvoidingView, PanResponder, Platform, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Alert, KeyboardAvoidingView, Modal, PanResponder, Platform, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import type { getRepository } from '../../data/repository';
 import { launchCameraWithPermission } from '../../data/camera';
 import { deleteOwnedMedia, persistPickedMedia } from '../../data/media';
-import { runNativeIntegrationTests } from '../../data/nativeIntegration';
 import type { Message, Relationship } from '../../domain/models';
 import { isPartnerMessageStale } from '../../domain/messageFreshness';
 import { GetActiveMessage, SendMessage } from '../../domain/useCases';
@@ -35,6 +34,7 @@ export function HomeScreen({ relationship, repositoryPromise, revision, onChange
   const [sending, setSending] = useState(false);
   const [pickingMedia, setPickingMedia] = useState(false);
   const [runningTests, setRunningTests] = useState(false);
+  const [mediaPickerVisible, setMediaPickerVisible] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const historyPanResponder = useRef(
@@ -121,6 +121,11 @@ export function HomeScreen({ relationship, repositoryPromise, revision, onChange
   };
 
   const openMediaPicker = () => {
+    if (Platform.OS === 'web') {
+      setMediaPickerVisible(true);
+      return;
+    }
+
     Alert.alert('send something', undefined, [
       {
         text: 'Photo / video library',
@@ -147,6 +152,7 @@ export function HomeScreen({ relationship, repositoryPromise, revision, onChange
 
     setRunningTests(true);
     try {
+      const { runNativeIntegrationTests } = await import('../../data/nativeIntegration');
       const results = await runNativeIntegrationTests();
       const passed = results.filter((result) => result.passed).length;
       const failed = results.length - passed;
@@ -164,8 +170,8 @@ export function HomeScreen({ relationship, repositoryPromise, revision, onChange
     }
   };
 
-  return (
-    <KeyboardAvoidingView style={styles.container} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+  const content = (
+    <>
       <View style={styles.header}>
         <Text style={styles.logo}>rucola</Text>
         <View style={styles.headerActions}>
@@ -229,7 +235,7 @@ export function HomeScreen({ relationship, repositoryPromise, revision, onChange
             <Text style={styles.sendText}>{sending ? '...' : 'Send'}</Text>
           </Pressable>
         </View>
-        {__DEV__ ? (
+        {__DEV__ && Platform.OS !== 'web' ? (
           <Pressable
             onPress={() => void runAllTests()}
             disabled={runningTests}
@@ -238,9 +244,63 @@ export function HomeScreen({ relationship, repositoryPromise, revision, onChange
             <Text style={styles.devTestButtonText}>{runningTests ? 'Running tests…' : 'Run all tests'}</Text>
           </Pressable>
         ) : null}
+        <Modal
+          visible={mediaPickerVisible}
+          transparent
+          animationType="fade"
+          onRequestClose={() => setMediaPickerVisible(false)}
+        >
+          <View style={styles.mediaPickerOverlay}>
+            <View style={styles.mediaPickerCard}>
+              <Text style={styles.mediaPickerTitle}>send something</Text>
+              <Pressable
+                style={styles.mediaPickerButton}
+                onPress={() => {
+                  setMediaPickerVisible(false);
+                  void sendMedia(() => ImagePicker.launchImageLibraryAsync({
+                    mediaTypes: ['images', 'videos'],
+                    allowsMultipleSelection: false,
+                    quality: 0.9,
+                  }));
+                }}
+              >
+                <Text>Photo / video library</Text>
+              </Pressable>
+              {Platform.OS !== 'web' ? (
+                <>
+                  <Pressable
+                    style={styles.mediaPickerButton}
+                    onPress={() => {
+                      setMediaPickerVisible(false);
+                      void sendMedia(() => launchCameraWithPermission(['images']));
+                    }}
+                  >
+                    <Text>Take photo</Text>
+                  </Pressable>
+                  <Pressable
+                    style={styles.mediaPickerButton}
+                    onPress={() => {
+                      setMediaPickerVisible(false);
+                      void sendMedia(() => launchCameraWithPermission(['videos']));
+                    }}
+                  >
+                    <Text>Record video</Text>
+                  </Pressable>
+                </>
+              ) : null}
+              <Pressable style={styles.mediaPickerCancel} onPress={() => setMediaPickerVisible(false)}>
+                <Text>Cancel</Text>
+              </Pressable>
+            </View>
+          </View>
+        </Modal>
       </View>
-    </KeyboardAvoidingView>
+    </>
   );
+
+  return Platform.OS === 'web'
+    ? <View style={styles.container}>{content}</View>
+    : <KeyboardAvoidingView style={styles.container} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>{content}</KeyboardAvoidingView>;
 }
 
 const styles = StyleSheet.create({
@@ -272,5 +332,10 @@ const styles = StyleSheet.create({
   sendText: { color: '#F3F6E9', fontWeight: '700' },
   devTestButton: { width: '100%', marginTop: 16, minHeight: 64, alignItems: 'center', justifyContent: 'center', backgroundColor: '#1D2A1B', borderRadius: 16 },
   devTestButtonText: { color: '#F3F6E9', fontSize: 20, fontWeight: '800' },
+  mediaPickerOverlay: { flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0, 0, 0, 0.28)', padding: 18 },
+  mediaPickerCard: { backgroundColor: '#F3F6E9', borderRadius: 20, padding: 18 },
+  mediaPickerTitle: { fontSize: 20, fontWeight: '800', marginBottom: 10 },
+  mediaPickerButton: { minHeight: 48, justifyContent: 'center', paddingHorizontal: 12, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: '#A9B7A2' },
+  mediaPickerCancel: { minHeight: 48, justifyContent: 'center', alignItems: 'center', marginTop: 8, borderWidth: 1, borderRadius: 12 },
   disabled: { opacity: 0.35 },
 });

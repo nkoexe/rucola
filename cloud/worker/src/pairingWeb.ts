@@ -74,7 +74,7 @@ function pairingLanding(code: string, request: Request): Response {
     "content-security-policy",
     "default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; frame-ancestors 'none'; form-action 'none'",
   );
-  headers.set("link", '<https://rucola.njco.dev>; rel="canonical"');
+  headers.set("link", `<${new URL(request.url).origin}>; rel="canonical"`);
   return new Response(request.method === "HEAD" ? null : html, { status: 200, headers });
 }
 

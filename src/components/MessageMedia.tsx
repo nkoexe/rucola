@@ -1,8 +1,8 @@
 import { useEffect, useState } from 'react';
-import { Image, StyleSheet, Text, View } from 'react-native';
+import { Image, Platform, StyleSheet, Text, View } from 'react-native';
 import { useVideoPlayer, VideoView } from 'expo-video';
 import type { Message } from '../domain/models';
-import { isVideoMedia } from '../data/media';
+import { isVideoMedia, resolveMediaUri } from '../data/media';
 
 type Props = {
   message: Message;
@@ -10,25 +10,53 @@ type Props = {
 
 export function MessageMedia({ message }: Props) {
   const uri = message.mediaReference;
+  const [resolvedUri, setResolvedUri] = useState<string | null>(Platform.OS === 'web' ? null : uri ?? null);
   const [imageFailed, setImageFailed] = useState(false);
 
-  if (!uri) return null;
+  useEffect(() => {
+    if (!uri) {
+      setResolvedUri(null);
+      return;
+    }
+
+    let mounted = true;
+    let objectUrl: string | null = null;
+    setResolvedUri(Platform.OS === 'web' ? null : uri);
+    setImageFailed(false);
+
+    void resolveMediaUri(uri).then((value) => {
+      if (!mounted) {
+        if (value && value !== uri && Platform.OS === 'web') URL.revokeObjectURL(value);
+        return;
+      }
+      if (value && value !== uri) objectUrl = value;
+      setResolvedUri(value);
+    });
+
+    return () => {
+      mounted = false;
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+    };
+  }, [uri]);
+
+  if (!uri || !resolvedUri) {
+    return uri ? <LoadingMedia /> : null;
+  }
 
   if (isVideoMedia(uri)) {
-    return <VideoMessage uri={uri} />;
+    return <VideoMessage uri={resolvedUri} />;
   }
 
-  if (imageFailed) {
-    return <UnavailableMedia />;
-  }
+  if (imageFailed) return <UnavailableMedia />;
 
+  return <Image source={{ uri: resolvedUri }} style={styles.image} resizeMode="contain" onError={() => setImageFailed(true)} />;
+}
+
+function LoadingMedia() {
   return (
-    <Image
-      source={{ uri }}
-      style={styles.image}
-      resizeMode="contain"
-      onError={() => setImageFailed(true)}
-    />
+    <View style={styles.unavailable}>
+      <Text style={styles.unavailableTitle}>loading media...</Text>
+    </View>
   );
 }
 
@@ -39,6 +67,7 @@ function VideoMessage({ uri }: { uri: string }) {
   const [failed, setFailed] = useState(false);
 
   useEffect(() => {
+    setFailed(false);
     return player.addListener('statusChange', ({ status, error }) => {
       if (status === 'error' || error) setFailed(true);
     }).remove;

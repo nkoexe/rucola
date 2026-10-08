@@ -46,6 +46,10 @@
     },
     "ios": {
       "bundleIdentifier": "com.rucola.app"
+    },
+    "web": {
+      "output": "single",
+      "bundler": "metro"
     }
   }
 }
