@@ -203,4 +203,3 @@ The existing AES-256-GCM message codec remains separate from the temporary pairi
 
 Step 3 implementation is complete for the prototype. The production exit criterion remains: upstream vector verification, Expo/Hermes runtime validation, independent dependency/security review, exact wire/session-state review, and successful two-device Android pairing through both transports.
 
-Until then, the legacy package path remains compatibility-only and must not return to the user-facing pairing contract.

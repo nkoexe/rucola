@@ -385,16 +385,19 @@ The important invariant is:
 
 ### Phase 5 — remove transitional code
 
-**Status: pending final two-device validation.**
+**Status: complete; final two-device validation pending.**
 
-After both transports are proven:
+Completed:
 
-- delete unused pairing-pass UI;
-- delete screen-level package handling;
-- remove obsolete compatibility paths;
-- rename internal types that incorrectly imply user-visible “passes”;
-- update tests to target the new transport-neutral contract;
-- run a full documentation and secret-surface audit.
+- pairing-pass UI/package handling removed from the application path;
+- obsolete package serializer and manager/runtime compatibility APIs removed;
+- tests now target the transport-neutral pairing contract;
+- documentation and secret-surface audit updated for the emoji/share-link flow.
+
+Remaining:
+
+- real two-device Android validation;
+- final production crypto/runtime review.
 
 ## 9. Test matrix
 
