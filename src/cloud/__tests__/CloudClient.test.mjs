@@ -104,8 +104,6 @@ test('media upload uses the reserved MIME and exact content length', async () =>
 });
 
 test('browser uploads do not attempt to set forbidden Content-Length', async () => {
-  const previousWindow = globalThis.window;
-  globalThis.window = {};
   let captured;
   try {
     const client = new CloudClient({
@@ -119,8 +117,7 @@ test('browser uploads do not attempt to set forbidden Content-Length', async () 
     assert.equal(captured.init.headers['Content-Length'], undefined);
     assert.equal(captured.init.headers['Content-Type'], 'image/jpeg');
   } finally {
-    if (previousWindow === undefined) delete globalThis.window;
-    else globalThis.window = previousWindow;
+    // Restore test globals implicitly; Platform.OS remains the native default in this Node test.
   }
 });
 
