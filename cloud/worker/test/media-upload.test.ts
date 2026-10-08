@@ -101,7 +101,7 @@ describe("media upload", () => {
     expect(object!.customMetadata?.uploadId).toBe(uploadId);
   });
 
-  it("rejects a streamed request without Content-Length before writing to R2", async () => {
+  it("accepts browser-style streamed requests without Content-Length", async () => {
     const { me } = await bootstrapAndAccept();
     const bytes = new TextEncoder().encode("rucola-media");
     const uploadId = await createMedia(me.credential, bytes.byteLength);
@@ -120,12 +120,14 @@ describe("media upload", () => {
       }),
     });
     const response = await exports.default.fetch(request);
-    expect(response.status).toBe(411);
+    expect(response.status).toBe(200);
 
     const row = await env.DB.prepare(
-      "SELECT object_key FROM media_uploads WHERE id = ?1",
-    ).bind(uploadId).first<{ object_key: string }>();
-    expect(await env.MEDIA_BUCKET.head(row!.object_key)).toBeNull();
+      "SELECT object_key, status FROM media_uploads WHERE id = ?1",
+    ).bind(uploadId).first<{ object_key: string; status: string }>();
+    expect(row?.status).toBe("PENDING");
+    const object = await env.MEDIA_BUCKET.head(row!.object_key);
+    expect(object?.size).toBe(bytes.byteLength);
   });
 
   it("bounds streamed bodies to the reserved size before writing an oversized object", async () => {
