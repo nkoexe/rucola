@@ -1,6 +1,7 @@
 import { authenticateDevice, sha256Hex } from "./auth";
 import { errorResponse, json } from "./http";
 import type { AuthenticatedDevice, Env } from "./types";
+import { checkPairingRateLimit } from "./rateLimit";
 
 const MAX_BODY_BYTES = 16 * 1024;
 const SESSION_ID_BYTES = 16;
@@ -647,7 +648,15 @@ export async function handlePairingSession(env: Env, request: Request): Promise<
   // plus the five-emoji secret, while JOIN/publish actions remain IP-rate-limited.
   if (action === "JOIN" || action === "PUBLISH_RESPONDER_SHARE" || action === "PUBLISH_CONFIRMATION") {
     const limiterKey = "pairing-session:" + (request.headers.get("cf-connecting-ip") ?? "local-development");
-    if (!(await env.PAIRING_BOOTSTRAP_LIMITER.limit({ key: limiterKey })).success) {
+    const rateLimitDecision = await checkPairingRateLimit(env, limiterKey);
+    if (rateLimitDecision === "UNAVAILABLE") {
+      return errorResponse(
+        "PAIRING_SERVICE_UNAVAILABLE",
+        "Pairing service is temporarily unavailable",
+        503,
+      );
+    }
+    if (rateLimitDecision === "LIMITED") {
       const response = errorResponse("PAIRING_RATE_LIMITED", "Too many pairing attempts", 429);
       response.headers.set("retry-after", "60");
       return response;

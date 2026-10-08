@@ -1,4 +1,4 @@
-import { CloudClient } from './CloudClient';
+import { CloudClient, CloudClientError } from './CloudClient';
 import { getCloudBaseUrl } from './config';
 
 export interface CloudRuntimeStatus {
@@ -21,7 +21,18 @@ export async function checkCloudRuntime(): Promise<CloudRuntimeStatus> {
       service: health.service,
       version: health.version,
     };
-  } catch {
+  } catch (cause) {
+    if (cause instanceof CloudClientError) {
+      console.warn(
+        `[rucola] production cloud health check failed: ${cause.code} HTTP ${cause.status}: ${cause.message}`,
+      );
+    } else if (cause instanceof Error) {
+      console.warn(
+        `[rucola] production cloud health check failed: ${cause.name}: ${cause.message}`,
+      );
+    } else {
+      console.warn('[rucola] production cloud health check failed: unknown error');
+    }
     return { environment: 'production', baseUrl, reachable: false, service: null, version: null };
   }
 }

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { Platform, Pressable, Share, StyleSheet, Text, TextInput, View } from 'react-native';
 import type { Relationship } from '../../domain/models';
+import { CloudClientError } from '../../cloud/CloudClient';
 import { cloudRuntime } from '../../cloud/CloudRuntime';
 import { isValidPairingConfirmationCode } from '../../cloud/pairingCode';
 import type { PairingInput, PairingInvitationView } from '../../cloud/pairingTransport';
@@ -75,6 +76,7 @@ export function PairingScreen({
       } catch (cause) {
         if (!mounted) return;
         setPairingProgress(null);
+        logPairingFailure('resume pairing invitation', cause);
         setError(toUserMessage(cause));
         setMode('choice');
       }
@@ -112,6 +114,7 @@ export function PairingScreen({
       .catch((cause) => {
         if (!mounted) return;
         setPairingProgress(null);
+        logPairingFailure('accept pairing', cause);
         setError(toUserMessage(cause));
         setMode('choice');
       });
@@ -158,6 +161,7 @@ export function PairingScreen({
     } catch (cause) {
       setPairingProgress(null);
       setMode('choice');
+      logPairingFailure('create pairing', cause);
       setError(toUserMessage(cause));
     }
   };
@@ -185,6 +189,7 @@ export function PairingScreen({
       onCompleteRef.current(relationship);
     } catch (cause) {
       setPairingProgress(null);
+      logPairingFailure('accept manual pairing', cause);
       setError(toUserMessage(cause));
       setMode('choice');
     }
@@ -471,11 +476,26 @@ function formatRemaining(milliseconds: number) {
   return `(${minutes}:${String(rest).padStart(2, '0')})`;
 }
 
+function logPairingFailure(stage: string, cause: unknown) {
+  if (cause instanceof CloudClientError) {
+    console.warn(
+      `[rucola] ${stage} failed: ${cause.code} HTTP ${cause.status}: ${cause.message}`,
+    );
+    return;
+  }
+  console.warn(
+    `[rucola] ${stage} failed: ${cause instanceof Error ? cause.message : 'unknown error'}`,
+  );
+}
+
 function toUserMessage(cause: unknown) {
   const code = cause && typeof cause === 'object' && 'code' in cause
     ? String((cause as { code?: unknown }).code)
     : '';
   if (code === 'PAIRING_RATE_LIMITED') return 'Too many tries. Please wait and try again.';
+  if (code === 'PAIRING_SERVICE_UNAVAILABLE') {
+    return 'Pairing is temporarily unavailable. Please try again in a moment.';
+  }
   if (
     code === 'INVALID_INVITATION' ||
     code === 'INVITATION_CONSUMED' ||
