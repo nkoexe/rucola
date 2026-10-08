@@ -194,7 +194,7 @@ acceptByEmojis(fiveEmojis)
 acceptFromShareLink(url)
 ~~~
 
-The manager may continue to use the existing invitation token/package internally only as compatibility material while the hidden handshake migration is underway.
+The manager may use the existing invitation token internally for server-side invitation lookup/authentication; no pairing package is exposed or required by the mobile API.
 
 ### Phase C — implement the hidden pairing session
 
@@ -256,7 +256,7 @@ Requirements:
 
 ### Phase F — remove transitional pairing-pass UX
 
-**Status:** the user-facing pairing-pass/package flow has been removed. The package serializer remains only where required by the internal compatibility API.
+**Status:** complete. The user-facing pairing-pass/package flow and the legacy mobile package serializer/API have been removed.
 
 Delete:
 
@@ -265,7 +265,7 @@ Delete:
 - Quick Share/manual payload instructions;
 - separate confirmation + package acceptance UI.
 
-Keep the package serializer only as internal compatibility material; it must not return to the user-facing pairing contract.
+No legacy package serializer/API remains in the mobile pairing path.
 
 ### Phase G — two-device validation
 
