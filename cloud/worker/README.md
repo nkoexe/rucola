@@ -20,7 +20,7 @@ wrangler.jsonc is the local/test configuration. Remote deployment configuration 
 | Environment | Worker | D1 | R2 | Rate-limit namespace |
 | --- | --- | --- | --- | --- |
 | dev | rucola-cloud-dev | rucola-dev | rucola-media-dev | 910001 |
-| production | rucola-cloud | rucola-prod | rucola-media | 910002 |
+| production | rucola-cloud | rucola | rucola-media | 910002 |
 
 Development and production use separate D1 and R2 resources. Rate-limit namespaces are also separate.
 
@@ -54,7 +54,7 @@ npx wrangler d1 migrations apply rucola-dev --remote --config .wrangler.deploy.j
 npx wrangler deploy --config .wrangler.deploy.jsonc --strict
 ~~~
 
-Production uses RUCOLA_DEPLOY_ENV=production and rucola-prod:
+Production uses RUCOLA_DEPLOY_ENV=production and the D1 database `rucola`:
 
 ~~~bash
 RUCOLA_DEPLOY_ENV=production \
