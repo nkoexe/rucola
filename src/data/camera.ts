@@ -1,9 +1,16 @@
 import * as ImagePicker from 'expo-image-picker';
-import { Alert, Linking } from 'react-native';
+import { Alert, Linking, Platform } from 'react-native';
 
 export async function launchCameraWithPermission(
   mediaTypes: ImagePicker.MediaType[] = ['images', 'videos'],
 ): Promise<ImagePicker.ImagePickerResult> {
+  if (Platform.OS === 'web') {
+    if (typeof window !== 'undefined') {
+      window.alert('Camera capture is not available in the browser. Choose a photo or video from your library instead.');
+    }
+    return { canceled: true, assets: null };
+  }
+
   let permission = await ImagePicker.getCameraPermissionsAsync();
 
   if (!permission.granted && permission.canAskAgain) {
