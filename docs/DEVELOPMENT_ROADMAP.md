@@ -24,10 +24,7 @@ Current foundation status:
 - application-level cloud credential persistence/lifecycle: complete
 - first application-owned encrypted SyncEngine runtime: complete
 - end-to-end online message exchange: pending two-device validation
-- pairing migration: Steps 2 and 3 prototype implementation complete; production crypto/runtime gate and physical validation pending
 - final Figma implementation: not started
-
-The cloud workstream is on `cloud/research`. Its current Worker implementation already covers the core transport foundation, including pairing, directional mailbox synchronization, receipts, media/R2 handling, cleanup, bounded payloads, and concurrency hardening. That work is ahead of the stable mobile integration on `main` and should not be described as merely a proposed backend.
 
 ## Phase 1 — Application structure and lifecycle hardening
 
@@ -140,26 +137,6 @@ Current production direction:
 
 The backend is a temporary mailbox, not permanent history storage. Local SQLite remains the durable source of truth.
 
-### Implemented on `cloud/research`
-
-- device-bound authentication;
-- two-person relationship state machine;
-- pairing bootstrap, invitation creation, and acceptance;
-- invitation expiry and bounded confirmation attempts;
-- stable client message identity and idempotent push retries;
-- durable sender sequence and server sequence handling;
-- durable message receipts;
-- directional mailbox pull that excludes the requesting device's own messages;
-- directional ACK that only acknowledges partner-originated messages;
-- atomic message-acceptance invariants;
-- media attachment/type invariants;
-- bounded photo/video uploads using fixed-length streaming;
-- media completion and R2 lifecycle;
-- mailbox/media/receipt cleanup;
-- mailbox expiry and cursor-gap handling;
-- concurrent ACK/pairing/message lifecycle hardening;
-- regression coverage for two-device, cursor-gap, media lifecycle, and concurrency behavior.
-
 ### Implemented on `main`
 
 The mobile repository/data layer and sync client foundation now provide:
@@ -185,10 +162,9 @@ This is now the first application-owned online runtime, but it is not yet the co
 5. Implement the HTTPS share-link transport using https://rucola.njco.dev/<five-emojis>, Android App Links, and a non-consuming web fallback.
 6. Audit Unicode canonicalization, percent-encoding, link-preview behavior, caching, analytics, and log redaction for pairing links.
 7. Remove transitional pairing-pass UI and package handling from the presentation layer.
-8. Validate both pairing transports on two physical Android devices, including restart, expiry, retry, reset, and key-commitment checks.
-9. Keep the 14-day mailbox / 30-day durable-receipt retention contract aligned between Worker code, tests, and client behavior.
-10. Finish end-to-end photo/video synchronization after TEXT/EMOJI online sync is proven.
-11. Add later E2E hardening such as key rotation/recovery only after the first encrypted two-device prototype works.
+8. Validate the first online prototype on two physical Android devices, including pairing, encrypted TEXT/EMOJI, restart, offline/reconnect, retry, and reset.
+9. Finish end-to-end photo/video synchronization after TEXT/EMOJI online sync is proven.
+10. Add later E2E hardening such as key rotation/recovery only after the first encrypted two-device prototype works.
 ## Phase 4 — First usable online prototype
 
 This is the major halfway milestone and the first real product checkpoint.
@@ -215,8 +191,6 @@ Two real people can use two real Android devices and:
 The UI may still be rough. The share action uses the native Android share sheet for the HTTPS five-emoji link; the user is never asked to share a technical pairing payload.
 
 The prototype is successful only when both pairing transports and the central relationship loop work across two real devices, not merely in unit tests or on one device.
-
-The exact test matrix and exit criteria are maintained in `docs/ONLINE_PROTOTYPE_PLAN.md`.
 
 
 ## Phase 5 — Figma implementation

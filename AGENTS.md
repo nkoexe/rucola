@@ -134,8 +134,6 @@ Keep and reuse the existing:
 - PAIRING → ACTIVE transition;
 - secure local cloud credential/key storage.
 
-The current serialized pairing package is transitional. It may survive internally if useful to the hidden transport, but it must not remain a user-facing input or share action.
-
 Share links use:
 
     https://rucola.njco.dev/<five-emojis>
@@ -180,7 +178,7 @@ This is **not** the same as the eventual unpair flow. Eventual unpairing must pr
 
 Current direction: Cloudflare Workers + D1 for relationship/metadata/mailbox state + R2 for temporary media, unless implementation research gives a strong reason to change it.
 
-The current Worker implementation is on `cloud/research` and already covers the core transport foundation:
+The current Worker implementation on `main` covers the cloud transport foundation:
 
 - device-bound authentication;
 - two-person relationship/pairing state;
