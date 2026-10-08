@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Alert, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Alert, Modal, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 import type { getRepository } from '../../data/repository';
 import type { Relationship } from '../../domain/models';
 import { DeleteRelationship } from '../../domain/useCases';
@@ -23,6 +23,7 @@ export function SettingsScreen({ relationship, repositoryPromise, onBack, onRela
   const [error, setError] = useState<string | null>(null);
   const [showNativeTests, setShowNativeTests] = useState(false);
   const [nativeIntegrationTestScreen, setNativeIntegrationTestScreen] = useState<NativeIntegrationTestScreenComponent | null>(null);
+  const [clearConfirmVisible, setClearConfirmVisible] = useState(false);
 
   useEffect(() => {
     let mounted = true;
@@ -67,6 +68,11 @@ export function SettingsScreen({ relationship, repositoryPromise, onBack, onRela
   };
 
   const clearLocalData = () => {
+    if (Platform.OS === 'web') {
+      setClearConfirmVisible(true);
+      return;
+    }
+
     Alert.alert('Clear local data?', 'This removes the relationship, local messages, and cloud pairing secrets from this device.', [
       { text: 'Cancel', style: 'cancel' },
       { text: 'Clear data', style: 'destructive', onPress: () => void confirmClear() },
@@ -127,7 +133,7 @@ export function SettingsScreen({ relationship, repositoryPromise, onBack, onRela
         )}
         {syncMessage ? <Text style={styles.muted}>{syncMessage}</Text> : null}
       </View>
-      {__DEV__ ? (
+      {__DEV__ && Platform.OS !== 'web' ? (
         <View style={styles.section}>
           <Text style={styles.label}>development</Text>
           <Pressable onPress={openNativeTests} style={styles.devButton}>
@@ -135,6 +141,35 @@ export function SettingsScreen({ relationship, repositoryPromise, onBack, onRela
           </Pressable>
         </View>
       ) : null}
+      <Modal
+        visible={clearConfirmVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setClearConfirmVisible(false)}
+      >
+        <View style={styles.confirmOverlay}>
+          <View style={styles.confirmCard}>
+            <Text style={styles.confirmTitle}>Clear local data?</Text>
+            <Text style={styles.confirmText}>
+              This removes the relationship, local messages, and cloud pairing secrets from this device.
+            </Text>
+            <View style={styles.confirmActions}>
+              <Pressable style={styles.confirmCancel} onPress={() => setClearConfirmVisible(false)}>
+                <Text>Cancel</Text>
+              </Pressable>
+              <Pressable
+                style={styles.confirmDanger}
+                onPress={() => {
+                  setClearConfirmVisible(false);
+                  void confirmClear();
+                }}
+              >
+                <Text style={styles.confirmDangerText}>Clear data</Text>
+              </Pressable>
+            </View>
+          </View>
+        </View>
+      </Modal>
       <Text style={styles.version}>Rucola 0.1.0</Text>
     </View>
   );
@@ -154,5 +189,13 @@ const styles = StyleSheet.create({
   devButton: { alignSelf: 'flex-start', borderWidth: 1, borderRadius: 12, paddingHorizontal: 14, paddingVertical: 10 },
   devText: { color: '#1D2A1B', fontWeight: '700' },
   disabled: { opacity: 0.35 },
+  confirmOverlay: { flex: 1, justifyContent: 'center', backgroundColor: 'rgba(0, 0, 0, 0.28)', padding: 22 },
+  confirmCard: { backgroundColor: '#F3F6E9', borderRadius: 20, padding: 20 },
+  confirmTitle: { fontSize: 22, fontWeight: '800' },
+  confirmText: { marginTop: 10, lineHeight: 22, opacity: 0.7 },
+  confirmActions: { flexDirection: 'row', justifyContent: 'flex-end', gap: 10, marginTop: 20 },
+  confirmCancel: { borderWidth: 1, borderRadius: 12, paddingHorizontal: 14, paddingVertical: 10 },
+  confirmDanger: { borderRadius: 12, paddingHorizontal: 14, paddingVertical: 10, backgroundColor: '#9B2C2C' },
+  confirmDangerText: { color: '#F3F6E9', fontWeight: '700' },
   version: { marginTop: 'auto', opacity: 0.45 },
 });
