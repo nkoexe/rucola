@@ -431,8 +431,11 @@ async function sharePairingLink(pending: PairingInvitationView): Promise<string>
         text: pending.shareUrl,
       });
       return 'Share sheet opened.';
-    } catch {
-      // Fall through to copy/manual-link fallback.
+    } catch (cause) {
+      if (cause instanceof DOMException && cause.name === 'AbortError') {
+        return 'Share was cancelled.';
+      }
+      // Fall through to copy/manual-link fallback when the Web Share API is unavailable or fails.
     }
   }
 
