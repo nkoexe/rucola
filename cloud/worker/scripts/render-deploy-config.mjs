@@ -33,6 +33,12 @@ const config = {
   name: target.workerName,
   main: "src/index.ts",
   compatibility_date: "2026-09-12",
+  routes: [
+    {
+      pattern: environment === "production" ? "rucola.njco.dev" : "dev.rucola.njco.dev",
+      custom_domain: true,
+    },
+  ],
   triggers: {
     crons: ["*/15 * * * *"],
   },
