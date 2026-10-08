@@ -77,6 +77,7 @@ async function insertInvitation(env: Env, relationshipId: string, deviceId: stri
   return { invitationId, token, confirmationCode, expiresAt };
 }
 
+// Legacy invitation endpoints remain for compatibility with existing cloud clients; new app pairing uses /v1/pairing/session.
 export async function createInvitation(env: Env, request: Request, device: AuthenticatedDevice): Promise<Response> {
   if (!isJsonContentType(request)) return errorResponse("INVALID_REQUEST", "JSON request body required", 400);
   if (device.participant !== "ME") return errorResponse("PAIRING_CLOSED", "Only the first device can create invitations", 409);
