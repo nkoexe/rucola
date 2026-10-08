@@ -119,11 +119,9 @@ cd cloud/worker
 npx wrangler login
 
 npx wrangler d1 create rucola-prod \
-  --location weur \
   --jurisdiction eu
 
 npx wrangler r2 bucket create rucola-media \
-  --location weur \
   --jurisdiction eu
 ```
 
