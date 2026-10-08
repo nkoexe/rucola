@@ -642,7 +642,10 @@ export async function handlePairingSession(env: Env, request: Request): Promise<
     return errorResponse("UNAUTHENTICATED", "Valid device credentials are required", 401);
   }
 
-  if (action === "JOIN" || action === "PUBLISH_RESPONDER_SHARE" || action === "PUBLISH_CONFIRMATION" || action === "POLL") {
+  // POLL is intentionally excluded: both clients poll every few hundred milliseconds.
+  // The responder's unauthenticated poll is still protected by the high-entropy session ID
+  // plus the five-emoji secret, while JOIN/publish actions remain IP-rate-limited.
+  if (action === "JOIN" || action === "PUBLISH_RESPONDER_SHARE" || action === "PUBLISH_CONFIRMATION") {
     const limiterKey = "pairing-session:" + (request.headers.get("cf-connecting-ip") ?? "local-development");
     if (!(await env.PAIRING_BOOTSTRAP_LIMITER.limit({ key: limiterKey })).success) {
       const response = errorResponse("PAIRING_RATE_LIMITED", "Too many pairing attempts", 429);
