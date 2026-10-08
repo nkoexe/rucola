@@ -1,4 +1,4 @@
-import { CloudClient } from './CloudClient';
+import { CloudClient, CloudClientError } from './CloudClient';
 import { getCloudBaseUrl } from './config';
 
 export interface CloudRuntimeStatus {
