@@ -302,10 +302,10 @@ describe("Rucola pairing hardening", () => {
   it("uses the requesting origin for the pairing landing canonical", async () => {
     const code = "😀😃😄😁😆";
     const response = await exports.default.fetch(
-      "https://dev.rucola.njco.dev/" + encodeURIComponent(code),
+      "https://rucola.njco.dev/" + encodeURIComponent(code),
     );
     expect(response.status).toBe(200);
-    expect(response.headers.get("link")).toContain("https://dev.rucola.njco.dev");
+    expect(response.headers.get("link")).toContain("https://rucola.njco.dev");
   });
 
   it("does not serve malformed pairing paths", async () => {
