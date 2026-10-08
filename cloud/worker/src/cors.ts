@@ -1,5 +1,4 @@
 const TRUSTED_WEB_ORIGINS = new Set([
-  'https://dev.rucola.njco.dev',
   'https://rucola.njco.dev',
 ]);
 
