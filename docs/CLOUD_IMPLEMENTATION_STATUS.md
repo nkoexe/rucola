@@ -27,7 +27,7 @@ The implementation gate for the prototype is complete. The remaining work is val
 
 ### Not yet validated for production
 
-- two physical Android devices against the dev Worker;
+- two physical Android devices against the production Worker;
 - Expo/Hermes runtime behavior for the CPace dependency;
 - upstream CPace draft-20 vectors as an independent dependency-review gate;
 - actual Android App Link certificate fingerprint and association;
@@ -171,7 +171,7 @@ The prototype implementation now completes the transport-neutral pairing flow en
 
 ## Remaining work
 
-1. Validate the encrypted TEXT/EMOJI online loop on two Android devices against the dev Worker, including restart/retry behavior.
+1. Validate the encrypted TEXT/EMOJI online loop on two Android devices against the production Worker, including restart/retry behavior.
 2. Validate both emoji entry and HTTPS share-link/App Link pairing on two real Android devices.
 3. Configure and verify `RUCOLA_ANDROID_APP_LINK_FINGERPRINTS` with the actual signing certificate used by the installed APK.
 4. Complete the production CPace/dependency/runtime review; the repository implementation is intentionally pinned to draft-20 while the active CFRG draft is newer.
@@ -182,6 +182,6 @@ The prototype implementation now completes the transport-neutral pairing flow en
 
 ## Next step
 
-Merge the prototype implementation to `main`, then run two-device Android validation against the dev Worker from `main`. Production approval remains blocked on the cryptographic/runtime review and real App Link association.
+Merge the prototype implementation to `main`, then run two-device Android validation against the production Worker from `main`. Production approval remains blocked on the cryptographic/runtime review and real App Link association.
 
 Do not make the UI depend directly on cloud endpoints.
