@@ -146,6 +146,7 @@ export function PairingScreen({
 
   const start = async () => {
     setError(null);
+    setShareStatus(null);
     setPairingProgress(0);
     setMode('create');
     try {
@@ -163,6 +164,7 @@ export function PairingScreen({
 
   const cancel = async () => {
     await cloudRuntime.cancelPendingPairing();
+    setShareStatus(null);
     setPending(null);
     setPairingProgress(null);
     setError(null);
