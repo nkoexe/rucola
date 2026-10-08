@@ -114,7 +114,7 @@ https://rucola.njco.dev/health
 https://rucola.njco.dev/.well-known/assetlinks.json
 ```
 
-The App Links endpoint should return 404 until the real production Android signing fingerprints are configured, as it does today.
+The App Links endpoint currently returns 404 because `RUCOLA_ANDROID_APP_LINK_FINGERPRINTS` is intentionally not configured yet. This does not block the Worker or website deployment; configure the secret once the production Android signing fingerprint is available.
 
 ## First-time production bootstrap
 
