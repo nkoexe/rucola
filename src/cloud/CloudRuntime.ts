@@ -1,3 +1,4 @@
+import { Platform } from 'react-native';
 import { initializeDatabase } from '../data/database.ts';
 import { SQLiteSyncStateStore } from '../data/SQLiteSyncStateStore.ts';
 import type { SQLiteRucolaRepository } from '../data/SQLiteRucolaRepository.ts';
@@ -25,7 +26,10 @@ export class CloudRuntime {
   private syncSetupPromise: Promise<SyncEngine | null> | null = null;
 
   constructor() {
-    this.cloud = new CloudClient({ baseUrl: getCloudBaseUrl() });
+    this.cloud = new CloudClient({
+      baseUrl: getCloudBaseUrl(),
+      platform: Platform.OS === 'web' ? 'web' : 'native',
+    });
     this.identityStore = new CloudIdentityStore(expoSecureValueStore);
     this.pairing = new PairingManager({
       cloud: this.cloud,

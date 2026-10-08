@@ -4,6 +4,7 @@ import { argon2idAsync } from '@noble/hashes/argon2.js';
 import { sha256 } from '@noble/hashes/sha2.js';
 import { canonicalizePairingCode } from './pairingTransport.ts';
 import { base64ToBytes, bytesToBase64, utf8Encode } from '../crypto/encoding.ts';
+import { ensureSecureRandomSource, secureRandomBytes } from '../crypto/secureRandom.ts';
 
 export const PAIRING_HANDSHAKE_VERSION = 'rucola-cpace20-v1';
 const INITIATOR_ID = utf8Encode('A_initiator');
@@ -145,11 +146,7 @@ export function createPairingSessionId(bytes: Uint8Array): string {
 }
 
 export async function generatePairingSessionId(): Promise<string> {
-  if (globalThis.crypto?.getRandomValues) {
-    return createPairingSessionId(globalThis.crypto.getRandomValues(new Uint8Array(16)));
-  }
-  const { getRandomBytesAsync } = await import('expo-crypto');
-  return createPairingSessionId(await getRandomBytesAsync(16));
+  return createPairingSessionId(await secureRandomBytes(16));
 }
 
 async function aesProvider() {
@@ -163,6 +160,9 @@ export async function createPairingHandshake(
   options: PairingHandshakeOptions = {},
 ): Promise<PairingHandshakeInit> {
   const { PRS, sid, CI } = await pairingInputs(pairingCode, sessionId, relationshipKeyCommitment, options);
+  // @cipherman/pake-js delegates randomness to globalThis.crypto.getRandomValues.
+  // Install the native Expo Crypto-backed implementation before CPace touches it.
+  await ensureSecureRandomSource();
   const init = cpace.ristretto255.init({ PRS, sid, CI });
   return {
     sessionId,

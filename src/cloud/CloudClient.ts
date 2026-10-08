@@ -1,4 +1,4 @@
-import type { AuthProbeResponse, CloudAckResponse, CloudPullResponse, CloudPushMessage, CloudPushResponse, CompleteMediaResponse, CreateMediaReservationRequest, CreateMediaReservationResponse, MediaUploadResponse, PairingAcceptResponse, PairingBootstrapRequest, PairingBootstrapResponse, PairingCreateResponse, PairingSessionCompleteResponse, PairingSessionJoinResponse, PairingSessionMutationResponse, PairingSessionPollResponse, PairingSessionRequest, PairingSessionStartResponse } from './protocol';
+import type { AuthProbeResponse, CloudAckResponse, CloudPullResponse, CloudPushMessage, CloudPushResponse, CompleteMediaResponse, CreateMediaReservationRequest, CreateMediaReservationResponse, MediaUploadResponse, PairingBootstrapRequest, PairingBootstrapResponse, PairingSessionCompleteResponse, PairingSessionJoinResponse, PairingSessionMutationResponse, PairingSessionPollResponse, PairingSessionRequest, PairingSessionStartResponse } from './protocol';
 import { isValidPairingConfirmationCode } from './pairingCode.ts';
 
 export type CloudFetch = typeof fetch;
@@ -40,8 +40,6 @@ function assertResponseShape(path: string, body: unknown): void {
   if (path === '/health') { if (body.ok !== true || !isString(body.service) || !isString(body.version) || body.database !== true) invalidResponse('Cloud returned an invalid health response.'); return; }
   if (path === '/v1/auth/probe') { if (body.authenticated !== true || (body.participant !== 'ME' && body.participant !== 'PARTNER') || (body.relationshipStatus !== 'PAIRING' && body.relationshipStatus !== 'ACTIVE' && body.relationshipStatus !== 'ENDED')) invalidResponse('Cloud returned an invalid auth probe response.'); return; }
   if (path === '/v1/pairing/bootstrap') { if (!requireStrings('relationshipId', 'invitationId', 'deviceId', 'credential', 'token', 'confirmationCode', 'relationshipKeyCommitment') || body.participant !== 'ME' || !isSafePositiveInteger(body.expiresAt) || !isValidPairingConfirmationCode(String(body.confirmationCode)) || !isSha256Hex(body.relationshipKeyCommitment)) invalidResponse('Cloud returned an invalid pairing bootstrap response.'); return; }
-  if (path === '/v1/pairing/create') { if (!requireStrings('relationshipId', 'invitationId', 'token', 'confirmationCode', 'relationshipKeyCommitment') || !isSafePositiveInteger(body.expiresAt) || !isValidPairingConfirmationCode(String(body.confirmationCode)) || !isSha256Hex(body.relationshipKeyCommitment)) invalidResponse('Cloud returned an invalid pairing creation response.'); return; }
-  if (path === '/v1/pairing/accept') { if (!requireStrings('relationshipId', 'deviceId', 'credential', 'relationshipKeyCommitment') || body.participant !== 'PARTNER' || !isSha256Hex(body.relationshipKeyCommitment)) invalidResponse('Cloud returned an invalid pairing acceptance response.'); return; }
   if (path === '/v1/sync/push') {
     if (!requireStrings('messageId') || !isSafePositiveInteger(body.senderSeq) || !isSafePositiveInteger(body.serverSeq) || !isSafePositiveInteger(body.acceptedAt)) {
       invalidResponse('Cloud returned an invalid sync push response.');
@@ -62,15 +60,13 @@ export class CloudClient {
   private readonly uploadTimeoutMs: number;
   private credential: string | null;
   private readonly platform: 'web' | 'native';
-  constructor(options: CloudClientOptions) { this.baseUrl = normalizeBaseUrl(options.baseUrl); this.fetchImpl = options.fetchImpl ?? ((url, init) => globalThis.fetch(url, init)); this.requestTimeoutMs = normalizeTimeout(options.requestTimeoutMs, DEFAULT_REQUEST_TIMEOUT_MS, 'Cloud request timeout'); this.uploadTimeoutMs = normalizeTimeout(options.uploadTimeoutMs, DEFAULT_UPLOAD_TIMEOUT_MS, 'Cloud upload timeout'); this.credential = options.credential?.trim() || null; this.platform = options.platform ?? (typeof globalThis.window === 'undefined' ? 'native' : 'web'); }
+  constructor(options: CloudClientOptions) { this.baseUrl = normalizeBaseUrl(options.baseUrl); this.fetchImpl = options.fetchImpl ?? ((url, init) => globalThis.fetch(url, init)); this.requestTimeoutMs = normalizeTimeout(options.requestTimeoutMs, DEFAULT_REQUEST_TIMEOUT_MS, 'Cloud request timeout'); this.uploadTimeoutMs = normalizeTimeout(options.uploadTimeoutMs, DEFAULT_UPLOAD_TIMEOUT_MS, 'Cloud upload timeout'); this.credential = options.credential?.trim() || null; this.platform = options.platform ?? 'native'; }
   setCredential(credential: string | null): void { this.credential = credential?.trim() || null; }
   clearCredential(): void { this.credential = null; }
   hasCredential(): boolean { return this.credential !== null; }
   async health(): Promise<CloudHealthResponse> { return this.request<CloudHealthResponse>({ method: 'GET', path: '/health' }); }
   async authProbe(): Promise<AuthProbeResponse> { return this.request<AuthProbeResponse>({ method: 'GET', path: '/v1/auth/probe', authenticated: true }); }
   async bootstrapPairing(request: PairingBootstrapRequest): Promise<PairingBootstrapResponse> { return this.request<PairingBootstrapResponse>({ method: 'POST', path: '/v1/pairing/bootstrap', body: request }); }
-  async createInvitation(expiresInSeconds?: number): Promise<PairingCreateResponse> { return this.request<PairingCreateResponse>({ method: 'POST', path: '/v1/pairing/create', body: expiresInSeconds === undefined ? {} : { expiresInSeconds }, authenticated: true }); }
-  async acceptInvitation(token: string, confirmationCode: string, relationshipKeyCommitment: string): Promise<PairingAcceptResponse> { return this.request<PairingAcceptResponse>({ method: 'POST', path: '/v1/pairing/accept', body: { token, confirmationCode, relationshipKeyCommitment } }); }
   async startPairingSession(request: Omit<PairingSessionRequest, 'action'>): Promise<PairingSessionStartResponse> {
     return this.request<PairingSessionStartResponse>({
       method: 'POST',
