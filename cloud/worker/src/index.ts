@@ -10,6 +10,7 @@ import { pullMessages } from "./sync-pull";
 import { acknowledgeMessages } from "./sync-ack";
 import { pushMessageDurable } from "./sync-push";
 import type { Env } from "./types";
+import { corsPreflight, withCors } from "./cors";
 
 const VERSION = "sync-hardening-1";
 
@@ -68,13 +69,9 @@ export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
 
-    if (request.method === "OPTIONS") {
-      return new Response(null, {
-        status: 204,
-        headers: { "cache-control": "no-store", allow: "GET,POST,OPTIONS" },
-      });
-    }
+    if (request.method === "OPTIONS") return corsPreflight(request);
 
+    const response = await (async (): Promise<Response> => {
     const pairingWebResponse = handlePairingWebRoute(
       request,
       env.RUCOLA_ANDROID_APP_LINK_FINGERPRINTS,
@@ -138,6 +135,8 @@ export default {
     }
 
     return errorResponse("NOT_FOUND", "Route not found", 404);
+    })();
+    return withCors(request, response);
   },
 
   async scheduled(_controller: ScheduledController, env: Env, ctx: ExecutionContext): Promise<void> {
