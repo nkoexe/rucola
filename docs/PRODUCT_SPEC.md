@@ -105,7 +105,7 @@ There are two pairing transports:
 
 The five emojis act as a short-lived pairing password/rendezvous secret. They are **not** the long-lived relationship encryption key. The first online prototype keeps the existing locally generated random 256-bit relationship key; the hidden pairing protocol transfers or establishes it without sending the raw key to the Worker.
 
-The user should never be instructed to copy or paste a separate pairing pass. The current payload-based transport is an implementation detail being migrated away from the UI.
+The user should never be instructed to copy or paste a separate pairing pass.
 
 There are no normal user accounts or login screens in the initial product.
 
