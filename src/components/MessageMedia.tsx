@@ -11,6 +11,7 @@ type Props = {
 export function MessageMedia({ message }: Props) {
   const uri = message.mediaReference;
   const [resolvedUri, setResolvedUri] = useState<string | null>(Platform.OS === 'web' ? null : uri ?? null);
+  const [imageFailed, setImageFailed] = useState(false);
 
   useEffect(() => {
     if (!uri) {
@@ -21,6 +22,7 @@ export function MessageMedia({ message }: Props) {
     let mounted = true;
     let objectUrl: string | null = null;
     setResolvedUri(Platform.OS === 'web' ? null : uri);
+    setImageFailed(false);
 
     void resolveMediaUri(uri).then((value) => {
       if (!mounted) {
@@ -45,7 +47,9 @@ export function MessageMedia({ message }: Props) {
     return <VideoMessage uri={resolvedUri} />;
   }
 
-  return <Image source={{ uri: resolvedUri }} style={styles.image} resizeMode="contain" onError={() => undefined} />;
+  if (imageFailed) return <UnavailableMedia />;
+
+  return <Image source={{ uri: resolvedUri }} style={styles.image} resizeMode="contain" onError={() => setImageFailed(true)} />;
 }
 
 function LoadingMedia() {
