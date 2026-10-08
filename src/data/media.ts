@@ -19,7 +19,7 @@ function ownedMediaDirectory(): string | null {
 }
 
 function isWebMediaUri(uri: string): boolean {
-  return /^rucola-web-media:[A-Za-z0-9-]{36}\\.[a-z0-9]+$/i.test(uri);
+  return /^rucola-web-media:[A-Za-z0-9-]{36}\.[a-z0-9]+$/i.test(uri);
 }
 
 function webMediaId(uri: string): string | null {
@@ -265,5 +265,5 @@ export async function reconcileOwnedMedia(mediaReferences: readonly string[]): P
 }
 
 export function isVideoMedia(uri: string): boolean {
-  return /\\.(mp4|mov|m4v|webm|avi)$/i.test(uri.split(/[?#]/, 1)[0] ?? uri);
+  return /\.(mp4|mov|m4v|webm|avi)$/i.test(uri.split(/[?#]/, 1)[0] ?? uri);
 }
