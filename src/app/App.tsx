@@ -53,7 +53,7 @@ export default function App() {
 
   useEffect(() => {
     void checkCloudRuntime().then((status) => {
-      if (!status.reachable) console.warn(`[rucola] dev cloud is unreachable: ${status.baseUrl}`);
+      if (!status.reachable) console.warn(`[rucola] production cloud is unreachable: ${status.baseUrl}`);
     });
 
     let mounted = true;
