@@ -22,7 +22,11 @@ export async function checkCloudRuntime(): Promise<CloudRuntimeStatus> {
       version: health.version,
     };
   } catch (cause) {
-    if (cause instanceof Error) {
+    if (cause instanceof CloudClientError) {
+      console.warn(
+        `[rucola] production cloud health check failed: ${cause.code} HTTP ${cause.status}: ${cause.message}`,
+      );
+    } else if (cause instanceof Error) {
       console.warn(
         `[rucola] production cloud health check failed: ${cause.name}: ${cause.message}`,
       );
