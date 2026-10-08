@@ -20,7 +20,7 @@ Production web builds should set:
 - EXPO_PUBLIC_RUCOLA_CLOUD_URL to the production Rucola cloud API origin.
 - EXPO_PUBLIC_RUCOLA_PAIRING_URL to the public HTTPS origin used by pairing links.
 
-The application still defaults to https://dev.rucola.njco.dev for the cloud API, and pairing links default to https://rucola.njco.dev. Do not treat those defaults as a production deployment configuration.
+The application defaults to https://dev.rucola.njco.dev for the cloud API. Pairing links follow that development origin by default; production builds should set EXPO_PUBLIC_RUCOLA_CLOUD_URL to the production API and, preferably, EXPO_PUBLIC_RUCOLA_PAIRING_URL to https://rucola.njco.dev.
 
 ## Browser storage
 
