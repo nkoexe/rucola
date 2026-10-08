@@ -1,9 +1,28 @@
-import { AESEncryptionKey } from 'expo-crypto';
 import { base64ToBytes, bytesToBase64 } from './encoding.ts';
 
 export const RELATIONSHIP_KEY_BYTES = 32;
 
+async function generateWebRelationshipKey(): Promise<string> {
+  const subtle = globalThis.crypto?.subtle;
+  if (!subtle) {
+    throw new Error('Web Crypto is unavailable on this device.');
+  }
+
+  const key = await subtle.generateKey(
+    { name: 'AES-GCM', length: RELATIONSHIP_KEY_BYTES * 8 },
+    true,
+    ['encrypt', 'decrypt'],
+  );
+  const raw = await subtle.exportKey('raw', key);
+  return bytesToBase64(new Uint8Array(raw));
+}
+
 export async function generateRelationshipKey(): Promise<string> {
+  if (globalThis.crypto?.subtle) {
+    return generateWebRelationshipKey();
+  }
+
+  const { AESEncryptionKey } = await import('expo-crypto');
   const key = await AESEncryptionKey.generate(256);
   return key.encoded('base64');
 }
