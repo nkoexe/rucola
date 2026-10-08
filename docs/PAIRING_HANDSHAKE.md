@@ -86,7 +86,7 @@ Therefore:
 - a successful lookup does not itself create the partner device or activate the relationship;
 - no endpoint returns the relationship key or a replayable equivalent.
 
-The existing invitation token remains internal compatibility material until the new flow is complete.
+The existing invitation token remains an internal server-side capability for invitation lookup/authentication. It is never part of the user-facing pairing contract.
 
 ## 5. PAKE inputs
 
@@ -201,5 +201,5 @@ The existing AES-256-GCM message codec remains separate from the temporary pairi
 
 ## 12. Exit criterion
 
-Step 3 implementation is complete for the prototype. The production exit criterion remains: upstream vector verification, Expo/Hermes runtime validation, independent dependency/security review, exact wire/session-state review, and successful two-device Android pairing through both transports.
+Step 3 implementation is complete for the prototype; the old user-facing package path is removed. The production exit criterion remains: upstream vector verification, Expo/Hermes runtime validation, independent dependency/security review, exact wire/session-state review, and successful two-device Android pairing through both transports.
 
