@@ -10,7 +10,6 @@ import {
   PairingManager,
   type PairingInput,
   type PairingInvitationView,
-  type PendingPairingView,
   type PairingPreparationProgress,
 } from './PairingManager.ts';
 import { getCloudBaseUrl } from './config.ts';
@@ -38,9 +37,6 @@ export class CloudRuntime {
     return this.identityStore.load();
   }
 
-  startPairing(expiresInSeconds?: number): Promise<PendingPairingView> {
-    return this.pairing.startPairing(expiresInSeconds);
-  }
 
   startPairingInvitation(
     expiresInSeconds?: number,
@@ -49,9 +45,6 @@ export class CloudRuntime {
     return this.pairing.startPairingInvitation(expiresInSeconds, onProgress);
   }
 
-  resumePendingPairing(): Promise<PendingPairingView | null> {
-    return this.pairing.resumePendingPairing();
-  }
 
   resumePendingPairingInvitation(
     onProgress?: PairingPreparationProgress,
@@ -78,9 +71,6 @@ export class CloudRuntime {
     return this.pairing.normalizePairingInput(input);
   }
 
-  acceptPairingPackage(encodedPackage: string, confirmationCode: string) {
-    return this.pairing.acceptPairingPackage(encodedPackage, confirmationCode);
-  }
 
   cancelPendingPairing(): Promise<void> {
     return this.pairing.cancelPendingPairing();
