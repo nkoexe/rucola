@@ -76,6 +76,23 @@ test('server protocol errors become typed CloudClientError values', async () => 
   });
 });
 
+test('default fetch preserves the browser receiver binding', async () => {
+  const originalFetch = globalThis.fetch;
+  const expectedThis = globalThis;
+  let observedThis;
+  globalThis.fetch = async function (url, init) {
+    observedThis = this;
+    return jsonResponse({ ok: true, service: 'rucola-cloud', version: 'sync-hardening-1', database: true });
+  };
+  try {
+    const client = new CloudClient({ baseUrl: 'https://cloud.example.test' });
+    await client.health();
+    assert.equal(observedThis, expectedThis);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test('parses the worker health response', async () => {
   const client = new CloudClient({ baseUrl: 'https://cloud.example.test', fetchImpl: async () => new Response(JSON.stringify({ ok: true, service: 'rucola-cloud', version: 'sync-hardening-1', database: true }), { status: 200, headers: { 'content-type': 'application/json' } }) });
   await assert.deepEqual(await client.health(), { ok: true, service: 'rucola-cloud', version: 'sync-hardening-1', database: true });
