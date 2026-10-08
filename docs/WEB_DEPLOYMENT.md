@@ -1,33 +1,47 @@
 # Web deployment
 
-Rucola's Expo web build uses react-native-web 0.21.0 and Expo SQLite's WebAssembly backend. The app explicitly uses Expo's `single` web output with Metro.
+Rucola has two different web surfaces, and they must not be conflated.
 
-## Required response headers
+- The **production website/pairing entrypoint** is the Cloudflare Worker site under `cloud/site`. It serves `https://rucola.njco.dev/`, pairing fallback routes, `/v1/*`, and Android App Links verification.
+- The **Expo web app export** is a separate browser client/preview surface. It uses react-native-web 0.21.0, Expo SQLite's WebAssembly backend, and an explicit `single` web output with Metro.
 
-The deployed app origin must send these headers on the web document:
+The Expo web app is not the production landing page. Do not replace the Worker website routing with an Expo SPA.
 
+## Expo web app hosting
+
+When deploying the Expo web client to its own browser origin, the deployed document must send:
+
+```
 Cross-Origin-Opener-Policy: same-origin
 Cross-Origin-Embedder-Policy: credentialless
+```
 
-Without them, the SQLite WASM/SharedArrayBuffer path is not cross-origin isolated in production. The Metro config already applies the same headers during local development.
+These are required for the SQLite WASM/SharedArrayBuffer path. The Metro config applies the same headers during local development.
 
-For Cloudflare Pages, `public/_headers` contains the required response headers and `public/_redirects` rewrites deep links such as `/😀😃😄😁😆` to the SPA entrypoint. Expo copies both files into `dist/` during web export.
+For a static host, `public/_headers` carries the response headers and `public/_redirects` rewrites browser deep links to the Expo SPA entrypoint. Expo copies files from `public/` into the exported `dist` directory.
+
+The production Rucola website does **not** use these Pages files; its routing contract is defined by `docs/WEBSITE.md` and `cloud/site`.
 
 ## Runtime configuration
 
-Production web builds should set:
+Production Expo web builds should set:
 
-- EXPO_PUBLIC_RUCOLA_CLOUD_URL to the production Rucola cloud API origin.
-- EXPO_PUBLIC_RUCOLA_PAIRING_URL to the public HTTPS origin used by pairing links.
+- `EXPO_PUBLIC_RUCOLA_CLOUD_URL` to the production Worker API origin, normally `https://rucola.njco.dev`.
+- `EXPO_PUBLIC_RUCOLA_PAIRING_URL` to the public pairing website origin, normally `https://rucola.njco.dev`.
 
-The application defaults to https://dev.rucola.njco.dev for the cloud API. Pairing links follow that development origin by default; production builds should set EXPO_PUBLIC_RUCOLA_CLOUD_URL to the production API and, preferably, EXPO_PUBLIC_RUCOLA_PAIRING_URL to https://rucola.njco.dev.
+The development defaults are:
+
+- cloud API: `https://dev.rucola.njco.dev`;
+- pairing links: `https://dev.rucola.njco.dev/<five-emojis>`.
+
+This keeps the development browser client aligned with the development Worker. Production builds must override the cloud origin; pairing links should explicitly use the production website origin.
 
 ## Browser storage
 
-The web build currently stores cloud identity material in browser localStorage because the native SecureStore abstraction is not an equivalent browser security boundary. This is acceptable for the current development/web-preview path, but it is not equivalent to native SecureStore and must not be presented as production-grade secret storage.
+The web build currently stores cloud identity material in browser `localStorage` because the native SecureStore abstraction is not an equivalent browser security boundary. This is acceptable for the current development/web-preview path, but it is not equivalent to native SecureStore and must not be presented as production-grade secret storage.
 
 ## Media
 
-Picked browser media is stored as Blob records in IndexedDB and referenced from SQLite with an app-owned rucola-web-media URI. The browser UI resolves those references to temporary object URLs when rendering.
+Picked browser media is stored as Blob records in IndexedDB and referenced from SQLite with an app-owned `rucola-web-media:` URI. The browser UI resolves those references to temporary object URLs when rendering.
 
-Cloud media uploads omit Content-Length in browsers because that request header is forbidden to script. The Worker enforces the reserved byte count with the request stream itself.
+Cloud media uploads omit `Content-Length` in browsers because that request header is forbidden to script. The Worker enforces the reserved byte count against the streamed body itself and rejects both oversized and undersized streams.
