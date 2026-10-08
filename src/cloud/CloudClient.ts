@@ -136,7 +136,31 @@ export class CloudClient {
   async pullMessages(after = 0, limit = 50): Promise<CloudPullResponse> { const params = new URLSearchParams({ after: String(after), limit: String(limit) }); return this.request<CloudPullResponse>({ method: 'GET', path: `/v1/sync/pull?${params.toString()}`, authenticated: true }); }
   async acknowledgeMessages(throughServerSeq: number): Promise<CloudAckResponse> { return this.request<CloudAckResponse>({ method: 'POST', path: '/v1/sync/ack', body: { throughServerSeq }, authenticated: true }); }
   async createMediaReservation(request: CreateMediaReservationRequest): Promise<CreateMediaReservationResponse> { return this.request<CreateMediaReservationResponse>({ method: 'POST', path: '/v1/media/create', body: request, authenticated: true }); }
-  async uploadMedia(uploadId: string, body: BodyInit, contentType: string, contentLength: number): Promise<MediaUploadResponse> { if (!Number.isSafeInteger(contentLength) || contentLength < 1) throw new Error('A positive safe media content length is required.'); const response = await this.fetchWithTimeout(`${this.baseUrl}/v1/media/${encodeURIComponent(uploadId)}`, { method: 'PUT', headers: { Authorization: this.authorizationHeader(), 'Content-Type': contentType, 'Content-Length': String(contentLength) }, body }, this.uploadTimeoutMs); return this.parseSuccessfulResponse<MediaUploadResponse>(response, `/v1/media/${encodeURIComponent(uploadId)}`); }
+  async uploadMedia(uploadId: string, body: BodyInit, contentType: string, contentLength: number): Promise<MediaUploadResponse> {
+    if (!Number.isSafeInteger(contentLength) || contentLength < 1) {
+      throw new Error('A positive safe media content length is required.');
+    }
+
+    const headers: Record<string, string> = {
+      Authorization: this.authorizationHeader(),
+      'Content-Type': contentType,
+    };
+    // Browsers forbid scripts from setting Content-Length. The Worker validates
+    // the actual streamed body size against the media reservation instead.
+    if (typeof globalThis.window === 'undefined') {
+      headers['Content-Length'] = String(contentLength);
+    }
+
+    const response = await this.fetchWithTimeout(
+      `${this.baseUrl}/v1/media/${encodeURIComponent(uploadId)}`,
+      { method: 'PUT', headers, body },
+      this.uploadTimeoutMs,
+    );
+    return this.parseSuccessfulResponse<MediaUploadResponse>(
+      response,
+      `/v1/media/${encodeURIComponent(uploadId)}`,
+    );
+  }
   async completeMedia(uploadId: string): Promise<CompleteMediaResponse> { return this.request<CompleteMediaResponse>({ method: 'POST', path: `/v1/media/${encodeURIComponent(uploadId)}/complete`, authenticated: true }); }
   private authorizationHeader(): string { if (!this.credential) throw new CloudClientError({ code: 'CLIENT_UNAUTHENTICATED', message: 'A cloud device credential is required for this operation.', status: 0 }); return `Bearer ${this.credential}`; }
   private async fetchWithTimeout(url: string, init: RequestInit, timeoutMs: number): Promise<Response> { const controller = new AbortController(); const timer = setTimeout(() => controller.abort(), timeoutMs); try { return await this.fetchImpl(url, { ...init, signal: controller.signal }); } catch (cause) { if (controller.signal.aborted) throw new CloudClientError({ code: 'CLIENT_TIMEOUT', message: `Cloud request timed out after ${timeoutMs} ms.`, status: 0 }); const message = cause instanceof Error && cause.message ? cause.message : 'Cloud request failed before a response was received.'; throw new CloudClientError({ code: 'CLIENT_NETWORK_ERROR', message, status: 0 }); } finally { clearTimeout(timer); } }
