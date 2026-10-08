@@ -2,7 +2,7 @@ import { CloudClient } from './CloudClient';
 import { getCloudBaseUrl } from './config';
 
 export interface CloudRuntimeStatus {
-  environment: 'dev';
+  environment: 'production';
   baseUrl: string;
   reachable: boolean;
   service: string | null;
@@ -15,13 +15,13 @@ export async function checkCloudRuntime(): Promise<CloudRuntimeStatus> {
   try {
     const health = await client.health();
     return {
-      environment: 'dev',
+      environment: 'production',
       baseUrl,
       reachable: health.ok && health.database,
       service: health.service,
       version: health.version,
     };
   } catch {
-    return { environment: 'dev', baseUrl, reachable: false, service: null, version: null };
+    return { environment: 'production', baseUrl, reachable: false, service: null, version: null };
   }
 }
