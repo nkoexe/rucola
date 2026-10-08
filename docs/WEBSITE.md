@@ -85,7 +85,7 @@ RUCOLA_D1_DATABASE_ID="<PRODUCTION_D1_UUID>" \
 RUCOLA_ANDROID_APP_LINK_FINGERPRINTS="<FINGERPRINTS>" \
 npm run render:deploy-config
 
-npx wrangler d1 migrations apply rucola-prod \
+npx wrangler d1 migrations apply rucola \
   --remote \
   --config .wrangler.deploy.jsonc
 
@@ -118,7 +118,7 @@ Create the production data resources first:
 cd cloud/worker
 npx wrangler login
 
-npx wrangler d1 create rucola-prod \
+npx wrangler d1 create rucola \
   --jurisdiction eu
 
 npx wrangler r2 bucket create rucola-media \
@@ -152,7 +152,7 @@ RUCOLA_D1_DATABASE_ID="<PRODUCTION_D1_UUID>" \
 RUCOLA_ANDROID_APP_LINK_FINGERPRINTS="<FINGERPRINTS>" \
 npm run render:deploy-config
 
-npx wrangler d1 migrations apply rucola-prod \
+npx wrangler d1 migrations apply rucola \
   --remote \
   --config .wrangler.deploy.jsonc
 
