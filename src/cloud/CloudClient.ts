@@ -4,7 +4,7 @@ import { isValidPairingConfirmationCode } from './pairingCode.ts';
 
 export type CloudFetch = typeof fetch;
 export interface CloudHealthResponse { ok: boolean; service: string; version: string; database: boolean; }
-export interface CloudClientOptions { baseUrl: string; credential?: string | null; fetchImpl?: CloudFetch; requestTimeoutMs?: number; uploadTimeoutMs?: number; }
+export interface CloudClientOptions { baseUrl: string; credential?: string | null; fetchImpl?: CloudFetch; requestTimeoutMs?: number; uploadTimeoutMs?: number; platform?: 'web' | Exclude<string, 'web'>; }
 export interface CloudClientErrorDetails { code: string; message: string; status: number; }
 export class CloudClientError extends Error { readonly code: string; readonly status: number; constructor(details: CloudClientErrorDetails) { super(details.message); this.name = 'CloudClientError'; this.code = details.code; this.status = details.status; } }
 type JsonValue = unknown;
@@ -62,7 +62,8 @@ export class CloudClient {
   private readonly requestTimeoutMs: number;
   private readonly uploadTimeoutMs: number;
   private credential: string | null;
-  constructor(options: CloudClientOptions) { this.baseUrl = normalizeBaseUrl(options.baseUrl); this.fetchImpl = options.fetchImpl ?? fetch; this.requestTimeoutMs = normalizeTimeout(options.requestTimeoutMs, DEFAULT_REQUEST_TIMEOUT_MS, 'Cloud request timeout'); this.uploadTimeoutMs = normalizeTimeout(options.uploadTimeoutMs, DEFAULT_UPLOAD_TIMEOUT_MS, 'Cloud upload timeout'); this.credential = options.credential?.trim() || null; }
+  private readonly platform: string;
+  constructor(options: CloudClientOptions) { this.baseUrl = normalizeBaseUrl(options.baseUrl); this.fetchImpl = options.fetchImpl ?? fetch; this.requestTimeoutMs = normalizeTimeout(options.requestTimeoutMs, DEFAULT_REQUEST_TIMEOUT_MS, 'Cloud request timeout'); this.uploadTimeoutMs = normalizeTimeout(options.uploadTimeoutMs, DEFAULT_UPLOAD_TIMEOUT_MS, 'Cloud upload timeout'); this.credential = options.credential?.trim() || null; this.platform = options.platform ?? Platform.OS; }
   setCredential(credential: string | null): void { this.credential = credential?.trim() || null; }
   clearCredential(): void { this.credential = null; }
   hasCredential(): boolean { return this.credential !== null; }
@@ -148,7 +149,7 @@ export class CloudClient {
     };
     // Browsers forbid scripts from setting Content-Length. The Worker validates
     // the actual streamed body size against the media reservation instead.
-    if (Platform.OS !== 'web') {
+    if (this.platform !== 'web') {
       headers['Content-Length'] = String(contentLength);
     }
 
