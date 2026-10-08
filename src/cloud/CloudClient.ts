@@ -4,7 +4,7 @@ import { isValidPairingConfirmationCode } from './pairingCode.ts';
 
 export type CloudFetch = typeof fetch;
 export interface CloudHealthResponse { ok: boolean; service: string; version: string; database: boolean; }
-export interface CloudClientOptions { baseUrl: string; credential?: string | null; fetchImpl?: CloudFetch; requestTimeoutMs?: number; uploadTimeoutMs?: number; platform?: 'web' | Exclude<string, 'web'>; }
+export interface CloudClientOptions { baseUrl: string; credential?: string | null; fetchImpl?: CloudFetch; requestTimeoutMs?: number; uploadTimeoutMs?: number; platform?: typeof Platform.OS; }
 export interface CloudClientErrorDetails { code: string; message: string; status: number; }
 export class CloudClientError extends Error { readonly code: string; readonly status: number; constructor(details: CloudClientErrorDetails) { super(details.message); this.name = 'CloudClientError'; this.code = details.code; this.status = details.status; } }
 type JsonValue = unknown;
