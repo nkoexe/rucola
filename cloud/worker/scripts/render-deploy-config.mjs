@@ -50,6 +50,9 @@ const config = {
       jurisdiction: "eu",
     },
   ],
+  ...(environment === "production"
+    ? { assets: { directory: "../site" } }
+    : {}),
   ...(androidLinkFingerprints ? { vars: { RUCOLA_ANDROID_APP_LINK_FINGERPRINTS: androidLinkFingerprints } } : {}),
   ratelimits: [
     {
@@ -57,7 +60,7 @@ const config = {
       namespace_id: target.rateLimitNamespaceId,
       simple: {
         limit: 10,
-        period: 60,
+        period: 60
       },
     },
   ],
@@ -65,6 +68,6 @@ const config = {
 
 await writeFile(
   new URL("../.wrangler.deploy.jsonc", import.meta.url),
-  `${JSON.stringify(config, null, 2)}\n`,
+  JSON.stringify(config, null, 2) + "\n",
   "utf8",
 );
