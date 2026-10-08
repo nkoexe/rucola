@@ -8,6 +8,7 @@ on:
       - "cloud/worker/**"
       - "cloud/site/**"
       - ".github/workflows/cloud-worker.yml"
+      - ".github/workflows/cloud-worker-deploy.yml"
       - ".gitattributes"
 
 permissions:
