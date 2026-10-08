@@ -21,7 +21,14 @@ export async function checkCloudRuntime(): Promise<CloudRuntimeStatus> {
       service: health.service,
       version: health.version,
     };
-  } catch {
+  } catch (cause) {
+    if (cause instanceof Error) {
+      console.warn(
+        `[rucola] production cloud health check failed: ${cause.name}: ${cause.message}`,
+      );
+    } else {
+      console.warn('[rucola] production cloud health check failed: unknown error');
+    }
     return { environment: 'production', baseUrl, reachable: false, service: null, version: null };
   }
 }
