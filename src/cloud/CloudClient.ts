@@ -62,7 +62,7 @@ export class CloudClient {
   private readonly uploadTimeoutMs: number;
   private credential: string | null;
   private readonly platform: 'web' | 'native';
-  constructor(options: CloudClientOptions) { this.baseUrl = normalizeBaseUrl(options.baseUrl); this.fetchImpl = options.fetchImpl ?? fetch; this.requestTimeoutMs = normalizeTimeout(options.requestTimeoutMs, DEFAULT_REQUEST_TIMEOUT_MS, 'Cloud request timeout'); this.uploadTimeoutMs = normalizeTimeout(options.uploadTimeoutMs, DEFAULT_UPLOAD_TIMEOUT_MS, 'Cloud upload timeout'); this.credential = options.credential?.trim() || null; this.platform = options.platform ?? (typeof globalThis.window === 'undefined' ? 'native' : 'web'); }
+  constructor(options: CloudClientOptions) { this.baseUrl = normalizeBaseUrl(options.baseUrl); this.fetchImpl = options.fetchImpl ?? ((url, init) => globalThis.fetch(url, init)); this.requestTimeoutMs = normalizeTimeout(options.requestTimeoutMs, DEFAULT_REQUEST_TIMEOUT_MS, 'Cloud request timeout'); this.uploadTimeoutMs = normalizeTimeout(options.uploadTimeoutMs, DEFAULT_UPLOAD_TIMEOUT_MS, 'Cloud upload timeout'); this.credential = options.credential?.trim() || null; this.platform = options.platform ?? (typeof globalThis.window === 'undefined' ? 'native' : 'web'); }
   setCredential(credential: string | null): void { this.credential = credential?.trim() || null; }
   clearCredential(): void { this.credential = null; }
   hasCredential(): boolean { return this.credential !== null; }
