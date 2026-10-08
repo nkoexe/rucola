@@ -130,6 +130,35 @@ describe("media upload", () => {
     expect(object?.size).toBe(bytes.byteLength);
   });
 
+  it("rejects a browser stream that is shorter than its reservation", async () => {
+    const { me } = await bootstrapAndAccept();
+    const reservedBytes = new Uint8Array([1, 2, 3, 4]);
+    const shortBytes = new Uint8Array([1, 2, 3]);
+    const uploadId = await createMedia(me.credential, reservedBytes.byteLength);
+
+    const request = new Request(`https://rucola.test/v1/media/${uploadId}`, {
+      method: "PUT",
+      headers: {
+        authorization: `Bearer ${me.credential}`,
+        "content-type": "image/png",
+      },
+      body: new ReadableStream<Uint8Array>({
+        start(controller) {
+          controller.enqueue(shortBytes);
+          controller.close();
+        },
+      }),
+    });
+    const response = await exports.default.fetch(request);
+    expect(response.status).toBe(502);
+
+    const row = await env.DB.prepare(
+      "SELECT object_key, status FROM media_uploads WHERE id = ?1",
+    ).bind(uploadId).first<{ object_key: string; status: string }>();
+    expect(row?.status).toBe("PENDING");
+    expect(await env.MEDIA_BUCKET.head(row!.object_key)).toBeNull();
+  });
+
   it("bounds streamed bodies to the reserved size before writing an oversized object", async () => {
     const { me } = await bootstrapAndAccept();
     const declaredBytes = new Uint8Array([1, 2, 3]);
