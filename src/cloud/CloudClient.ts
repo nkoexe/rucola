@@ -1,3 +1,4 @@
+import { Platform } from 'react-native';
 import type { AuthProbeResponse, CloudAckResponse, CloudPullResponse, CloudPushMessage, CloudPushResponse, CompleteMediaResponse, CreateMediaReservationRequest, CreateMediaReservationResponse, MediaUploadResponse, PairingAcceptResponse, PairingBootstrapRequest, PairingBootstrapResponse, PairingCreateResponse, PairingSessionCompleteResponse, PairingSessionJoinResponse, PairingSessionMutationResponse, PairingSessionPollResponse, PairingSessionRequest, PairingSessionStartResponse } from './protocol';
 import { isValidPairingConfirmationCode } from './pairingCode.ts';
 
@@ -147,7 +148,7 @@ export class CloudClient {
     };
     // Browsers forbid scripts from setting Content-Length. The Worker validates
     // the actual streamed body size against the media reservation instead.
-    if (typeof globalThis.window === 'undefined') {
+    if (Platform.OS !== 'web') {
       headers['Content-Length'] = String(contentLength);
     }
 
