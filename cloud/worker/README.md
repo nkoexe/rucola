@@ -25,9 +25,22 @@ The repository has one remote Cloudflare environment. Local Worker development a
 
 ## Deployment
 
-Production deployment is manual through Wrangler. GitHub Actions runs validation only; it does not deploy the Worker.
+Production deployment is automatic after the `Cloud Worker` validation workflow passes for a push to `main`. The deployment workflow:
 
-Render the production deployment configuration:
+1. checks out the exact commit that passed validation;
+2. renders the production-only Wrangler configuration;
+3. applies pending D1 migrations to `rucola`;
+4. deploys Worker and website to `rucola.njco.dev`;
+5. smoke-tests the production health endpoint and landing page.
+
+The deployment workflow uses these repository Actions secrets:
+
+- `CLOUDFLARE_ACCOUNT_ID`
+- `CLOUDFLARE_API_TOKEN`
+- `RUCOLA_D1_DATABASE_ID`
+- `RUCOLA_ANDROID_APP_LINK_FINGERPRINTS` (optional)
+
+For a manual recovery deployment from a trusted machine:
 
 ~~~bash
 RUCOLA_D1_DATABASE_ID="<PRODUCTION_D1_UUID>" \
@@ -38,7 +51,7 @@ npx wrangler d1 migrations apply rucola --remote --config .wrangler.deploy.jsonc
 npx wrangler deploy --config .wrangler.deploy.jsonc --strict
 ~~~
 
-Run npx wrangler login once on the deployment machine and keep credentials outside the repository.
+Run `npx wrangler login` once on the deployment machine and keep credentials outside the repository.
 
 The public website is documented separately in docs/WEBSITE.md.
 
@@ -62,17 +75,17 @@ The server stores ciphertext and envelope metadata; it does not decrypt message 
 
 ## Health checks
 
-After deployment:
+The automatic deployment smoke-tests:
 
 ~~~text
 GET /health
-GET /health/schema
+GET /
 ~~~
 
-For the production website also verify:
+For manual production verification also check:
 
 ~~~text
-GET /
+GET /health/schema
 GET /<five-emoji pairing path>
 GET /.well-known/assetlinks.json
 ~~~
