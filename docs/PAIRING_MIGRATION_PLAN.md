@@ -6,7 +6,7 @@
 
 This is the implementation contract for replacing the current transitional pairing-payload + five-emojis flow with the intended emoji-only user experience and the alternative share-link transport.
 
-The migration is deliberately incremental. Existing secure pairing, identity, invitation, commitment, expiry, and lifecycle code should be reused wherever its semantics remain correct. The goal is not to rewrite the pairing stack.
+The migration is deliberately incremental. Existing secure pairing, identity, invitation, commitment, expiry, and lifecycle code is reused wherever its semantics remain correct. The goal is not to rewrite the pairing stack.
 
 ## 1. Target product behavior
 
@@ -178,7 +178,7 @@ Initiator
                                                       ACTIVE
 ~~~
 
-The existing Worker token should remain an internal invitation capability as long as it is useful for authenticating/looking up the invitation. The user must never handle it.
+The existing Worker invitation token remains an internal server-side capability where needed for invitation lookup/authentication. The user must never handle it.
 
 The new application API should expose pairing intents, not transport-specific secret plumbing to screens.
 
@@ -201,7 +201,7 @@ hidden protocol
 CloudIdentityStore + relationship key
 ~~~
 
-The exact method names can follow the existing code style.
+The exact method names can follow the existing code style. The current implementation exposes the transport-neutral API through PairingManager/CloudRuntime.
 
 ## 6. What stays from the current implementation
 
@@ -224,7 +224,7 @@ Keep and adapt:
 - current pairing-focused tests where their assertions remain valid;
 - current reset/cancellation behavior.
 
-The current pairing package serializer may remain as an **internal transport implementation** if it proves useful for the hidden handoff. It must not remain part of the user-facing contract.
+The former pairing package serializer is removed from the mobile pairing path. Hidden handoff uses the dedicated pairing-session envelope instead.
 
 ## 7. What changes
 
@@ -289,7 +289,7 @@ The existing pairing implementation was refactored without changing the underlyi
 - make PairingManager the single pairing owner;
 - introduce a small transport/input abstraction;
 - remove pairing-package details from screen types;
-- keep the legacy package API isolated strictly as a temporary compatibility adapter;
+- remove the legacy package API and serializer from the mobile pairing path;
 - retain compatibility tests for the existing Worker primitives.
 
 Exit condition:
