@@ -62,7 +62,7 @@ RUCOLA_D1_DATABASE_ID="<PRODUCTION_D1_UUID>" \
 RUCOLA_ANDROID_APP_LINK_FINGERPRINTS="<FINGERPRINTS>" \
 npm run render:deploy-config
 
-npx wrangler d1 migrations apply rucola-prod --remote --config .wrangler.deploy.jsonc
+npx wrangler d1 migrations apply rucola --remote --config .wrangler.deploy.jsonc
 npx wrangler deploy --config .wrangler.deploy.jsonc --strict
 ~~~
 
