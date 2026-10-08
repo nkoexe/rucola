@@ -1,4 +1,4 @@
-import type { PairingAcceptResponse, PairingBootstrapResponse } from './protocol.ts';
+import type { PairingBootstrapResponse } from './protocol.ts';
 import { CloudClient, CloudClientError } from './CloudClient.ts';
 import { CloudIdentityStore, type CloudIdentity, type PendingPairingSession } from './CloudIdentityStore.ts';
 import {
@@ -11,8 +11,6 @@ import {
   type PairingHandshakeSecrets,
   type PairingHandshakeOptions,
 } from './pairingHandshake.ts';
-import { createPairingPackage, decodePairingPackage } from './pairingPackage.ts';
-import { isValidPairingConfirmationCode } from './pairingCode.ts';
 import { bytesToBase64Url } from '../crypto/encoding.ts';
 import {
   createPairingShareUrl,
@@ -34,21 +32,6 @@ export interface PairingManagerOptions {
   sleep?: (milliseconds: number) => Promise<void>;
   pollIntervalMs?: number;
   maxPollAttempts?: number;
-}
-
-/**
- * Transitional compatibility view for the package-based pairing path.
- * New code should use PairingInvitationView instead.
- */
-export interface PendingPairingView {
-  confirmationCode: string;
-  expiresAt: number;
-  package: string;
-}
-
-export interface PairingAcceptResult {
-  identity: CloudIdentity;
-  response: PairingAcceptResponse;
 }
 
 const DEFAULT_POLL_INTERVAL_MS = 250;
@@ -117,11 +100,6 @@ export class PairingManager {
     }
   }
 
-  async startPairing(expiresInSeconds?: number): Promise<PendingPairingView> {
-    const pending = await this.createPendingPairing(expiresInSeconds);
-    return this.toLegacyPendingView(pending.response, pending.relationshipKey);
-  }
-
   async startPairingInvitation(
     expiresInSeconds?: number,
     onProgress?: PairingPreparationProgress,
@@ -129,12 +107,6 @@ export class PairingManager {
     const pending = await this.createPendingPairing(expiresInSeconds);
     await this.ensureInitiatorHandshake(pending.identity, { onProgress });
     return this.toInvitationView(pending.response.confirmationCode, pending.response.expiresAt);
-  }
-
-  async resumePendingPairing(): Promise<PendingPairingView | null> {
-    const pending = await this.loadPendingPairing();
-    if (!pending) return null;
-    return this.toLegacyPendingView(pending.response, pending.identity.relationshipKey);
   }
 
   async resumePendingPairingInvitation(
@@ -465,35 +437,6 @@ export class PairingManager {
     throw new Error('Pairing session did not complete before it expired.');
   }
 
-  async acceptPairingPackage(encodedPackage: string, confirmationCode: string): Promise<PairingAcceptResult> {
-    if (!isValidPairingConfirmationCode(confirmationCode)) {
-      throw new Error('Pairing confirmation must contain exactly five valid emojis.');
-    }
-
-    const pairingPackage = await decodePairingPackage(encodedPackage);
-    const commitment = await this.keyCommitment(pairingPackage.relationshipKey);
-
-    const existing = await this.identityStore.load();
-    if (existing) throw new Error('A cloud identity already exists on this device.');
-
-    const response = await this.cloud.acceptInvitation(pairingPackage.token, confirmationCode, commitment);
-    if (response.relationshipKeyCommitment !== commitment) {
-      throw new Error('Cloud returned a different relationship key commitment.');
-    }
-
-    const identity: CloudIdentity = {
-      relationshipId: response.relationshipId,
-      deviceId: response.deviceId,
-      participant: 'PARTNER',
-      state: 'ACTIVE',
-      credential: response.credential,
-      relationshipKey: pairingPackage.relationshipKey,
-    };
-    await this.identityStore.save(identity);
-    this.cloud.setCredential(response.credential);
-    return { identity, response };
-  }
-
   async cancelPendingPairing(): Promise<void> {
     const identity = await this.identityStore.load();
     const pendingSession = await this.identityStore.loadPendingPairingSession();
@@ -680,14 +623,4 @@ export class PairingManager {
     };
   }
 
-  private async toLegacyPendingView(
-    response: PairingBootstrapResponse,
-    relationshipKey: string,
-  ): Promise<PendingPairingView> {
-    return {
-      confirmationCode: response.confirmationCode,
-      expiresAt: response.expiresAt,
-      package: await createPairingPackage(response, relationshipKey),
-    };
-  }
 }
