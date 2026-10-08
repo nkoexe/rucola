@@ -85,7 +85,7 @@ RUCOLA_D1_DATABASE_ID="<PRODUCTION_D1_UUID>" \
 RUCOLA_ANDROID_APP_LINK_FINGERPRINTS="<FINGERPRINTS>" \
 npm run render:deploy-config
 
-npx wrangler d1 migrations apply rucola-prod \
+npx wrangler d1 migrations apply rucola \
   --remote \
   --config .wrangler.deploy.jsonc
 
@@ -107,6 +107,61 @@ https://dev.rucola.njco.dev/health
 ```
 
 The App Links endpoint should return 404 until the real production Android signing fingerprints are configured, as it does today.
+
+## First-time production bootstrap
+
+The production Worker does not need a separate dashboard project. The first authenticated `wrangler deploy` creates `rucola-cloud` and the configured Custom Domain.
+
+Create the production data resources first:
+
+```bash
+cd cloud/worker
+npx wrangler login
+
+npx wrangler d1 create rucola \
+  --jurisdiction eu
+
+npx wrangler r2 bucket create rucola-media \
+  --jurisdiction eu
+```
+
+Keep the D1 UUID returned by the first command outside Git. The R2 bucket only needs the configured name.
+
+The rate-limit namespace does not require a separate resource-creation command; the configured numeric namespace ID is the account-scoped identifier used by the Worker.
+
+The generated config declares:
+
+```json
+"routes": [
+  {
+    "pattern": "rucola.njco.dev",
+    "custom_domain": true
+  }
+]
+```
+
+and the dev deployment similarly uses `dev.rucola.njco.dev`.
+
+The `njco.dev` zone must be managed by the same Cloudflare account. Remove any conflicting DNS record for `rucola.njco.dev` before the first Custom Domain deployment. Cloudflare then provisions the Custom Domain and TLS for the Worker.
+
+Finally:
+
+```bash
+RUCOLA_DEPLOY_ENV=production \
+RUCOLA_D1_DATABASE_ID="<PRODUCTION_D1_UUID>" \
+RUCOLA_ANDROID_APP_LINK_FINGERPRINTS="<FINGERPRINTS>" \
+npm run render:deploy-config
+
+npx wrangler d1 migrations apply rucola \
+  --remote \
+  --config .wrangler.deploy.jsonc
+
+npx wrangler deploy \
+  --config .wrangler.deploy.jsonc \
+  --strict
+```
+
+This single deployment publishes both the Worker and the landing page.
 
 ## Security and privacy
 
