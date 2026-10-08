@@ -1,6 +1,6 @@
 # Web deployment
 
-Rucola's Expo web build uses react-native-web 0.21.0 and Expo SQLite's WebAssembly backend.
+Rucola's Expo web build uses react-native-web 0.21.0 and Expo SQLite's WebAssembly backend. The app explicitly uses Expo's `single` web output with Metro.
 
 ## Required response headers
 
@@ -11,7 +11,7 @@ Cross-Origin-Embedder-Policy: credentialless
 
 Without them, the SQLite WASM/SharedArrayBuffer path is not cross-origin isolated in production. The Metro config already applies the same headers during local development.
 
-For Cloudflare Pages, public/_headers contains the equivalent static-hosting configuration.
+For Cloudflare Pages, `public/_headers` contains the required response headers and `public/_redirects` rewrites deep links such as `/😀😃😄😁😆` to the SPA entrypoint. Expo copies both files into `dist/` during web export.
 
 ## Runtime configuration
 
@@ -24,7 +24,7 @@ The application still defaults to https://dev.rucola.njco.dev for the cloud API,
 
 ## Browser storage
 
-The web build currently stores cloud identity material in browser localStorage because Expo SecureStore has no secure browser equivalent. This is acceptable for the current development/web-preview path, but it is not equivalent to native SecureStore and must not be presented as production-grade secret storage.
+The web build currently stores cloud identity material in browser localStorage because the native SecureStore abstraction is not an equivalent browser security boundary. This is acceptable for the current development/web-preview path, but it is not equivalent to native SecureStore and must not be presented as production-grade secret storage.
 
 ## Media
 
