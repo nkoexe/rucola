@@ -493,6 +493,9 @@ function toUserMessage(cause: unknown) {
     ? String((cause as { code?: unknown }).code)
     : '';
   if (code === 'PAIRING_RATE_LIMITED') return 'Too many tries. Please wait and try again.';
+  if (code === 'PAIRING_SERVICE_UNAVAILABLE') {
+    return 'Pairing is temporarily unavailable. Please try again in a moment.';
+  }
   if (
     code === 'INVALID_INVITATION' ||
     code === 'INVITATION_CONSUMED' ||
