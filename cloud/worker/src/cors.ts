@@ -7,7 +7,7 @@ function isAllowedOrigin(origin: string): boolean {
   if (TRUSTED_WEB_ORIGINS.has(origin)) return true;
   try {
     const url = new URL(origin);
-    return (url.protocol === 'http:' && (url.hostname === 'localhost' || url.hostname === '127.0.0.1'));
+    return ((url.protocol === 'http:' || url.protocol === 'https:') && (url.hostname === 'localhost' || url.hostname === '127.0.0.1' || url.hostname === '[::1]'));
   } catch {
     return false;
   }
