@@ -3,7 +3,7 @@ import { corsPreflight, withCors } from "../src/cors";
 
 describe("web CORS", () => {
   it("allows local Expo web development origins", async () => {
-    const request = new Request("https://dev.rucola.njco.dev/health", {
+    const request = new Request("https://rucola.njco.dev/health", {
       headers: { Origin: "http://localhost:8081" },
     });
     const response = withCors(request, new Response("ok"));
@@ -11,18 +11,18 @@ describe("web CORS", () => {
     expect(response.headers.get("access-control-allow-methods")).toContain("POST");
   });
 
-  it("allows preflight requests for the trusted dev origin", async () => {
-    const request = new Request("https://dev.rucola.njco.dev/v1/pairing/session", {
+  it("allows preflight requests for the trusted production origin", async () => {
+    const request = new Request("https://rucola.njco.dev/v1/pairing/session", {
       method: "OPTIONS",
-      headers: { Origin: "https://dev.rucola.njco.dev" },
+      headers: { Origin: "https://rucola.njco.dev" },
     });
     const response = corsPreflight(request);
     expect(response.status).toBe(204);
-    expect(response.headers.get("access-control-allow-origin")).toBe("https://dev.rucola.njco.dev");
+    expect(response.headers.get("access-control-allow-origin")).toBe("https://rucola.njco.dev");
   });
 
   it("does not allow arbitrary origins", async () => {
-    const request = new Request("https://dev.rucola.njco.dev/health", {
+    const request = new Request("https://rucola.njco.dev/health", {
       headers: { Origin: "https://evil.example" },
     });
     const response = withCors(request, new Response("ok"));
