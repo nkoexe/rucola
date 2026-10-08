@@ -96,7 +96,6 @@ The receipt survives mailbox deletion so a sender can safely retry after a lost 
 - responder pairing state is stored securely before relay publication and can be resumed after restart;
 - completion inserts the exact responder device and atomically consumes the invitation / activates the relationship;
 - the Worker serves a no-store five-emoji HTTPS landing page and an optional `assetlinks.json` response when a real Android signing fingerprint is configured;
-- the old serialized package path remains only as an internal compatibility API.
 
 ## Media / R2
 
@@ -157,7 +156,7 @@ Implemented on the current development branch:
 - The user-facing pairing credential is exactly five emojis; the invitation token, cloud credential, relationship key, and any serialized pairing package remain technical pairing material and must not be exposed in the UI.
 - The target migration is implemented with two transport options: emoji-only entry and an HTTPS five-emoji share link.
 - The transport-neutral pairing boundary is now implemented in `pairingTransport.ts`; direct emoji input and share-link input normalize to the same canonical five-emoji code.
-- `PairingManager` and `CloudRuntime` now expose a human-facing invitation projection containing only the pairing code, share URL, and expiry. The legacy package-bearing path remains isolated as temporary compatibility code until the hidden handshake is implemented.
+- `PairingManager` and `CloudRuntime` expose only the human-facing invitation projection containing the pairing code, share URL, and expiry.
 - Auth probing now exposes the relationship lifecycle state so the initiating device can transition from `PAIRING` to `ACTIVE` after the partner joins.
 - `CloudRuntime` now owns `CloudClient`, `CloudIdentityStore`, `PairingManager`, the SQLite sync-state store, `AesGcmSyncCodec`, and one coalescing `SyncEngine` instance for the active identity.
 - `SyncEngine` now passes the durable sender sequence into the codec, so the sequence is covered by AES-GCM authenticated context exactly as designed.
@@ -182,6 +181,6 @@ The prototype implementation now completes the transport-neutral pairing flow en
 
 ## Next step
 
-Merge the prototype implementation to `main`, then run two-device Android validation against the production Worker from `main`. Production approval remains blocked on the cryptographic/runtime review and real App Link association.
+Run two-device Android validation against the production Worker from `main`. Production approval remains blocked on the cryptographic/runtime review and real App Link association.
 
 Do not make the UI depend directly on cloud endpoints.
