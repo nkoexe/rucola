@@ -52,7 +52,7 @@ Still missing from the mobile product path:
 - an in-app QR/camera transport (the prototype currently uses the native share sheet);
 - signed test APK exercising the complete path on real devices;
 
-The current runtime health probe must not be mistaken for synchronization. It only proves that the app can reach the configured dev Worker.
+The current runtime health probe must not be mistaken for synchronization. It only proves that the app can reach the configured production Worker.
 
 ## 3. Security decision for prototype E2E v1
 
@@ -489,7 +489,7 @@ v0.1.0-test.1
 Build characteristics:
 
 - signed APK;
-- dev Worker endpoint;
+- production Worker endpoint;
 - no production credentials/resources;
 - same release build path used by the eventual release workflow;
 - text/emoji online synchronization enabled.
@@ -498,7 +498,7 @@ Before installation:
 
 1. Android release workflow is green.
 2. APK signature verification passes.
-3. Worker dev health check is green.
+3. Production Worker health check is green.
 4. Worker migrations are current.
 5. No production endpoint is configured.
 6. No debug build is being published by the release job.
@@ -610,7 +610,7 @@ All of these must be true:
 - ACK occurs only after local durability;
 - ciphertext tampering is rejected;
 - reset removes secrets;
-- signed dev APK can be installed on both devices;
+- signed test APK can be installed on both devices;
 - production backend remains isolated from production;
 - tests and CI are green.
 
