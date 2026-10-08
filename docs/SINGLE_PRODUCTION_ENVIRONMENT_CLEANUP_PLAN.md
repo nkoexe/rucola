@@ -24,15 +24,6 @@ Local development and isolated test resources remain allowed. The local Wrangler
 
 The remaining separate-environment references are concentrated in:
 
-- src/cloud/config.ts: defaults the app to https://dev.rucola.njco.dev, exposes CLOUD_ENVIRONMENT = 'dev', and supports EXPO_PUBLIC_RUCOLA_CLOUD_URL.
-- cloud/worker/scripts/render-deploy-config.mjs: models dev and production resources, selects via RUCOLA_DEPLOY_ENV, and conditionally configures hostname/static assets.
-- cloud/worker/README.md: documents two remote environments and separate bootstrap/deploy commands.
-- .github/workflows/cloud-worker.yml: attaches the validation job to the GitHub Actions environment dev.
-- docs/WEBSITE.md: documents both rucola.njco.dev and dev.rucola.njco.dev.
-- docs/ONLINE_PROTOTYPE_PLAN.md: still describes validation against the dev backend / dev Worker and a dev-test build.
-- docs/CLOUD_IMPLEMENTATION_STATUS.md: still describes physical validation against the dev Worker.
-- docs/DEVELOPMENT_ROADMAP.md: contains dev-test wording for the online prototype.
-- src/cloud/__tests__/CloudClient.test.mjs: contains a dev Worker service name in a mocked health response; this is fixture data, but should be renamed while cleaning terminology.
 
 The local/test-only cloud/worker/wrangler.jsonc uses rucola-local / rucola-media-local. Keep it: it is local-only test configuration, not a remote environment.
 
@@ -163,12 +154,12 @@ This must happen only after the application and documentation changes are merged
 
 Retire the old remote environment in this order:
 
-1. Stop all client/default references to dev.rucola.njco.dev.
+1. Stop all client/default references to the retired remote development environment.
 2. Confirm production app flows, pairing, API, website, migrations, health checks, and App Links are working.
 3. Merge the single-environment implementation.
 4. Confirm CI passes without the GitHub dev Environment dependency.
 5. Confirm the new main-driven production deployment workflow is configured with the required repository secrets and has successfully deployed once.
-6. Remove the dev.rucola.njco.dev Custom Domain/DNS attachment from Cloudflare.
+6. Remove the retired development Custom Domain/DNS attachment from Cloudflare.
 7. Delete the old rucola-cloud-dev Worker.
 8. Delete the old rucola-dev D1 database after confirming it contains no data that must be retained.
 9. Delete the old rucola-media-dev R2 bucket after confirming it contains no data that must be retained.
@@ -185,7 +176,7 @@ The old D1/R2 resources are disposable development resources; no production data
 Run searches that should return zero operational references outside this plan/history:
 
 ```bash
-git grep -n 'dev\.rucola\.njco\.dev'
+git grep -n 'CLOUD_ENVIRONMENT'
 git grep -n 'rucola-cloud-dev'
 git grep -n 'rucola-dev'
 git grep -n 'rucola-media-dev'
