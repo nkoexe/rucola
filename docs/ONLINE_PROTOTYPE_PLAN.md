@@ -1,8 +1,8 @@
 # Rucola — First Online Prototype Plan
 
 **Status:** implementation phases complete; two-device physical validation pending  
-**Target:** first real two-device Android prototype against the dev backend  
-**Backend:** `https://dev.rucola.njco.dev`  
+**Target:** first real two-device Android prototype against the production backend  
+**Backend:** `https://rucola.njco.dev`  
 **Primary branch:** `main` after integration PRs are merged
 
 This document is the implementation plan for the first genuinely online Rucola milestone. It is more specific than `docs/DEVELOPMENT_ROADMAP.md` and should be kept aligned with `docs/ARCHITECTURE.md`, `docs/CLOUD_ARCHITECTURE.md`, and the Worker protocol documentation.
@@ -11,12 +11,12 @@ This document is the implementation plan for the first genuinely online Rucola m
 
 The milestone is complete when two real Android devices can:
 
-1. install the same signed dev-test Rucola build;
+1. install the same signed test Rucola build;
 2. complete local relationship setup;
 3. pair the two installations;
 4. establish persistent cloud identities;
 5. establish a shared relationship encryption key without sending that secret to the server;
-6. exchange encrypted `TEXT` and `EMOJI` messages through the dev Worker;
+6. exchange encrypted `TEXT` and `EMOJI` messages through the production Worker;
 7. preserve every message in local history;
 8. correctly maintain the one-active-message-per-participant model;
 9. queue messages while one device is offline;
@@ -41,16 +41,16 @@ Already present:
 - durable pull cursor/inbox;
 - idempotent push/ACK handling;
 - hardened Worker concurrency and lifecycle behavior;
-- dev Worker deployment;
+- production Worker deployment;
 - Android CI build pipeline;
 - signed Android release workflow;
-- runtime health probe to the dev Worker.
+- runtime health probe to the production Worker.
 
 Still missing from the mobile product path:
 
 - two-device physical validation of the integrated path;
 - an in-app QR/camera transport (the prototype currently uses the native share sheet);
-- signed dev-test APK exercising the complete path on real devices;
+- signed test APK exercising the complete path on real devices;
 
 The current runtime health probe must not be mistaken for synchronization. It only proves that the app can reach the configured dev Worker.
 
@@ -611,7 +611,7 @@ All of these must be true:
 - ciphertext tampering is rejected;
 - reset removes secrets;
 - signed dev APK can be installed on both devices;
-- dev backend remains isolated from production;
+- production backend remains isolated from production;
 - tests and CI are green.
 
 ## 12. Review checkpoints
